@@ -23,7 +23,7 @@ Pull a released image (requires GitHub access to the private package):
 ```bash
 # Authenticate with a GitHub personal access token with read:packages access.
 gh auth token | docker login ghcr.io -u "$(gh api user --jq .login)" --password-stdin
-docker run --rm -it --env-file .env ghcr.io/xlonglink/pyshell:v0.1.0
+docker run --rm -it --env-file .env ghcr.io/xlonglink/pyshell:v0.1.1
 ```
 
 The token must have `read:packages`; the default `gh` login scopes may not include it.
@@ -89,8 +89,8 @@ creates a GitHub release with generated notes. The GHCR package is private by
 default; keep its visibility private in the organization's package settings.
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 ## Development

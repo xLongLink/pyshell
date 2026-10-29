@@ -16,7 +16,7 @@ class SettingsTests(unittest.TestCase):
         self.addCleanup(self.environment.stop)
 
     def test_loads_dotenv_from_current_directory(self):
-        with tempfile.TemporaryDirectory(dir="/tmp/opencode") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             Path(directory, ".env").write_text(
                 "OPENAI_API_KEY=test-key\nOPENAI_MODEL=test-model\n",
                 encoding="utf-8",
@@ -32,7 +32,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.openai_model, "test-model")
 
     def test_environment_overrides_dotenv(self):
-        with tempfile.TemporaryDirectory(dir="/tmp/opencode") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             dotenv = Path(directory, ".env")
             dotenv.write_text("OPENAI_API_KEY=file-key\nOPENAI_MODEL=file-model\n")
             os.environ["OPENAI_MODEL"] = "environment-model"
