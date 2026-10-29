@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/xLongLink/pyshell/main/banner.png" alt="pyshell banner" />
+<img src="banner.png" alt="pyshell banner" />
 
 
 # Python agent shell
