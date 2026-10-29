@@ -3,7 +3,6 @@
 import argparse
 import json
 import sys
-import time
 from typing import Literal
 
 import httpx
@@ -62,16 +61,12 @@ class RemoteShell:
 
 
 def stream_response(client, kwargs):
-    started = time.perf_counter()
-    first_token = None
     print()
     try:
         with client.responses.stream(**kwargs) as stream:
             for event in stream:
                 if event.type != "response.output_text.delta":
                     continue
-                if event.delta and first_token is None:
-                    first_token = time.perf_counter() - started
                 print(event.delta, end="", flush=True)
             response = stream.get_final_response()
             if response.status != "completed":
@@ -79,9 +74,6 @@ def stream_response(client, kwargs):
             return response
     finally:
         print(flush=True)
-        duration = time.perf_counter() - started
-        ttft = f"{first_token:.3f}s" if first_token is not None else "n/a"
-        print(f"[Time to first token: {ttft} | Total duration: {duration:.3f}s]", file=sys.stderr, flush=True)
 
 
 class Agent:
@@ -97,20 +89,6 @@ class Agent:
         self.shell.reset()
         self.previous_response_id = None
         self.pending_feedback = None
-
-    def warm_up(self):
-        started = time.perf_counter()
-        print("Preparing API connection…", file=sys.stderr, flush=True)
-        try:
-            self.client.responses.create(
-                model=self.model, service_tier=self.service_tier, reasoning={"effort": "low"},
-                input="Reply with only 0.", max_output_tokens=16, store=False,
-            )
-        except Exception as exc:
-            print(f"Warm-up failed: {exc}", file=sys.stderr, flush=True)
-        else:
-            duration = time.perf_counter() - started
-            print(f"API warm-up completed in {duration:.3f}s.", file=sys.stderr, flush=True)
 
     def run(self, instruction):
         message = instruction
@@ -177,27 +155,21 @@ def main():
 
 def _run_interactive(agent):
     print(f"Python agent shell ({agent.model}, tier={agent.service_tier}) "
-          "— /exit to quit, /reset for fresh state")
+          "— Ctrl-C to quit, /reset for fresh state")
     print("Warning: generated Python runs without approval in the execution API's container.")
-    try:
-        agent.warm_up()
-    except KeyboardInterrupt:
-        print("\nWarm-up interrupted.", file=sys.stderr)
     while True:
         try:
             instruction = input("\npyshell> ").strip()
-        except EOFError:
+        except (EOFError, KeyboardInterrupt):
             print()
-            break
-        except KeyboardInterrupt:
-            print()
-            continue
-        if instruction in ("/exit", "/quit"):
             break
         if instruction == "/reset":
             try:
                 agent.reset()
-            except (Exception, KeyboardInterrupt) as exc:
+            except KeyboardInterrupt:
+                print("\nExiting client; the server may still be processing the reset.")
+                break
+            except Exception as exc:
                 print(f"Reset failed; previous session kept: {exc or 'interrupted'}", file=sys.stderr)
             else:
                 print("Python namespace and conversation reset (filesystem changes remain).")
@@ -208,6 +180,7 @@ def _run_interactive(agent):
             agent.run(instruction)
         except KeyboardInterrupt:
             print("\nInterrupted locally; any submitted Python may still be running on the server.")
+            break
         except Exception as exc:
             print(f"Error: {exc}", file=sys.stderr)
     return 0

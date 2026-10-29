@@ -20,52 +20,9 @@ Give instructions. Watch the agent write and run Python inside Docker.
 
 <br />
 
-## Getting started
 
-Requirements: Python 3.10+, [uv](https://docs.astral.sh/uv/), Make, Docker,
-Docker Compose v2.24+, and an OpenAI API key.
-
-Run from the repository root:
-
-```bash
-cp .env.sample .env
-# Edit .env and set OPENAI_API_KEY.
-make up
-```
-
-`make up` builds and starts the execution API at `http://127.0.0.1:8000`, waits
-until it is healthy, then runs `script.py` to open the local `pyshell>` prompt and communicate
-with OpenAI and the API. Use `/exit` to quit the client or `/reset` to clear the
-server's Python namespace and the client's conversation. The API keeps running
-after the terminal client exits. Use `/reset` when reconnecting for a fresh session.
-
-Stop project containers without deleting workspace data:
-
-```bash
-make down
-```
 
 <br />
-
-## How it works
-
-The local terminal client streams Python from the model, then sends the completed
-code to the container's FastAPI server. Output and errors return as JSON and are
-printed locally and sent back to the model. Variables and imports remain available
-between requests. No generated Python executes on the host.
-
-```text
-pyshell> calculate the sum of numbers 1 through 100
-
-total = sum(range(1, 101))
-print(total)
-done()
-5050
-```
-
-The agent continues until it calls `done()`. Each continuation makes another model
-request; there is no step limit. Ctrl-C stops the local client request, not Python
-already running in the container. Restart the container to stop runaway execution.
 
 ### Execution API
 
@@ -91,7 +48,7 @@ normal Python script: use `print()` for results. Use one server worker only.
 Configure your API key, model, and processing tier in [`.env`](.env.sample).
 `PYSHELL_API_URL` selects the execution server for the terminal client.
 The selected model must be available to your OpenAI account; Priority processing
-may cost more. Interactive startup makes a small paid warm-up request.
+may cost more. Model requests are made only when you submit an instruction.
 
 Optionally pass requirements as an environment variable, one package per line
 (Bash syntax):
@@ -126,30 +83,29 @@ An unset or empty variable starts the image with only PyShell's dependencies.
 
 <br />
 
-## Workspace and isolation
 
-The execution API runs as non-root inside Docker, without host file, directory,
-or Docker socket mounts.
-Files in `/workspace` persist across runs; Python state does not.
-Reset does not undo file changes or stop subprocesses.
+## Contribute to PyShell
 
-> [!WARNING]
-> The API executes arbitrary Python without authentication. Keep the published port
-> bound to localhost and use only trusted local clients. Do not expose it publicly.
-> Generated code can access the container's workspace and network. Docker is not a
-> secure sandbox for hostile code. OpenAI credentials stay in the local terminal
-> client, not the API container. Executed code and captured output are sent to OpenAI.
+Requirements: Python 3.10+, [uv](https://docs.astral.sh/uv/), Make, Docker,
+Docker Compose v2.24+, and an OpenAI API key.
 
-**`docker compose down --volumes` deletes workspace data.**
+Run from the repository root:
+
+```bash
+cp .env.sample .env
+# Edit .env and set OPENAI_API_KEY.
+make up
+```
+
+Stop project containers without deleting workspace data:
+
+```bash
+make down
+```
+
 
 <br />
 
-## Contribute to pyshell
-
-See [Contributing](CONTRIBUTING.md) for development, testing, and releases.
-
-<br />
-<br />
 
 
 ---

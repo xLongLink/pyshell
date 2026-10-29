@@ -14,6 +14,9 @@ Run from the repository root with Make, Docker, and Docker Compose v2.24+:
 make up
 ```
 
+Press Ctrl-C to exit the terminal client. The API keeps running until `make down`.
+Use `/reset` for a fresh session; `/exit` and `/quit` are not local commands.
+
 Cleanup:
 
 ```bash

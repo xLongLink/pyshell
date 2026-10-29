@@ -1,5 +1,5 @@
 import json
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -16,28 +16,6 @@ def test_reset_clears_remote_session_and_conversation(remote_shell):
     assert "NameError" in remote_shell.execute("print(value)")["exception"]
     assert agent.previous_response_id is None
     assert agent.pending_feedback is None
-
-
-def test_warmup_does_not_execute_or_change_conversation(capsys):
-    client, shell = Mock(), Mock()
-    agent = Agent(client, "test-model", service_tier="priority", shell=shell)
-    with patch("script.time.perf_counter", side_effect=[10.0, 11.0]):
-        agent.warm_up()
-    client.responses.create.assert_called_once_with(
-        model="test-model", service_tier="priority", reasoning={"effort": "low"},
-        input="Reply with only 0.", max_output_tokens=16, store=False,
-    )
-    shell.execute.assert_not_called()
-    assert agent.previous_response_id is None
-    assert agent.pending_feedback is None
-    assert "1.000s" in capsys.readouterr().err
-
-
-def test_warmup_failure_is_reported(capsys):
-    client = Mock()
-    client.responses.create.side_effect = ConnectionError("disconnected")
-    Agent(client, "test-model").warm_up()
-    assert "Warm-up failed: disconnected" in capsys.readouterr().err
 
 
 def test_model_imports_persist_between_requests(stream_for, remote_shell, capsys):
