@@ -1,17 +1,17 @@
 import pytest
-from pyshell.cli import main
-from pyshell.agent import Agent
+from script import main, Agent
 from unittest.mock import patch
-from pyshell.settings import Settings
+from script import Settings
 
 
 @pytest.fixture
-def run_main(monkeypatch):
+def run_main(monkeypatch, remote_shell):
     def run(inputs, run_effect):
         settings = Settings(_env_file=None, openai_api_key="test-key")
         instructions = iter(inputs)
-        monkeypatch.setattr("pyshell.cli.Settings", lambda: settings)
-        monkeypatch.setattr("sys.argv", ["pyshell"])
+        monkeypatch.setattr("script.Settings", lambda: settings)
+        monkeypatch.setattr("script.RemoteShell", lambda url: remote_shell)
+        monkeypatch.setattr("sys.argv", ["script.py"])
         monkeypatch.setattr("builtins.input", lambda prompt: next(instructions))
 
         # Exercise the real input loop without making API requests.
@@ -29,10 +29,9 @@ def run_main(monkeypatch):
 def test_interactive_instructions_share_imports(run_main):
     def execute(agent, instruction):
         if instruction == "calculate":
-            agent.shell.execute_line("import math; value = math.sqrt(16)")
+            agent.shell.execute("import math; value = math.sqrt(16)")
         else:
-            assert agent.shell.namespace["value"] == 4
-            assert "math" in agent.shell.namespace
+            assert agent.shell.execute("print(math.sqrt(16), value)")["stdout"] == "4.0 4.0\n"
 
     status, run = run_main(["calculate", "continue", "/exit"], execute)
 
@@ -45,9 +44,9 @@ def test_interactive_instructions_share_imports(run_main):
 def test_interactive_reset_clears_imports(run_main, capsys):
     def execute(agent, instruction):
         if instruction == "import":
-            agent.shell.execute_line("import math")
+            agent.shell.execute("import math")
         else:
-            assert "math" not in agent.shell.namespace
+            assert "NameError" in agent.shell.execute("print(math)")["exception"]
 
     status, run = run_main(["import", "/reset", "check", "/exit"], execute)
 
@@ -58,8 +57,8 @@ def test_interactive_reset_clears_imports(run_main, capsys):
 
 
 def test_cli_rejects_command_line_instruction(monkeypatch, capsys):
-    monkeypatch.setattr("sys.argv", ["pyshell", "calculate"])
-    with patch("pyshell.cli.Settings") as settings:
+    monkeypatch.setattr("sys.argv", ["script.py", "calculate"])
+    with patch("script.Settings") as settings:
         with pytest.raises(SystemExit) as exc:
             main()
 

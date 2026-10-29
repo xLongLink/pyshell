@@ -1,7 +1,7 @@
 import os
 import pytest
 from pydantic import ValidationError
-from pyshell.settings import Settings
+from script import Settings
 
 
 @pytest.fixture

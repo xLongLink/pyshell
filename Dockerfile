@@ -8,7 +8,7 @@ ENV UV_PYTHON_DOWNLOADS=never \
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
-COPY src ./src
+COPY api ./api
 RUN uv sync --locked --no-dev --no-editable
 
 FROM python:3.12-slim AS runtime
@@ -34,6 +34,6 @@ if [ -n \"${PYSHELL_REQUIREMENTS:-}\" ]; then \
     uv pip install --no-cache --python \"$environment/bin/python\" -r \"$requirements\"; \
     uv pip check --no-cache --python \"$environment/bin/python\"; \
     export PATH=\"$environment/bin:$PATH\"; \
-    exec \"$environment/bin/python\" -m pyshell \"$@\"; \
+    exec \"$environment/bin/python\" -m api \"$@\"; \
 fi; \
-exec /opt/venv/bin/python -m pyshell \"$@\"", "pyshell"]
+exec /opt/venv/bin/python -m api \"$@\"", "pyshell-api"]

@@ -3,6 +3,5 @@
 !pyproject.toml
 !uv.lock
 !README.md
-!src/
-!src/pyshell/
-!src/pyshell/*.py
+!api/
+!api/*.py

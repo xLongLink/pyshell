@@ -10,6 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: '0.13.4'
+          enable-cache: true
+      - run: uvx ruff check .
+      - run: uvx ruff format --check .
+      - run: uvx pyunslop
+
   tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -37,7 +50,7 @@ jobs:
         run: |
           docker run --rm --network none --read-only \
             --tmpfs /tmp:size=512m,mode=1777,exec \
-            -e PYSHELL_REQUIREMENTS=$'openai\npydantic-settings' \
+            -e PYSHELL_REQUIREMENTS=$'fastapi\nuvicorn' \
             pyshell:test --help
           if docker run --rm --network none --read-only \
             --tmpfs /tmp:size=512m,mode=1777,exec \
@@ -50,10 +63,43 @@ jobs:
           docker run --rm --network none --entrypoint python pyshell:test -c '
           import os
           from pathlib import Path
-          import pyshell
+          import api.main
           assert os.getuid() != 0
           assert Path.cwd() == Path("/workspace")
           path = Path("smoke.txt")
           path.write_text("ok")
           assert path.read_text() == "ok"
           '
+      - name: Check persistent execution API
+        run: |
+          docker run --detach --name pyshell-api-check --network none --read-only \
+            --tmpfs /tmp:size=512m,mode=1777,exec pyshell:test
+          trap 'docker rm --force pyshell-api-check' EXIT
+          docker exec -i pyshell-api-check python - <<'PY'
+          import json
+          import time
+          import urllib.request
+          from urllib.error import URLError
+
+          url = "http://127.0.0.1:8000/"
+          for attempt in range(30):
+              try:
+                  with urllib.request.urlopen(url, timeout=2) as response:
+                      assert json.load(response) == {"status": "ok"}
+                  break
+              except URLError:
+                  time.sleep(1)
+          else:
+              raise RuntimeError("Execution API did not start")
+
+          def execute(code):
+              request = urllib.request.Request(
+                  url, data=json.dumps({"code": code}).encode(),
+                  headers={"Content-Type": "application/json"},
+              )
+              with urllib.request.urlopen(request, timeout=5) as response:
+                  return json.load(response)
+
+          assert execute("value = 42")["exception"] is None
+          assert execute("print(value)")["stdout"] == "42\n"
+          PY

@@ -1,8 +1,8 @@
 # Contributing to pyshell
 
-pyshell runs model-generated Python in a persistent execution session. The CLI
-owns configuration and user input, the agent owns API requests and conversation
-state, and the shell and streaming modules handle execution and feedback.
+pyshell runs model-generated Python in a persistent execution API. `api/` owns
+FastAPI endpoints and Python execution. `script.py` contains the local terminal UI,
+model requests, conversation state, HTTP calls, and printing.
 
 <br />
 
@@ -26,7 +26,7 @@ Set `PYSHELL_REQUIREMENTS` to newline-separated requirements, or pass file conte
 with `PYSHELL_REQUIREMENTS="$(cat requirements.txt)" make up`. No file is mounted.
 At startup, the Dockerfile entrypoint writes the value to a temporary requirements
 file, copies the base environment into writable temporary storage, installs the
-requirements, checks compatibility, and launches PyShell. Installation failure
+requirements, checks compatibility, and launches the API. Installation failure
 prevents launch; an unset or empty variable skips installation.
 
 User packages are not baked into the image and are reinstalled on each container
@@ -63,8 +63,14 @@ explicitly and print it if the agent needs to inspect it.
 uv run --locked pytest -v
 ```
 
-Tests mirror `src/pyshell/` under `tests/pyshell/`, with a corresponding
-`test_<module>.py` for each source file.
+Tests cover the API under `tests/api/` and the local client under `tests/client/`.
+API tests use an in-process FastAPI client; model requests are mocked. No live
+OpenAI requests or Docker containers are needed for the unit tests.
+
+The API must run with one worker because the Python namespace is in memory.
+Execution and reset are serialized. Interrupting the host client does not cancel
+server execution; restart the container if code hangs. `/reset` waits for active
+execution and does not reset the working directory or filesystem.
 
 ## Release
 
