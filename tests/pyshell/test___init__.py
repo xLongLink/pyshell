@@ -1,6 +1,6 @@
 import pyshell
-from pyshell.agent import Agent
 from pyshell.cli import main
+from pyshell.agent import Agent
 from pyshell.shell import PythonShell
 
 

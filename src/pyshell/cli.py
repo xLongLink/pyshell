@@ -1,11 +1,9 @@
 """A terminal agent that communicates by executing Python."""
 
-import argparse
 import sys
-
-from pydantic import ValidationError
-
+import argparse
 from .agent import Agent
+from pydantic import ValidationError
 from .settings import Settings
 
 

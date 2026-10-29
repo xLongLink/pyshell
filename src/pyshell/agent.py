@@ -1,10 +1,8 @@
-import json
 import sys
+import json
 import time
-
 from .shell import PythonShell
 from .streaming import stream_response
-
 
 INSTRUCTIONS = """You are an agent working in a persistent local Python shell.
 Respond with ONLY executable Python code, without Markdown fences or prose.

@@ -22,10 +22,12 @@ make down
 
 ## Dependencies
 
-Compose mounts `requirements.txt` read-only at `/opt/pyshell/requirements.txt`.
-At startup, the entrypoint copies the base environment into writable temporary
-storage, installs the requirements, checks compatibility, and launches PyShell.
-Installation failure prevents launch; without a mount, installation is skipped.
+Set `PYSHELL_REQUIREMENTS` to newline-separated requirements, or pass file contents
+with `PYSHELL_REQUIREMENTS="$(cat requirements.txt)" make up`. No file is mounted.
+At startup, the Dockerfile entrypoint writes the value to a temporary requirements
+file, copies the base environment into writable temporary storage, installs the
+requirements, checks compatibility, and launches PyShell. Installation failure
+prevents launch; an unset or empty variable skips installation.
 
 User packages are not baked into the image and are reinstalled on each container
 start. Requirements are separate from `uv.lock`; pin versions where possible.

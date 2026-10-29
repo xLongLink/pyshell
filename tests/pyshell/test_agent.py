@@ -1,10 +1,8 @@
-import json
 import sys
-from unittest.mock import Mock, patch
-
+import json
 import pytest
-
 from pyshell.agent import Agent
+from unittest.mock import Mock, patch
 
 
 def test_reset_clears_imports_variables_and_conversation():

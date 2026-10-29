@@ -1,8 +1,6 @@
 import os
-
 import pytest
 from pydantic import ValidationError
-
 from pyshell.settings import Settings
 
 

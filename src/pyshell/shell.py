@@ -1,7 +1,7 @@
-import code
-import contextlib
 import io
 import sys
+import code
+import contextlib
 
 
 class Tee(io.TextIOBase):

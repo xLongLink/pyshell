@@ -1,9 +1,7 @@
-from unittest.mock import patch
-
 import pytest
-
-from pyshell.agent import Agent
 from pyshell.cli import main
+from pyshell.agent import Agent
+from unittest.mock import patch
 from pyshell.settings import Settings
 
 

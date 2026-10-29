@@ -26,9 +26,10 @@ COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 USER pyshell
 WORKDIR /workspace
 ENTRYPOINT ["sh", "-eu", "-c", "\
-requirements=/opt/pyshell/requirements.txt; \
-if [ -e \"$requirements\" ]; then \
+if [ -n \"${PYSHELL_REQUIREMENTS:-}\" ]; then \
     environment=$(mktemp -d /tmp/pyshell-env.XXXXXX); \
+    requirements=\"$environment/requirements.txt\"; \
+    printf '%s\\n' \"$PYSHELL_REQUIREMENTS\" > \"$requirements\"; \
     cp -a /opt/venv/. \"$environment/\"; \
     uv pip install --no-cache --python \"$environment/bin/python\" -r \"$requirements\"; \
     uv pip check --no-cache --python \"$environment/bin/python\"; \

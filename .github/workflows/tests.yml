@@ -35,16 +35,13 @@ jobs:
       - run: docker run --rm --network none pyshell:test --help
       - name: Check startup requirements with a read-only filesystem
         run: |
-          requirements=$(mktemp)
-          chmod 644 "$requirements"
           docker run --rm --network none --read-only \
             --tmpfs /tmp:size=512m,mode=1777,exec \
-            --mount "type=bind,src=$requirements,dst=/opt/pyshell/requirements.txt,readonly" \
+            -e PYSHELL_REQUIREMENTS=$'openai\npydantic-settings' \
             pyshell:test --help
-          printf 'invalid requirement !!!\n' > "$requirements"
           if docker run --rm --network none --read-only \
             --tmpfs /tmp:size=512m,mode=1777,exec \
-            --mount "type=bind,src=$requirements,dst=/opt/pyshell/requirements.txt,readonly" \
+            -e PYSHELL_REQUIREMENTS='invalid requirement !!!' \
             pyshell:test --help; then
             exit 1
           fi

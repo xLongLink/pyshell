@@ -1,9 +1,7 @@
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
-
 import pytest
-
+from types import SimpleNamespace
 from pyshell.shell import PythonShell
+from unittest.mock import Mock, patch
 from pyshell.streaming import stream_response
 
 

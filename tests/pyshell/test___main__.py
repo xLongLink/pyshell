@@ -1,7 +1,6 @@
 import runpy
-from unittest.mock import Mock
-
 import pytest
+from unittest.mock import Mock
 
 
 def test_module_exits_with_cli_status(monkeypatch):

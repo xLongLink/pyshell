@@ -66,30 +66,43 @@ Configure your API key, model, and processing tier in [`.env`](.env.sample).
 The selected model must be available to your OpenAI account; Priority processing
 may cost more. Interactive startup makes a small paid warm-up request.
 
-Add packages to [`requirements.txt`](requirements.txt). Compose mounts this file
-read-only, and packages are installed at container startup—not baked into the image.
+Optionally pass requirements as an environment variable, one package per line
+(Bash syntax):
+
+```bash
+PYSHELL_REQUIREMENTS=$'pandas==2.3.3\nnumpy\nrequests' make up
+```
+
+Or pass the contents of an existing file without mounting it:
+
+```bash
+PYSHELL_REQUIREMENTS="$(cat requirements.txt)" make up
+```
+
+Packages are installed at container startup—not baked into the image.
+Without `PYSHELL_REQUIREMENTS`, `make up` installs no extra packages.
 The agent imports the modules it needs; imports persist until `/reset`.
 
-Restart with `make up` after changing requirements. Installation needs network
+Restart with the same option after changing requirements. Installation needs network
 access and stops startup on failure. Packages are reinstalled in each new container.
 Source changes still require an image rebuild.
 
-With a published image, supply your own requirements file:
+With a published image:
 
 ```bash
 docker run --rm -it --env-file .env \
-  --mount type=bind,src="$(pwd)/requirements.txt",dst=/opt/pyshell/requirements.txt,readonly \
+  -e PYSHELL_REQUIREMENTS=$'pandas==2.3.3\nnumpy\nrequests' \
   ghcr.io/xlonglink/pyshell:v0.1.1
 ```
 
-Without a requirements mount, the image starts with only PyShell's dependencies.
+An unset or empty variable starts the image with only PyShell's dependencies.
 
 <br />
 
 ## Workspace and isolation
 
-The application runs as non-root inside Docker. Only the requirements file is
-mounted from the host, read-only; no host directories or Docker socket are mounted.
+The application runs as non-root inside Docker, without host file, directory,
+or Docker socket mounts.
 Files in `/workspace` persist across runs; Python state does not.
 Reset does not undo file changes or stop subprocesses.
 
