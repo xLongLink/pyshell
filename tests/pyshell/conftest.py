@@ -14,6 +14,8 @@ def stream_for():
             SimpleNamespace(type="response.output_text.delta", delta=chunk)
             for chunk in chunks
         ))
+
+        # The final response contains the same text as the streamed deltas.
         stream.get_final_response.return_value = SimpleNamespace(
             id="r1", output_text="".join(chunks), status=status,
         )

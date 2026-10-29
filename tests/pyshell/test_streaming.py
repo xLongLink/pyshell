@@ -27,6 +27,7 @@ def test_timing_when_stream_fails_before_first_token(capsys):
         with pytest.raises(ConnectionError, match="disconnected"):
             stream_response(client, PythonShell(), {})
 
+    # Even a failure before any tokens arrive reports elapsed time.
     assert capsys.readouterr().err == (
         "[Time to first token: n/a | Total duration: 2.000s]\n"
     )
@@ -48,6 +49,7 @@ def test_executes_lines_before_response_finishes(stream_for, capsys):
     stream.get_final_response.side_effect = final_response
     response = stream_response(client, shell, {})
 
+    # The trailing done() executes only after the response completes.
     assert capsys.readouterr().out == "\n"
     assert shell.result()["stdout"] == "hello\n"
     assert shell.finished is True
@@ -97,6 +99,7 @@ def test_disconnect_keeps_executed_lines_but_discards_partial_line(stream_for):
     with pytest.raises(ConnectionError, match="disconnected"):
         stream_response(client, shell, {})
 
+    # Keep completed work, but discard the unterminated assignment.
     assert shell.namespace["x"] == 42
     assert "y" not in shell.namespace
     assert shell.buffer == []

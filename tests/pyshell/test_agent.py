@@ -16,6 +16,7 @@ def test_reset_clears_imports_variables_and_conversation():
 
     agent.reset()
 
+    # Reset both the Python namespace and the model conversation.
     assert "math" not in agent.shell.namespace
     assert "value" not in agent.shell.namespace
     assert callable(agent.shell.namespace["done"])
@@ -31,6 +32,7 @@ def test_warmup_uses_same_client_without_changing_conversation_or_executing(caps
     with patch("pyshell.agent.time.perf_counter", side_effect=[10.0, 11.0]):
         agent.warm_up()
 
+    # Warm-up uses a short, non-stored request on the configured client.
     client.responses.create.assert_called_once_with(
         model="test-model",
         service_tier="priority",
@@ -39,6 +41,8 @@ def test_warmup_uses_same_client_without_changing_conversation_or_executing(caps
         max_output_tokens=16,
         store=False,
     )
+
+    # Warm-up must not execute the returned code or alter conversation state.
     assert agent.previous_response_id is None
     assert agent.pending_feedback is None
     assert agent.shell.result()["exception"] is None
@@ -65,6 +69,7 @@ def test_model_imports_persist_between_instructions(stream_for):
     agent.run("import math")
     agent.run("calculate the square root of 16")
 
+    # The second instruction can use imports from the first.
     assert agent.shell.namespace["result"] == 4
     assert json.loads(agent.pending_feedback)["exception"] is None
 
@@ -104,6 +109,7 @@ def test_stream_failure_is_not_executed_and_preserves_feedback(stream_for):
     with pytest.raises(ConnectionError, match="disconnected"):
         agent.run("set x")
 
+    # An unfinished line must not execute or replace earlier feedback.
     assert "x" not in agent.shell.namespace
     assert agent.pending_feedback.startswith("previous output\n")
     assert "ConnectionError" in agent.pending_feedback

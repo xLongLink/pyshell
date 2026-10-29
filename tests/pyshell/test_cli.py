@@ -15,6 +15,8 @@ def run_main(monkeypatch):
         monkeypatch.setattr("pyshell.cli.Settings", lambda: settings)
         monkeypatch.setattr("sys.argv", ["pyshell"])
         monkeypatch.setattr("builtins.input", lambda prompt: next(instructions))
+
+        # Exercise the real input loop without making API requests.
         with (
             patch("openai.OpenAI"),
             patch.object(Agent, "warm_up"),
@@ -36,6 +38,7 @@ def test_interactive_instructions_share_imports(run_main):
 
     status, run = run_main(["calculate", "continue", "/exit"], execute)
 
+    # Both instructions must run on the same agent instance.
     assert status == 0
     assert run.call_count == 2
     assert run.call_args_list[0].args[0] is run.call_args_list[1].args[0]
@@ -50,6 +53,7 @@ def test_interactive_reset_clears_imports(run_main, capsys):
 
     status, run = run_main(["import", "/reset", "check", "/exit"], execute)
 
+    # Reset is handled locally rather than sent to the model.
     assert status == 0
     assert run.call_count == 2
     assert "Python namespace and conversation reset" in capsys.readouterr().out
@@ -61,6 +65,7 @@ def test_cli_rejects_command_line_instruction(monkeypatch, capsys):
         with pytest.raises(SystemExit) as exc:
             main()
 
+    # Argument validation must happen before loading API settings.
     assert exc.value.code == 2
     assert "unrecognized arguments: calculate" in capsys.readouterr().err
     settings.assert_not_called()
