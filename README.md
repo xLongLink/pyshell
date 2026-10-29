@@ -76,7 +76,7 @@ With a published image:
 ```bash
 docker run --rm -p 127.0.0.1:8000:8000 \
   -e PYSHELL_REQUIREMENTS=$'pandas==2.3.3\nnumpy\nrequests' \
-  ghcr.io/xlonglink/pyshell:v0.1.1
+  ghcr.io/xlonglink/pyshell:v0.0.0
 ```
 
 An unset or empty variable starts the image with only PyShell's dependencies.
