@@ -1,0 +1,30 @@
+services:
+  pyshell:
+    build:
+      context: .
+      target: runtime
+    env_file:
+      - path: .env
+        required: false
+    stdin_open: true
+    tty: true
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2
+    tmpfs:
+      - /tmp:size=512m,mode=1777,exec
+    volumes:
+      - workspace:/workspace
+      - type: bind
+        source: ./requirements.txt
+        target: /opt/pyshell/requirements.txt
+        read_only: true
+        bind:
+          create_host_path: false
+
+volumes:
+  workspace:

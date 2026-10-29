@@ -22,7 +22,7 @@ jobs:
         with:
           version: '0.13.4'
           enable-cache: true
-      - run: uv run --locked --python "${PYTHON_VERSION}" python -m unittest -v
+      - run: uv run --locked --python "${PYTHON_VERSION}" pytest -v
         env:
           PYTHON_VERSION: ${{ matrix.python }}
 
@@ -33,6 +33,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -t pyshell:test .
       - run: docker run --rm --network none pyshell:test --help
+      - name: Check startup requirements with a read-only filesystem
+        run: |
+          requirements=$(mktemp)
+          chmod 644 "$requirements"
+          docker run --rm --network none --read-only \
+            --tmpfs /tmp:size=512m,mode=1777,exec \
+            --mount "type=bind,src=$requirements,dst=/opt/pyshell/requirements.txt,readonly" \
+            pyshell:test --help
+          printf 'invalid requirement !!!\n' > "$requirements"
+          if docker run --rm --network none --read-only \
+            --tmpfs /tmp:size=512m,mode=1777,exec \
+            --mount "type=bind,src=$requirements,dst=/opt/pyshell/requirements.txt,readonly" \
+            pyshell:test --help; then
+            exit 1
+          fi
       - name: Check container permissions and workspace
         run: |
           docker run --rm --network none --entrypoint python pyshell:test -c '

@@ -6,3 +6,4 @@
 !src/
 !src/pyshell/
 !src/pyshell/*.py
+!docker-entrypoint.sh

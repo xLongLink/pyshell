@@ -10,7 +10,14 @@ dependencies = [
 ]
 
 [project.scripts]
-pyshell = "pyshell:main"
+pyshell = "pyshell.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
 
 [build-system]
 requires = ["hatchling"]

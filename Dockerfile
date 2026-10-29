@@ -11,7 +11,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
 
-FROM python:3.12-slim
+FROM python:3.12-slim AS runtime
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
@@ -21,7 +21,9 @@ RUN useradd --create-home --uid 1000 pyshell \
     && mkdir /workspace \
     && chown pyshell:pyshell /workspace
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
+COPY docker-entrypoint.sh /usr/local/bin/pyshell-entrypoint
 
 USER pyshell
 WORKDIR /workspace
-ENTRYPOINT ["pyshell"]
+ENTRYPOINT ["sh", "/usr/local/bin/pyshell-entrypoint"]

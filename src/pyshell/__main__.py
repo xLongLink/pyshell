@@ -1,6 +1,6 @@
 import sys
 
-from . import main
+from .cli import main
 
 
 sys.exit(main())
