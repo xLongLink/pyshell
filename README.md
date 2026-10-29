@@ -1,5 +1,8 @@
 <div align="center">
 
+<img src="https://raw.githubusercontent.com/xLongLink/pyshell/main/banner.png" alt="pyshell banner" />
+
+
 # Python agent shell
 
 Give instructions. Watch the agent write and run Python inside Docker.
