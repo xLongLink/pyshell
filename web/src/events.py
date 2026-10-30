@@ -28,7 +28,7 @@ class WidgetCommand(Event):
     """Address one existing widget's placement."""
 
     type: Literal["widget"]
-    action: Literal["focus", "unfocus", "pin", "unpin"]
+    action: Literal["focus", "pin"]
     surface_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 

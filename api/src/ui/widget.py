@@ -38,7 +38,7 @@ class Widget(UIModel):
 
     def unfocus(self) -> None:
         """Move this widget out of the center into the sidebar."""
-        self._publisher().action(self, "unfocus")
+        self.pin()
 
     def pin(self) -> None:
         """Move this widget into the sidebar."""
@@ -46,7 +46,7 @@ class Widget(UIModel):
 
     def unpin(self) -> None:
         """Move this widget back into the center."""
-        self._publisher().action(self, "unpin")
+        self.focus()
 
     def remove(self) -> None:
         """Remove this result and invalidate its handle."""

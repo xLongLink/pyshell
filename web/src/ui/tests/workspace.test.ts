@@ -7,6 +7,8 @@ test("malformed events are rejected at the browser boundary", () => {
     for (const event of [
         { type: "code_delta", text: "print('unused')" },
         { type: "done" },
+        { type: "code_start" },
+        { type: "execution_start" },
     ])
         assert.equal(messageSchema.safeParse(event).success, false);
     assert.equal(
@@ -20,6 +22,20 @@ test("malformed events are rejected at the browser boundary", () => {
             busy: false,
         }).success,
         false,
+    );
+});
+
+test("browser results carry only exception feedback", () => {
+    assert.deepEqual(messageSchema.parse({ type: "result", exception: null }), {
+        type: "result",
+        exception: null,
+    });
+    assert.deepEqual(
+        messageSchema.parse({ type: "result", exception: "Failed" }),
+        {
+            type: "result",
+            exception: "Failed",
+        },
     );
 });
 

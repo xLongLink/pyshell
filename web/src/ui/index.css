@@ -46,3 +46,29 @@
         @apply m-0 bg-background font-sans text-foreground;
     }
 }
+
+@layer components {
+    .voice-orb {
+        background: radial-gradient(
+            circle at 32% 25%,
+            #fff6b0,
+            #ffda44 42%,
+            #f5a623 85%
+        );
+        box-shadow:
+            0 0 45px #ffc83d66,
+            inset 0 0 24px #fff8c480;
+        transition: box-shadow 200ms;
+    }
+
+    .voice-ring-active {
+        animation: voice-orbit 7s linear infinite;
+        box-shadow: 0 0 12px #ffc83d80;
+    }
+}
+
+@keyframes voice-orbit {
+    to {
+        rotate: 360deg;
+    }
+}

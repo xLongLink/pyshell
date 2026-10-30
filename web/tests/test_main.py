@@ -1,3 +1,4 @@
+import json
 import httpx
 import pytest
 import asyncio
@@ -97,16 +98,21 @@ def test_browser_executes_and_reconnects_without_replaying(browser_api):
         assert socket.receive_json()["type"] == "snapshot"
         socket.send_json({"type": "run", "instruction": "print a result"})
         events = receive_until_idle(socket)
-        assert not any(event["type"] in {"code_delta", "done"} for event in events)
-        assert any(event["type"] == "result" and event["stdout"] == "browser result\n" for event in events), events
+        assert not any(event["type"] in {"code_delta", "done", "code_start", "execution_start"} for event in events)
+        assert {"type": "result", "exception": None} in events
+        assert "".join(event["text"] for event in events if event["type"] == "stdout_delta") == "browser result\n"
         assert events[-1] == {"type": "state", "busy": False}
         assert all("run_id" not in event for event in events)
+        feedback = json.loads(client.app.state.workspace.agent.pending_feedback)
+        assert feedback["stdout"] == "browser result\n"
+        assert feedback["done"] is True
 
     # Reconnection restores history without another model request.
     with client.websocket_connect("/ws", headers={"origin": "http://127.0.0.1:5180"}) as socket:
         snapshot = socket.receive_json()
         assert snapshot["busy"] is False
-        assert any(event["type"] == "result" and event["stdout"] == "browser result\n" for event in snapshot["events"])
+        assert {"type": "result", "exception": None} in snapshot["events"]
+        assert "".join(event["text"] for event in snapshot["events"] if event["type"] == "stdout_delta") == "browser result\n"
         assert "model" not in snapshot
         assert "run_id" not in snapshot
         assert len(requests) == 1
@@ -144,7 +150,7 @@ def test_browser_reuses_the_provider_event_loop(browser_api, monkeypatch):
         # Consecutive turns must reuse the application's event loop.
         for instruction in ("first", "second"):
             socket.send_json({"type": "run", "instruction": instruction})
-            assert any(event["type"] == "result" and event["done"] for event in receive_until_idle(socket))
+            assert {"type": "result", "exception": None} in receive_until_idle(socket)
     assert len(requests) == 2
     assert len(threads) == 2
     assert threads[0] == threads[1]
@@ -180,7 +186,8 @@ def test_python_widgets_stream_and_replay(browser_api, model_for, remote_shell):
 
         # The replayed payload must match the Python figure's serialized content.
         assert ui["messages"][1]["updateComponents"]["components"][0]["data"] == [{"type": "bar", "name": "", "x": ["Apples"], "y": [42]}]
-        assert any(event["type"] == "result" and event["stdout"] == "Sales ready\n" for event in events)
+        assert {"type": "result", "exception": None} in events
+        assert "".join(event["text"] for event in events if event["type"] == "stdout_delta") == "Sales ready\n"
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert ui in socket.receive_json()["events"]
 
@@ -221,7 +228,7 @@ def test_python_placement_snapshot_survives_updates(browser_api, model_for, remo
         assert len(updates) == 1
         assert updates[0]["updateComponents"]["components"][0]["layout"]["title"]["text"] == "Updated revenue"
 
-    # A fresh tab sees the current placement alongside retained content history.
+    # A fresh tab sees the current placement and latest content.
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert socket.receive_json()["placements"] == {"sales": {"pinned": False}}
 
@@ -249,11 +256,12 @@ def test_placement_history_is_not_retained_but_reconnect_and_live_events_are_cur
         ]
 
     # Placement is sent live but kept out of retained transcript history.
-    history = [event for event in events if event["type"] not in {"state", "placement"}]
+    history = [event for event in events if event["type"] not in {"state", "placement", "a2ui"}]
+    content = [event for event in events if event["type"] == "a2ui"]
     assert workspace.events == history
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         snapshot = socket.receive_json()
-        assert snapshot["events"] == history
+        assert snapshot["events"] == history + content
         assert snapshot["placements"] == {"sales": {"pinned": True}}
 
         # Removal must preserve the ordering of preceding placement commands.
@@ -272,7 +280,7 @@ def test_placement_history_is_not_retained_but_reconnect_and_live_events_are_cur
         ]
 
     # Reconnection uses the latest placement map, not obsolete placement events.
-    history += [event for event in events if event["type"] not in {"state", "placement"}]
+    history += [event for event in events if event["type"] not in {"state", "placement", "a2ui"}]
     assert workspace.events == history
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         snapshot = socket.receive_json()
@@ -447,7 +455,7 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
             # The disconnected tab's work must finish without accepting overlap.
             release.set()
             events = receive_until_idle(socket)
-            assert any(event["type"] == "result" and event["stdout"] == "finished\n" for event in events)
+            assert {"type": "result", "exception": None} in events
             assert finished.is_set()
     finally:
         release.set()

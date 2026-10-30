@@ -26,7 +26,7 @@ def test_plot_returns_typed_widgets_with_common_methods(data):
     widget.unfocus()
     widget.pin()
     widget.unpin()
-    assert [message["action"] for message in ui.messages] == ["focus", "unfocus", "pin", "unpin"]
+    assert [message["action"] for message in ui.messages] == ["focus", "pin", "pin", "focus"]
     widget.remove()
     assert ui.messages[-1] == {"version": "v0.9", "deleteSurface": {"surfaceId": "surface_1"}}
 
@@ -137,7 +137,14 @@ def test_removed_replaced_and_reset_handles_cannot_mutate_new_widgets(invalidate
 
     # Stale operations must not append messages to the replacement session.
     previous = list(ui.messages)
-    for operation in (original.pin, original.focus, original.remove, lambda: original.update(layout={"title": {"text": "Stale"}})):
+    for operation in (
+        original.pin,
+        original.focus,
+        original.unpin,
+        original.unfocus,
+        original.remove,
+        lambda: original.update(layout={"title": {"text": "Stale"}}),
+    ):
         with pytest.raises(RuntimeError, match="removed, replaced, or reset"):
             operation()
     assert ui.messages == previous

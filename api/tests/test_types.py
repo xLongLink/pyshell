@@ -58,15 +58,16 @@ def test_number_accepts_finite_values(value):
     assert TypeAdapter(Number).validate_python(value) == value
 
 
-@pytest.mark.parametrize("value", ["focus", "unfocus", "pin", "unpin"])
+@pytest.mark.parametrize("value", ["focus", "pin"])
 def test_action_accepts_placement_commands(value):
 
     # Act / Assert
     assert TypeAdapter(Action).validate_python(value) == value
 
 
-def test_action_rejects_unknown_commands():
+@pytest.mark.parametrize("value", ["delete", "unfocus", "unpin"])
+def test_action_rejects_unknown_commands(value):
 
     # Act / Assert
     with pytest.raises(ValidationError, match="Input should be"):
-        TypeAdapter(Action).validate_python("delete")
+        TypeAdapter(Action).validate_python(value)

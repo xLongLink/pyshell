@@ -50,7 +50,7 @@ const messages = [
     },
 ];
 
-test("workspace restores widgets, ignores transcript fragments, and handles live placement", () => {
+test("workspace restores widgets and handles live placement", () => {
     const { result } = renderHook(useWorkspace);
     const socket = sockets[0];
     socket.receive({
@@ -62,9 +62,6 @@ test("workspace restores widgets, ignores transcript fragments, and handles live
     expect(result.current.connected).toBe(true);
     expect(result.current.uiMessages).toHaveLength(2);
     expect(result.current.placements).toEqual({ sales: { pinned: true } });
-    const state = result.current;
-    socket.receive({ type: "code_start" });
-    expect(result.current).toBe(state);
     socket.receive({
         type: "placement",
         widgets: { sales: { pinned: false } },
@@ -151,13 +148,9 @@ test("snapshot and live output agree on resets, exceptions, and truncation", () 
         { type: "instruction", text: "Start again" },
         { type: "stdout_delta", text: "x".repeat(65536) },
         { type: "stderr_delta", text: "warning\n" },
-        { type: "execution_start" },
         {
             type: "result",
-            stdout: "must not repeat",
-            stderr: "must not repeat",
             exception: "failure\n",
-            done: false,
         },
     ];
     for (const event of events) sockets[0].receive(event);
@@ -187,10 +180,7 @@ test("execution output streams without duplicating final output and voice contro
     socket.receive({ type: "stderr_delta", text: "warning\n" });
     socket.receive({
         type: "result",
-        stdout: "first\n",
-        stderr: "warning\n",
         exception: null,
-        done: true,
     });
     expect(result.current.output).toBe("first\nwarning\n");
     expect(result.current.sendVoice("start", "offer")).toBe(true);

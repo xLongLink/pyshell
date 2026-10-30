@@ -32,7 +32,6 @@ class Workspace:
 
         # Track bounded replay separately from the current widget state.
         self.history_bytes = 0
-        self.compacted = False
         self.closing = False
         self.results: set[Callable[[str], None]] = set()
         self.current_instruction: str | None = None
@@ -77,18 +76,19 @@ class Workspace:
     def snapshot(self) -> dict[str, object]:
         """Copy current state without replaying any submitted operation."""
         events = list(self.events)
-        if self.compacted:
-            events = [event for event in events if event["type"] != "a2ui"]
-            for messages in self.surfaces.values():
-                events.append({"type": "a2ui", "messages": messages})
+        events.extend({"type": "a2ui", "messages": messages} for messages in self.surfaces.values())
 
         # Reconnecting tabs receive state without resubmitting work.
         return {"type": "snapshot", "events": events, "busy": self.busy, "placements": self._copy_placements()}
 
     def publish(self, event: dict[str, object]) -> None:
         """Apply ordered mutations and broadcast without waiting on slow tabs."""
-        if self.busy and event["type"] in {"code_start", "execution_start"}:
-            self.phase = "generating_code" if event["type"] == "code_start" else "executing_python"
+        if event["type"] in {"code_start", "execution_start"}:
+            if self.busy:
+                self.phase = "generating_code" if event["type"] == "code_start" else "executing_python"
+            return
+        if event["type"] == "result":
+            event = {"type": "result", "exception": event["exception"]}
         if event["type"] == "widget":
             self.place(WidgetCommand.model_validate(event))
             return
@@ -118,14 +118,13 @@ class Workspace:
                     self.placements.pop(identifier, None)
                     placement_changed = True
 
-        if event["type"] not in {"state", "placement"}:
+        if event["type"] not in {"state", "placement", "a2ui"}:
             self.events.append(event)
             self.history_bytes += len(json.dumps(event).encode())
 
             # Bound replay by both event count and serialized size.
             while self.events and (len(self.events) > 2000 or self.history_bytes > 2_097_152):
                 self.history_bytes -= len(json.dumps(self.events.pop(0)).encode())
-                self.compacted = True
 
         # Slow tabs resynchronize from state rather than blocking execution.
         for listener in self.listeners:
@@ -178,7 +177,7 @@ class Workspace:
             raise ValueError("Unknown or removed widget")
 
         # Focusing can evict the oldest centered widget to the sidebar.
-        if command.action in {"focus", "unpin"}:
+        if command.action == "focus":
             self._focus(command.surface_id)
         else:
             placement["pinned"] = True

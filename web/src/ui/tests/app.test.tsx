@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import App from "../App";
 import { useWorkspace } from "../lib/hooks/useWorkspace";
 
@@ -27,8 +27,8 @@ function workspace(overrides = {}) {
     return state;
 }
 
-test("workspace submits widget instructions", () => {
-    const state = workspace();
+test("workspace offers voice without chat or execution output", () => {
+    workspace({ output: "Execution details" });
     const { container } = render(<App />);
     expect(screen.queryByRole("heading", { name: "Workspace" })).toBeNull();
     expect(screen.queryByText("Ready")).toBeNull();
@@ -37,46 +37,33 @@ test("workspace submits widget instructions", () => {
         screen.getByText(/Your generated widgets will appear here/),
     ).toBeTruthy();
     expect(container.querySelector("pre, code")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
-    const input = screen.getByRole("textbox", { name: "Instruction" });
-    fireEvent.change(input, { target: { value: "Show revenue" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send instruction" }));
-    expect(state.send).toHaveBeenCalledWith("Show revenue");
-    expect(screen.queryByRole("textbox")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
-    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+    expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
+    expect(screen.queryByText("Execution details")).toBeNull();
+    const voice = screen.getByRole("button", { name: "Start voice" });
+    expect((voice as HTMLButtonElement).disabled).toBe(false);
+    expect(voice.parentElement?.classList.contains("right-5")).toBe(true);
+    expect(voice.parentElement?.classList.contains("bottom-5")).toBe(true);
 });
 
-test("workspace keeps errors and working status visible without a transcript", () => {
+test("workspace keeps errors visible and voice available while busy", () => {
     workspace({ busy: true, error: "The operation failed" });
     render(<App />);
     expect(screen.queryByRole("status")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
-    expect(screen.getByRole("status").textContent).toBe("Working…");
     expect(screen.getByRole("alert").textContent).toBe("The operation failed");
     expect(
         (
-            screen.getByRole("textbox", {
-                name: "Instruction",
-            }) as HTMLTextAreaElement
+            screen.getByRole("button", {
+                name: "Start voice",
+            }) as HTMLButtonElement
         ).disabled,
-    ).toBe(true);
+    ).toBe(false);
 });
 
-test("chat preserves a draft when closed and stays open if submission fails", () => {
-    const state = workspace();
-    state.send.mockReturnValue(false);
+test("workspace disables voice while disconnected", () => {
+    workspace({ connected: false });
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
-    fireEvent.change(screen.getByRole("textbox"), {
-        target: { value: "Show sales" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Close chat" }));
-    expect(screen.queryByRole("textbox")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
-    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe(
-        "Show sales",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Send instruction" }));
-    expect(screen.getByRole("textbox")).toBeTruthy();
+    expect(
+        (screen.getByRole("button", { name: "Start voice" }) as HTMLButtonElement)
+            .disabled,
+    ).toBe(true);
 });

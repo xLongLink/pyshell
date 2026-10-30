@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, MicOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import type { VoiceEvent } from "@/lib/workspace";
 
 export function Voice({
@@ -174,9 +172,11 @@ export function Voice({
     }
 
     return (
-        <div className="fixed bottom-5 left-5 z-20 flex max-w-xs items-center gap-3">
-            <Button
-                className="size-12 rounded-full shadow-lg"
+        <div className="fixed right-5 bottom-5 z-20 flex max-w-xs flex-row-reverse items-center gap-3">
+            <button
+                type="button"
+                className="voice-orb relative grid size-18 shrink-0 cursor-pointer place-items-center rounded-full border border-[#ffd45c] focus-visible:outline-3 focus-visible:outline-offset-8 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none"
+                data-state={phase}
                 disabled={!connected || phase === "stopping"}
                 aria-label={
                     phase === "off"
@@ -188,8 +188,11 @@ export function Voice({
                 aria-pressed={phase !== "off"}
                 onClick={() => void start()}
             >
-                {phase === "off" ? <Mic /> : <MicOff />}
-            </Button>
+                <span
+                    className={`pointer-events-none absolute -inset-[9%] rounded-[46%_54%_51%_49%] border-2 border-[#ffd45c80] ${phase === "on" ? "voice-ring-active motion-reduce:animate-none" : ""}`}
+                    aria-hidden="true"
+                />
+            </button>
             {error ? (
                 <p role="alert" className="text-sm text-destructive">
                     {error}

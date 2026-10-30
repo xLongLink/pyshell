@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ComposableMap, Geographies, Geography } from "react-simple-maps/core";
+import { geoPath } from "d3-geo";
 import { plotClassName, type Trace } from "./common";
 import {
     loadGeography,
@@ -89,6 +89,7 @@ function BoundaryMap({
         () => mapProjection(boundaries, trace.geography === "world"),
         [trace.geography, boundaries],
     );
+    const path = useMemo(() => geoPath(projection), [projection]);
     const values = new Map(
         trace.locations.map((code, index) => [code, trace.values[index]]),
     );
@@ -114,10 +115,8 @@ function BoundaryMap({
 
     return (
         <div className={`${plotClassName} flex min-h-0 flex-col`}>
-            <ComposableMap
-                width={800}
-                height={450}
-                projection={projection}
+            <svg
+                viewBox="0 0 800 450"
                 role="group"
                 aria-label={
                     trace.name ||
@@ -127,38 +126,34 @@ function BoundaryMap({
                 }
                 className="min-h-0 w-full flex-1"
             >
-                <Geographies geography={boundaries}>
-                    {({ geographies }) =>
-                        geographies.map((geography) => {
-                            const code = String(geography.id);
-                            const label = describe(
-                                code,
-                                geography.properties?.name ?? code,
-                            );
-                            return (
-                                <Geography
-                                    key={code}
-                                    geography={geography}
-                                    fill={color(values.get(code))}
-                                    stroke="var(--border)"
-                                    strokeWidth={0.6}
-                                    vectorEffect="non-scaling-stroke"
-                                    tabIndex={0}
-                                    role="img"
-                                    aria-label={label}
-                                    className="outline-none hover:stroke-foreground focus-visible:stroke-foreground focus-visible:stroke-2"
-                                    onMouseEnter={() => setActive(code)}
-                                    onMouseLeave={() => setActive(null)}
-                                    onFocus={() => setActive(code)}
-                                    onBlur={() => setActive(null)}
-                                >
-                                    <title>{label}</title>
-                                </Geography>
-                            );
-                        })
-                    }
-                </Geographies>
-            </ComposableMap>
+                {boundaries.features.map((feature) => {
+                    const code = feature.id;
+                    const label = describe(
+                        code,
+                        feature.properties?.name ?? code,
+                    );
+                    return (
+                        <path
+                            key={code}
+                            d={path(feature) ?? undefined}
+                            fill={color(values.get(code))}
+                            stroke="var(--border)"
+                            strokeWidth={0.6}
+                            vectorEffect="non-scaling-stroke"
+                            tabIndex={0}
+                            role="img"
+                            aria-label={label}
+                            className="outline-none hover:stroke-foreground focus-visible:stroke-foreground focus-visible:stroke-2"
+                            onMouseEnter={() => setActive(code)}
+                            onMouseLeave={() => setActive(null)}
+                            onFocus={() => setActive(code)}
+                            onBlur={() => setActive(null)}
+                        >
+                            <title>{label}</title>
+                        </path>
+                    );
+                })}
+            </svg>
             <p
                 role="status"
                 className="min-h-5 shrink-0 text-center text-xs text-muted-foreground"
