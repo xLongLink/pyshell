@@ -2,6 +2,14 @@ from fastapi import FastAPI
 from pydantic import Field, BaseModel, JsonValue
 from src.shell import PythonShell
 from threading import Lock
+from importlib.metadata import distributions
+
+
+class Library(BaseModel):
+    """An installed Python distribution."""
+
+    name: str
+    version: str
 
 
 class ExecutionRequest(BaseModel):
@@ -26,7 +34,14 @@ def create_app() -> FastAPI:
     shell = PythonShell()
     lock = Lock()
 
-    @app.get("/", response_model=dict[str, str])
+    @app.get("/libraries", response_model=list[Library])
+    def libraries() -> list[Library]:
+        return sorted(
+            [Library(name=package.metadata["Name"], version=package.version) for package in distributions()],
+            key=lambda library: library.name.casefold(),
+        )
+
+    @app.get("/health", response_model=dict[str, str])
     def health() -> dict[str, str]:
         return {"status": "ok"}
 

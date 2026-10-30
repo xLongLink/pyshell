@@ -72,7 +72,8 @@ export function Results({
                         centered.length === 3 &&
                         index === 2 &&
                         "md:col-span-2",
-                    !center && "h-80",
+                    !center &&
+                        "h-80 [&_.recharts-legend-wrapper]:hidden [&_.plot-xaxis-title]:hidden",
                 )}
             >
                 <A2uiSurface surface={surface} />

@@ -19,7 +19,6 @@ INSTRUCTIONS = """You are an agent working in a persistent Python session inside
 Respond with ONLY executable Python code, without Markdown fences or prose.
 Your complete response is executed through a local HTTP API. Use Python's
 standard library, installed packages, and subprocess as necessary.
-pandas, numpy, openpyxl, and scipy are installed for data analysis and Excel files.
 Use the provided ui.plot for plotting, not matplotlib or other plotting libraries.
 Variables, imports, and working-directory changes persist across executions and
 user turns. Write normal Python scripts, without interactive prompt text.
@@ -125,6 +124,12 @@ class RemoteShell:
         response = httpx.post(f"{self.url}/reset", timeout=None, trust_env=False)
         response.raise_for_status()
 
+    def libraries(self) -> list[dict[str, str]]:
+        """List packages installed in the execution environment."""
+        response = httpx.get(f"{self.url}/libraries", timeout=10, trust_env=False)
+        response.raise_for_status()
+        return response.json()
+
 
 def stream_response(
     agent: PydanticAgent[None, str], message: str, message_history: list[ModelMessage], on_code: Callable[[str], None] | None = None
@@ -156,18 +161,28 @@ class Agent:
         """Create a model-backed agent for a remote Python session."""
         self.model = model.model_name
         self.service_tier = service_tier
-        self.agent = PydanticAgent(
-            model, instructions=INSTRUCTIONS, model_settings={"openai_service_tier": service_tier, "openai_reasoning_effort": "low"}
-        )
         self.shell = shell if shell is not None else RemoteShell()
+        self._libraries: list[dict[str, str]] | None = None
+        self.agent = PydanticAgent(
+            model, instructions=self._instructions, model_settings={"openai_service_tier": service_tier, "openai_reasoning_effort": "low"}
+        )
 
         # Conversation state is committed only after execution succeeds.
         self.message_history = []
         self.pending_feedback = None
 
+    def _instructions(self) -> str:
+        if self._libraries is None:
+            self._libraries = self.shell.libraries()
+        return (
+            INSTRUCTIONS + "\nInstalled packages in the execution environment (distribution names may differ from import names):\n"
+            + json.dumps(self._libraries)
+        )
+
     def reset(self) -> None:
         """Clear remote state and conversation after a successful reset."""
         self.shell.reset()
+        self._libraries = None
         self.message_history = []
         self.pending_feedback = None
 

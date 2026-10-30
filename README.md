@@ -85,7 +85,12 @@ curl http://127.0.0.1:8000/ -H 'Content-Type: application/json' \
 {"stdout":"42\n","stderr":"","exception":null,"done":false,"ui":[]}
 ```
 
-Use `print()` for results. `GET /` reports health; `POST /reset` clears the Python
+`GET /libraries` lists installed Python packages and their versions, including extras installed
+through `PYSHELL_REQUIREMENTS`, as `[{"name":"numpy","version":"2.3.0"}]`.
+Names are distribution names, which can differ from Python import names.
+The agent includes this inventory in the model's instructions and refreshes it after reset.
+
+Use `print()` for results. `GET /health` reports health; `POST /reset` clears the Python
 namespace. The website's Reset button also clears the conversation and transcript.
 
 All requests share one session, and execution is serialized. Run only one server

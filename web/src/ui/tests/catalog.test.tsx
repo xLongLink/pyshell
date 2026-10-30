@@ -9,7 +9,7 @@ import {
 import { Results } from "../components/results";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui";
 
-beforeEach(() => {
+function mockChartWidth(width: number) {
     vi.stubGlobal(
         "ResizeObserver",
         class {
@@ -19,7 +19,7 @@ beforeEach(() => {
                     [
                         {
                             target,
-                            contentRect: { width: 600, height: 300 },
+                            contentRect: { width, height: 300 },
                         } as ResizeObserverEntry,
                     ],
                     this as unknown as ResizeObserver,
@@ -29,7 +29,9 @@ beforeEach(() => {
             disconnect() {}
         },
     );
-});
+}
+
+beforeEach(() => mockChartWidth(600));
 
 afterEach(() => {
     cleanup();
@@ -51,6 +53,40 @@ function bar(title: string) {
         data: [{ type: "bar", x: ["A"], y: [42] }],
     };
 }
+
+test.each(["bar", "pie"])(
+    "%s charts use keyboard-only focus styling without disabling focus",
+    async (type) => {
+        render(
+            <Results
+                messages={surface([
+                    {
+                        id: "root",
+                        component: "Figure",
+                        data: [
+                            type === "pie"
+                                ? { type, labels: ["A", "B"], values: [42, 10] }
+                                : { type, x: ["A", "B"], y: [42, 10] },
+                        ],
+                    },
+                ])}
+            />,
+        );
+        const chart = await screen.findByRole("application");
+        const wrapper = chart.closest('[data-slot="chart"]');
+        expect(wrapper?.classList.contains("focus-within:ring-2")).toBe(false);
+        expect(wrapper?.classList.contains("has-[:focus-visible]:ring-2")).toBe(
+            true,
+        );
+        expect(
+            wrapper?.classList.contains("has-[:focus-visible]:ring-ring"),
+        ).toBe(true);
+        expect(chart.getAttribute("tabindex")).toBe("0");
+        fireEvent.click(chart);
+        chart.focus();
+        expect(document.activeElement).toBe(chart);
+    },
+);
 
 test.each([1, 2, 3, 4])(
     "%i center widgets use the viewport layout",
@@ -537,6 +573,169 @@ test("backend placement moves widgets between center and sidebar without control
         "Widget first",
     );
 });
+
+test.each(["scatter", "bar", "pie"] as const)(
+    "pinned %s plots hide long legends and restore them when centered",
+    async (type) => {
+        const names = Array.from(
+            { length: 20 },
+            (_, index) => `Category ${index}`,
+        );
+        const messages = surface([
+            {
+                id: "root",
+                component: "Figure",
+                data:
+                    type === "pie"
+                        ? [{ type, labels: names, values: names.map(() => 1) }]
+                        : names.map((name) => ({
+                              type,
+                              name,
+                              x: [0, 1],
+                              y: [1, 2],
+                          })),
+            },
+        ]);
+        const { rerender } = render(<Results messages={messages} />);
+        const legendClass = "[&_.recharts-legend-wrapper]:hidden";
+        await waitFor(() =>
+            expect(
+                screen
+                    .getByRole("article")
+                    .querySelector(".recharts-legend-wrapper")?.textContent,
+            ).toContain("Category 19"),
+        );
+        expect(
+            screen.getByRole("article").classList.contains(legendClass),
+        ).toBe(false);
+        rerender(
+            <Results
+                messages={messages}
+                placements={{ sales: { pinned: true, focused: false } }}
+            />,
+        );
+        const pinned = screen
+            .getByRole("complementary")
+            .querySelector("article")!;
+        await waitFor(() =>
+            expect(pinned.querySelector(".recharts-surface")).not.toBeNull(),
+        );
+        expect(pinned.classList.contains(legendClass)).toBe(true);
+        rerender(
+            <Results
+                messages={messages}
+                placements={{ sales: { pinned: false, focused: true } }}
+            />,
+        );
+        await waitFor(() =>
+            expect(
+                screen
+                    .getByRole("article")
+                    .querySelector(".recharts-legend-wrapper")?.textContent,
+            ).toContain("Category 19"),
+        );
+        expect(
+            screen.getByRole("article").classList.contains(legendClass),
+        ).toBe(false);
+    },
+);
+
+test.each(["scatter", "bar"] as const)(
+    "pinned %s plots hide the bottom axis title but keep tick numbers",
+    async (type) => {
+        const messages = surface([
+            {
+                id: "root",
+                component: "Figure",
+                layout: { xaxis: { title: { text: "Submission month" } } },
+                data: [{ type, x: [1, 2, 3], y: [10, 20, 30] }],
+            },
+        ]);
+        const { container, rerender } = render(
+            <Results
+                messages={messages}
+                placements={{ sales: { pinned: true, focused: false } }}
+            />,
+        );
+        const titleClass = "[&_.plot-xaxis-title]:hidden";
+        await waitFor(() =>
+            expect(
+                container.querySelector(".plot-xaxis-title")?.textContent,
+            ).toBe("Submission month"),
+        );
+        expect(screen.getByRole("article").classList.contains(titleClass)).toBe(
+            true,
+        );
+        expect(
+            container.querySelectorAll(
+                ".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value",
+            ).length,
+        ).toBeGreaterThan(0);
+        rerender(
+            <Results
+                messages={messages}
+                placements={{ sales: { pinned: false, focused: true } }}
+            />,
+        );
+        await waitFor(() =>
+            expect(screen.getByText("Submission month")).toBeTruthy(),
+        );
+        expect(screen.getByRole("article").classList.contains(titleClass)).toBe(
+            false,
+        );
+    },
+);
+
+test.each(["scatter", "bar"] as const)(
+    "narrow %s previews hide the value axis and restore it at full width",
+    async (type) => {
+        mockChartWidth(320);
+        const messages = surface([
+            {
+                id: "root",
+                component: "Figure",
+                layout: { yaxis: { title: { text: "Business submissions" } } },
+                data: [
+                    {
+                        type,
+                        name: "Submissions",
+                        x: ["Jan", "Feb"],
+                        y: [10, 20],
+                    },
+                ],
+            },
+        ]);
+        const { container, rerender } = render(
+            <Results
+                messages={messages}
+                placements={{ sales: { pinned: true, focused: false } }}
+            />,
+        );
+        await waitFor(() =>
+            expect(container.querySelector(".recharts-xAxis")).not.toBeNull(),
+        );
+        expect(container.querySelector(".recharts-yAxis")).toBeNull();
+        expect(screen.queryByText("Business submissions")).toBeNull();
+        fireEvent.focus(screen.getByRole("application"));
+        await waitFor(() =>
+            expect(
+                container.querySelector(".recharts-tooltip-wrapper")
+                    ?.textContent,
+            ).toContain("10"),
+        );
+        mockChartWidth(600);
+        rerender(
+            <Results
+                messages={messages}
+                placements={{ sales: { pinned: false, focused: true } }}
+            />,
+        );
+        await waitFor(() =>
+            expect(screen.getByText("Business submissions")).toBeTruthy(),
+        );
+        expect(container.querySelector(".recharts-yAxis")).not.toBeNull();
+    },
+);
 
 test("an in-place widget update retains its sidebar placement", async () => {
     const messages = surface([bar("Original")]);

@@ -1,7 +1,36 @@
 import json
+import httpx
 import pytest
 from unittest.mock import Mock, patch
 from web.src.script import Agent
+
+
+def test_installed_libraries_are_in_model_context(model_for, remote_shell):
+    requests = []
+    packages = [{"name": "custom-package", "version": "1.2.3"}]
+    model = model_for(["print('working')"], ["done()"], ["done()"], ["done()"], requests=requests)
+    with patch.object(remote_shell, "libraries", return_value=packages) as libraries:
+        agent = Agent(model, shell=remote_shell)
+        agent.run("work")
+        agent.run("continue")
+        libraries.assert_called_once_with()
+        agent.reset()
+        agent.run("start again")
+        assert libraries.call_count == 2
+    assert len(requests) == 4
+    assert all(json.dumps(packages) in info.instructions for _, info in requests)
+
+
+def test_library_discovery_failure_prevents_model_request(model_for, remote_shell):
+    requests = []
+    agent = Agent(model_for(["done()"], requests=requests), shell=remote_shell)
+    with patch.object(remote_shell, "libraries", side_effect=httpx.ConnectError("unavailable")):
+        with pytest.raises(httpx.ConnectError, match="unavailable"):
+            agent.run("work")
+    assert requests == []
+    assert agent.message_history == []
+    agent.run("retry")
+    assert len(requests) == 1
 
 
 def test_reset_clears_remote_session_and_conversation(model_for, remote_shell):

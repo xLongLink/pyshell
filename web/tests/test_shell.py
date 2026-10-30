@@ -1,6 +1,11 @@
 import httpx
 import pytest
+from importlib.metadata import version
 from web.src.script import RemoteShell
+
+
+def test_remote_libraries(remote_shell):
+    assert {"name": "fastapi", "version": version("fastapi")} in remote_shell.libraries()
 
 
 def test_remote_execution_and_reset(remote_shell):

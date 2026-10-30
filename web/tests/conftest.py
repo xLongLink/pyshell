@@ -14,12 +14,18 @@ def api_client():
 
 @pytest.fixture
 def remote_shell(api_client, monkeypatch):
+    def get(url, **kwargs):
+        kwargs.pop("timeout", None)
+        kwargs.pop("trust_env", None)
+        return api_client.get(url, **kwargs)
+
     def post(url, **kwargs):
         kwargs.pop("timeout", None)
         kwargs.pop("trust_env", None)
         return api_client.post(url, **kwargs)
 
     monkeypatch.setattr("web.src.script.httpx.post", post)
+    monkeypatch.setattr("web.src.script.httpx.get", get)
     return RemoteShell("http://testserver")
 
 
