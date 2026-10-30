@@ -27,7 +27,7 @@ export default function App() {
     return (
         <div className="flex h-dvh flex-col">
             <main className="min-h-0 flex-1 overflow-y-auto">
-                <div className="mx-auto max-w-[1600px] space-y-6 px-5 pt-8 pb-24">
+                <div className="space-y-6 p-4 md:p-8">
                     {error && (
                         <p role="alert" className="text-sm text-destructive">
                             {error}

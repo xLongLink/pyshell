@@ -87,7 +87,12 @@ export function Cartesian({
             <ComposedChart
                 data={bars}
                 accessibilityLayer
-                margin={{ bottom: 20, left: 10 }}
+                margin={{
+                    top: 8,
+                    right: 12,
+                    bottom: layout.xaxis.title.text ? 24 : 0,
+                    left: layout.yaxis.title.text ? 12 : 0,
+                }}
             >
                 <CartesianGrid vertical={false} />
                 <XAxis
@@ -105,6 +110,8 @@ export function Cartesian({
                     allowDataOverflow
                     tickLine={false}
                     axisLine={false}
+                    tickMargin={8}
+                    minTickGap={24}
                     label={{
                         value: layout.xaxis.title.text,
                         position: "bottom",
@@ -114,6 +121,8 @@ export function Cartesian({
                     domain={[Math.min(0, ...ys), Math.max(0, ...ys)]}
                     tickLine={false}
                     axisLine={false}
+                    tickMargin={8}
+                    width={layout.yaxis.title.text ? 64 : 48}
                     label={{
                         value: layout.yaxis.title.text,
                         angle: -90,
@@ -121,8 +130,14 @@ export function Cartesian({
                     }}
                 />
                 <ChartTooltip
+                    cursor={
+                        hasBars
+                            ? { fill: "var(--accent)", fillOpacity: 0.5 }
+                            : false
+                    }
                     content={
                         <ChartTooltipContent
+                            indicator={hasBars ? "dot" : "line"}
                             labelFormatter={(_, payload) =>
                                 numeric
                                     ? String(payload[0]?.payload?.x ?? "")
@@ -133,7 +148,9 @@ export function Cartesian({
                 />
                 {layout.showlegend && (
                     <ChartLegend
-                        content={<ChartLegendContent className="flex-wrap" />}
+                        content={
+                            <ChartLegendContent className="flex-wrap gap-x-4 gap-y-2 pt-4" />
+                        }
                     />
                 )}
                 {data.map((trace, index) => {
@@ -145,6 +162,8 @@ export function Cartesian({
                             dataKey={key}
                             name={key}
                             fill={color}
+                            radius={4}
+                            maxBarSize={48}
                             isAnimationActive={false}
                         />
                     ) : (
@@ -158,13 +177,20 @@ export function Cartesian({
                             name={key}
                             type="linear"
                             stroke={color}
-                            strokeWidth={trace.mode === "markers" ? 0 : 1}
+                            strokeWidth={trace.mode === "markers" ? 0 : 2}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                             dot={
                                 trace.mode === "lines"
                                     ? false
                                     : { r: 4, fill: color, stroke: color }
                             }
-                            activeDot={{ r: 5, fill: color, stroke: color }}
+                            activeDot={{
+                                r: 6,
+                                fill: color,
+                                stroke: "var(--card)",
+                                strokeWidth: 2,
+                            }}
                             legendType={
                                 trace.mode === "markers" ? "circle" : "line"
                             }

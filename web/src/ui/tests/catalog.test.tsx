@@ -52,6 +52,36 @@ function bar(title: string) {
     };
 }
 
+test.each([1, 2, 3, 4])(
+    "%i center widgets use the viewport layout",
+    async (count) => {
+        const messages = Array.from({ length: count }, (_, index) =>
+            surface([bar(`Chart ${index}`)], `chart_${index}`),
+        ).flat();
+        const { container } = render(<Results messages={messages} />);
+        await waitFor(() =>
+            expect(screen.getByText(`Chart ${count - 1}`)).toBeTruthy(),
+        );
+        const center = screen.getByRole("region", { name: "Center widgets" });
+        expect(center.className).toContain("md:h-[calc(100dvh-4rem)]");
+        expect(center.classList.contains("md:grid-cols-2")).toBe(count >= 3);
+        expect(center.classList.contains("md:grid-rows-2")).toBe(count > 1);
+        const widgets = center.querySelectorAll("article");
+        expect(widgets).toHaveLength(count);
+        expect(widgets[count - 1].classList.contains("md:col-span-2")).toBe(
+            count === 3,
+        );
+        expect(
+            container.querySelector("figure")?.classList.contains("h-full"),
+        ).toBe(true);
+        expect(
+            container
+                .querySelector('[data-slot="chart"]')
+                ?.classList.contains("h-full"),
+        ).toBe(true);
+    },
+);
+
 test("replacement, removal, and reset do not duplicate result surfaces", async () => {
     const messages = surface([bar("Before")]);
     const { rerender } = render(<Results messages={messages} />);
@@ -231,6 +261,10 @@ test("independent lines and markers share numeric axes without adding gaps", asy
     );
     const lines = container.querySelectorAll(".recharts-line");
     const curve = lines[0].querySelector(".recharts-line-curve");
+    expect(curve?.getAttribute("stroke-width")).toBe("2");
+    expect(curve?.getAttribute("stroke-linecap")).toBe("round");
+    expect(curve?.getAttribute("d")).not.toMatch(/[CQ]/);
+    expect(lines[0].querySelector(".recharts-line-dot")).toBeNull();
     expect(curve?.getAttribute("d")?.match(/M/g)).toHaveLength(1);
     expect(
         lines[1]

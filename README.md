@@ -191,14 +191,18 @@ advisory. Keep this prototype local; revisit dependencies before production.
 See [api/pyproject.toml](api/pyproject.toml) for default libraries and version constraints.
 Use the provided `ui` charts for plotting.
 
-Pass extra packages as newline-separated requirements (Bash syntax):
+`make up` installs `swissparlpy` as a showcase extra library for Swiss Parliament
+data. It is passed through `PYSHELL_REQUIREMENTS`, not added to the locked dependencies.
+The agent can then use `import swissparlpy`.
+
+Override the extra packages with newline-separated requirements (Bash syntax):
 
 ```bash
 PYSHELL_REQUIREMENTS=$'httpx\npypdf' make up
 ```
 
-Without `PYSHELL_REQUIREMENTS`, no extra packages are installed. Packages are
-installed at container startup; installation failure prevents launch.
+Use `PYSHELL_REQUIREMENTS='' make up` to skip extra packages. Packages are installed
+at container startup; installation failure prevents launch.
 
 See [Contributing](CONTRIBUTING.md#dependencies) for dependency and container details.
 

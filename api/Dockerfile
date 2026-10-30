@@ -35,6 +35,5 @@ if [ -n \"${PYSHELL_REQUIREMENTS:-}\" ]; then \
     uv pip install --no-cache --python \"$environment/bin/python\" -r \"$requirements\"; \
     uv pip check --no-cache --python \"$environment/bin/python\"; \
     export PATH=\"$environment/bin:$PATH\"; \
-    exec \"$environment/bin/python\" -m src \"$@\"; \
 fi; \
-exec /opt/venv/bin/python -m src \"$@\"", "pyshell-api"]
+exec python -m uvicorn main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 \"$@\"", "pyshell-api"]

@@ -75,12 +75,14 @@ See [api/pyproject.toml](api/pyproject.toml) for default libraries and version c
 and [api/uv.lock](api/uv.lock) for exact locked versions. Plotting uses the provided
 `ui` charts rather than a separate plotting library.
 
-Set `PYSHELL_REQUIREMENTS` to newline-separated requirements, or pass file contents
+`make up` defaults `PYSHELL_REQUIREMENTS` to `swissparlpy` as an extra-library showcase.
+Override `PYSHELL_REQUIREMENTS` with newline-separated requirements, or pass file contents
 with `PYSHELL_REQUIREMENTS="$(cat requirements.txt)" make up`. No file is mounted.
 At startup, the Dockerfile entrypoint writes the value to a temporary requirements
 file, copies the base environment into writable temporary storage, installs the
 requirements, checks compatibility, and launches the API. Installation failure
-prevents launch; an unset or empty variable skips installation.
+prevents launch. Use `PYSHELL_REQUIREMENTS='' make up` to skip installation of extras;
+direct Compose invocations also skip extras when the variable is unset.
 
 User packages are not baked into the image and are reinstalled on each container
 start. Requirements are separate from `api/uv.lock`; pin versions where possible.

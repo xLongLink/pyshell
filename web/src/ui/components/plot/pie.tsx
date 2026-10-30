@@ -44,9 +44,12 @@ export function PiePlot({
                     data={slices}
                     dataKey="value"
                     nameKey="label"
+                    stroke="var(--card)"
+                    strokeWidth={2}
                     isAnimationActive={false}
                 />
                 <ChartTooltip
+                    cursor={false}
                     content={
                         <ChartTooltipContent nameKey="category" hideLabel />
                     }
@@ -56,7 +59,7 @@ export function PiePlot({
                         content={
                             <ChartLegendContent
                                 nameKey="category"
-                                className="flex-wrap"
+                                className="flex-wrap gap-x-4 gap-y-2 pt-4"
                             />
                         }
                     />
