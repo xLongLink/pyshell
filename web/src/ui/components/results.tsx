@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { A2uiSurface, type ReactCatalogComponent } from "@a2ui/react/v0_9";
 import { MessageProcessor, type SurfaceModel } from "@a2ui/web_core/v0_9";
 import { resultCatalog } from "@/components/catalog";
@@ -17,37 +17,67 @@ export function Results({
         SurfaceModel<ReactCatalogComponent>[]
     >([]);
     const [error, setError] = useState("");
+    const stream = useRef<{
+        processor: MessageProcessor<ReactCatalogComponent>;
+        messages: A2uiMessage[];
+    } | null>(null);
+
+    useEffect(
+        () => () => {
+            stream.current?.processor.dispose();
+            stream.current = null;
+        },
+        [],
+    );
 
     useEffect(() => {
-        const processor = new MessageProcessor<ReactCatalogComponent>([
-            resultCatalog,
-        ]);
+        let current = stream.current;
+        if (
+            current &&
+            !current.messages.every(
+                (message, index) => messages[index] === message,
+            )
+        ) {
+            current.processor.dispose();
+            current = null;
+        }
+        if (!current) {
+            current = {
+                processor: new MessageProcessor<ReactCatalogComponent>([
+                    resultCatalog,
+                ]),
+                messages: [],
+            };
+            stream.current = current;
+        }
+        const processor = current.processor;
         try {
-            const active = new Set<string>();
-            for (const message of messages) {
+            for (const message of messages.slice(current.messages.length)) {
+                const active = processor.getSurfaces();
                 if ("createSurface" in message) {
                     if (
                         active.has(message.createSurface.surfaceId) ||
                         active.size >= 20
                     )
                         throw new Error("Invalid surface creation");
-                    active.add(message.createSurface.surfaceId);
                 } else if ("deleteSurface" in message) {
-                    if (!active.delete(message.deleteSurface.surfaceId))
+                    if (!active.has(message.deleteSurface.surfaceId))
                         throw new Error("Unknown surface");
                 } else if (!active.has(message.updateComponents.surfaceId))
                     throw new Error("Unknown surface");
                 processor.processMessages(message);
             }
+            current.messages = messages;
             setSurfaces(Array.from(processor.getSurfaces().values()));
             setError("");
         } catch {
+            processor.dispose();
+            stream.current = null;
             setSurfaces([]);
             setError(
                 "The generated interface could not be rendered. Check the server console for execution details.",
             );
         }
-        return () => processor.dispose();
     }, [messages]);
 
     if (!surfaces.length && !error) return null;

@@ -138,7 +138,7 @@ def test_browser_rejects_untrusted_origin(browser_api):
     assert error.value.code == 1008
 
 
-def test_python_placement_replays_and_survives_updates(browser_api, model_for, remote_shell):
+def test_python_placement_snapshot_survives_updates(browser_api, model_for, remote_shell):
     client, requests = browser_api
     model = model_for(
         ["chart = ui.plot([{'type': 'scatter', 'x': ['Jan'], 'y': [42]}], surface_id='sales')\nchart.pin()\nchart.focus()\ndone()"],
@@ -151,10 +151,10 @@ def test_python_placement_replays_and_survives_updates(browser_api, model_for, r
         socket.send_json({"type": "run", "instruction": "show sales"})
         events = receive_until_idle(socket)
         placements = [event for event in events if event["type"] == "placement"]
-        assert placements[-1]["widgets"] == {"sales": {"pinned": False, "focused": True}}
+        assert placements[-1]["widgets"] == {"sales": {"pinned": False}}
         initial = placements[0]["widgets"]
-        assert initial == {"sales": {"pinned": False, "focused": True}}
-        assert any(event["widgets"] == {"sales": {"pinned": True, "focused": False}} for event in placements)
+        assert initial == {"sales": {"pinned": False}}
+        assert any(event["widgets"] == {"sales": {"pinned": True}} for event in placements)
         assert len(requests) == 1
         socket.send_json({"type": "run", "instruction": "update the title"})
         events = receive_until_idle(socket)
@@ -162,11 +162,57 @@ def test_python_placement_replays_and_survives_updates(browser_api, model_for, r
         assert len(updates) == 1
         assert updates[0]["updateComponents"]["components"][0]["layout"]["title"]["text"] == "Updated revenue"
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
-        assert socket.receive_json()["placements"] == {"sales": {"pinned": False, "focused": True}}
+        assert socket.receive_json()["placements"] == {"sales": {"pinned": False}}
         socket.send_json({"type": "reset"})
         receive_until_idle(socket)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert socket.receive_json()["placements"] == {}
+
+
+def test_placement_history_is_not_retained_but_reconnect_and_live_events_are_current(browser_api, model_for, remote_shell):
+    client, _ = browser_api
+    workspace = client.app.state.workspace
+    workspace.agent = server.Agent(
+        model_for(
+            ["chart = ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='sales')\nchart.pin()\ndone()"],
+            ["chart.unpin()\nchart.unfocus()\nchart.remove()\ndone()"],
+        ),
+        shell=remote_shell,
+    )
+    with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
+        socket.receive_json()
+        socket.send_json({"type": "run", "instruction": "create and pin sales"})
+        events = receive_until_idle(socket)
+        assert [event["type"] for event in events if event["type"] in {"a2ui", "placement"}] == ["a2ui", "placement", "placement"]
+        assert [event["widgets"] for event in events if event["type"] == "placement"] == [
+            {"sales": {"pinned": False}},
+            {"sales": {"pinned": True}},
+        ]
+    history = [event for event in events if event["type"] not in {"state", "placement"}]
+    assert workspace.events == history
+    with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
+        snapshot = socket.receive_json()
+        assert snapshot["events"] == history
+        assert snapshot["placements"] == {"sales": {"pinned": True}}
+        socket.send_json({"type": "run", "instruction": "unpin, unfocus, and remove sales"})
+        events = receive_until_idle(socket)
+        assert [event["type"] for event in events if event["type"] in {"a2ui", "placement"}] == [
+            "placement",
+            "placement",
+            "a2ui",
+            "placement",
+        ]
+        assert [event["widgets"] for event in events if event["type"] == "placement"] == [
+            {"sales": {"pinned": False}},
+            {"sales": {"pinned": True}},
+            {},
+        ]
+    history += [event for event in events if event["type"] not in {"state", "placement"}]
+    assert workspace.events == history
+    with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
+        snapshot = socket.receive_json()
+        assert snapshot["events"] == history
+        assert snapshot["placements"] == {}
 
 
 def test_control_order_is_preserved_when_a_named_widget_is_replaced(browser_api, model_for, remote_shell):
@@ -185,7 +231,7 @@ def test_control_order_is_preserved_when_a_named_widget_is_replaced(browser_api,
         events = receive_until_idle(socket)
         placements = [event["widgets"] for event in events if event["type"] == "placement"]
         assert any(item["notice"]["pinned"] for item in placements if "notice" in item)
-        assert placements[-1] == {"notice": {"pinned": False, "focused": True}}
+        assert placements[-1] == {"notice": {"pinned": False}}
 
 
 @pytest.mark.parametrize("surface_id", ["missing", "sales"])
@@ -215,7 +261,7 @@ def test_focusing_another_widget_and_unfocusing_the_old_one_preserves_new_focus(
         socket.send_json({"type": "run", "instruction": "focus second"})
         events = receive_until_idle(socket)
         placements = [event["widgets"] for event in events if event["type"] == "placement"]
-        assert placements[-1] == {"first": {"pinned": True, "focused": False}, "second": {"pinned": False, "focused": True}}
+        assert placements[-1] == {"first": {"pinned": True}, "second": {"pinned": False}}
 
 
 def test_python_placement_remains_available_during_agent_work(browser_api, model_for, remote_shell, monkeypatch):
@@ -240,7 +286,7 @@ def test_python_placement_remains_available_during_agent_work(browser_api, model
         assert socket.receive_json()["type"] == "instruction"
         try:
             assert started.wait(timeout=5)
-            assert socket.receive_json() == {"type": "placement", "widgets": {"notice": {"pinned": True, "focused": False}}}
+            assert socket.receive_json() == {"type": "placement", "widgets": {"notice": {"pinned": True}}}
         finally:
             release.set()
         assert {"type": "done"} in receive_until_idle(socket)
@@ -261,18 +307,18 @@ def test_center_capacity_eviction_and_return_from_sidebar(browser_api, model_for
         socket.send_json({"type": "run", "instruction": "create five widgets"})
         events = receive_until_idle(socket)
         placements = [event["widgets"] for event in events if event["type"] == "placement"]
-        assert all(sum(value["focused"] for value in state.values()) <= 4 for state in placements)
-        assert placements[-1]["chart_0"] == {"pinned": True, "focused": False}
-        assert all(placements[-1][f"chart_{n}"]["focused"] for n in range(1, 5))
+        assert all(sum(not value["pinned"] for value in state.values()) <= 4 for state in placements)
+        assert placements[-1]["chart_0"] == {"pinned": True}
+        assert all(placements[-1][f"chart_{n}"] == {"pinned": False} for n in range(1, 5))
         socket.send_json({"type": "run", "instruction": "focus the first chart"})
         events = receive_until_idle(socket)
         state = [event["widgets"] for event in events if event["type"] == "placement"][-1]
-        assert state["chart_0"] == {"pinned": False, "focused": True}
-        assert state["chart_1"] == {"pinned": True, "focused": False}
+        assert state["chart_0"] == {"pinned": False}
+        assert state["chart_1"] == {"pinned": True}
         socket.send_json({"type": "run", "instruction": "unpin a chart and remove another"})
         events = receive_until_idle(socket)
         state = [event["widgets"] for event in events if event["type"] == "placement"][-1]
-        assert state["chart_2"] == {"pinned": False, "focused": True}
+        assert state["chart_2"] == {"pinned": False}
         assert "chart_4" not in state
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert socket.receive_json()["placements"] == state

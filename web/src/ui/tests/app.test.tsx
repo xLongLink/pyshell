@@ -14,15 +14,6 @@ function workspace(overrides = {}) {
     const state = {
         connected: true,
         busy: false,
-        model: "test",
-        entries: [
-            { kind: "instruction" as const, text: "Show sales" },
-            {
-                kind: "code" as const,
-                text: "print('private execution details')",
-            },
-            { kind: "output" as const, text: "console output" },
-        ],
         uiMessages: [],
         placements: {},
         error: "",
@@ -33,7 +24,7 @@ function workspace(overrides = {}) {
     return state;
 }
 
-test("workspace hides the transcript and submits widget instructions", () => {
+test("workspace submits widget instructions", () => {
     const state = workspace();
     const { container } = render(<App />);
     expect(screen.queryByRole("heading", { name: "Workspace" })).toBeNull();
@@ -42,8 +33,6 @@ test("workspace hides the transcript and submits widget instructions", () => {
     expect(
         screen.getByText(/Your generated widgets will appear here/),
     ).toBeTruthy();
-    expect(screen.queryByText("Show sales")).toBeNull();
-    expect(screen.queryByText("console output")).toBeNull();
     expect(container.querySelector("pre, code")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
     const input = screen.getByRole("textbox", { name: "Instruction" });

@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-    applyEvent,
-    messageSchema,
-    type Entry,
-    type Placements,
-} from "@/lib/workspace";
+import { messageSchema, type Placements } from "@/lib/workspace";
 import type { A2uiMessage } from "@/lib/a2ui";
 
 export function useWorkspace() {
     const socket = useRef<WebSocket | null>(null);
     const [connected, setConnected] = useState(false);
     const [busy, setBusy] = useState(false);
-    const [model, setModel] = useState("");
-    const [entries, setEntries] = useState<Entry[]>([]);
     const [error, setError] = useState("");
     const [uiMessages, setUiMessages] = useState<A2uiMessage[]>([]);
     const [placements, setPlacements] = useState<Placements>({});
@@ -30,7 +23,6 @@ export function useWorkspace() {
                 try {
                     const event = messageSchema.parse(JSON.parse(message.data));
                     if (event.type === "snapshot") {
-                        setEntries(event.events.reduce(applyEvent, []));
                         setPlacements(event.placements);
                         setUiMessages(
                             event.events.flatMap((item) =>
@@ -38,7 +30,6 @@ export function useWorkspace() {
                             ),
                         );
                         setBusy(event.busy);
-                        setModel(event.model);
                         setError("");
                         setConnected(true);
                     } else if (event.type === "state") {
@@ -61,7 +52,6 @@ export function useWorkspace() {
                                 ...previous,
                                 ...event.messages,
                             ]);
-                        setEntries((previous) => applyEvent(previous, event));
                     }
                 } catch {
                     setError("The API sent an invalid workspace event.");
@@ -103,8 +93,6 @@ export function useWorkspace() {
     return {
         connected,
         busy,
-        model,
-        entries,
         uiMessages,
         placements,
         error,

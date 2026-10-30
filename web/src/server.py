@@ -56,13 +56,13 @@ class Workspace:
             for message in event["messages"]:
                 if "createSurface" in message:
                     surface_id = message["createSurface"]["surfaceId"]
-                    self.placements[surface_id] = {"pinned": False, "focused": False}
+                    self.placements[surface_id] = {"pinned": False}
                     self._focus(surface_id)
                     placement_changed = True
                 elif "deleteSurface" in message:
                     self.placements.pop(message["deleteSurface"]["surfaceId"], None)
                     placement_changed = True
-        if event["type"] != "state":
+        if event["type"] not in {"state", "placement"}:
             self.events.append(event)
         for listener in self.listeners:
             listener.put_nowait(event)
@@ -74,11 +74,11 @@ class Workspace:
 
     def _focus(self, surface_id: str) -> None:
         placement = self.placements.pop(surface_id)
-        placement.update(pinned=False, focused=True)
+        placement["pinned"] = False
         self.placements[surface_id] = placement
-        centered = [value for value in self.placements.values() if value["focused"]]
+        centered = [value for value in self.placements.values() if not value["pinned"]]
         for oldest in centered[:-4]:
-            oldest.update(pinned=True, focused=False)
+            oldest["pinned"] = True
 
     def place(self, command: WidgetCommand) -> None:
         """Keep one authoritative placement state for Python and all browser tabs."""
@@ -88,7 +88,7 @@ class Workspace:
         if command.action in {"focus", "unpin"}:
             self._focus(command.surface_id)
         else:
-            placement.update(pinned=True, focused=False)
+            placement["pinned"] = True
         self._placement_event()
 
     def start(self, command: Command) -> None:

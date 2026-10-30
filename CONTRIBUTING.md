@@ -58,10 +58,14 @@ Keep catalog changes backward compatible or version the catalog ID on both sides
 Rebuild the execution container and frontend with `make up` after changes.
 
 Widget content uses A2UI; pin/focus commands use separate workspace events.
-The agent API owns placement state and broadcasts it to all tabs. Browser
-placement controls never invoke the model or execute Python. Keep those
-controls available during model work, and preserve their state during content
-updates. Reset and surface deletion clear placement state.
+The agent API owns placement state and broadcasts it to all tabs. Placement
+records contain only `pinned`; unpinned widgets occupy the center, with at most
+four centered at once. Placement events are broadcast live but not retained in
+history: reconnect snapshots carry the current placements separately. Deploy
+the frontend and backend together when changing this contract. Content updates
+preserve placement, while reset and surface deletion clear it.
+The browser processes appended A2UI messages incrementally and rebuilds its
+processor when a reconnect snapshot replaces the history or the workspace resets.
 
 Cleanup:
 

@@ -5,7 +5,6 @@ import {
     Line,
     XAxis,
     YAxis,
-    useChartWidth,
 } from "recharts";
 import {
     ChartContainer,
@@ -23,31 +22,6 @@ import {
 } from "./common";
 
 type CartesianTrace = Exclude<Trace, { type: "pie" }>;
-
-function ValueAxis({
-    domain,
-    title,
-}: {
-    domain: [number, number];
-    title: string;
-}) {
-    const compact = (useChartWidth() ?? 0) < 400;
-    return (
-        <YAxis
-            domain={domain}
-            hide={compact}
-            width={compact ? 0 : title ? 64 : 48}
-            tickLine={false}
-            axisLine={false}
-            tickMargin={8}
-            label={
-                compact
-                    ? undefined
-                    : { value: title, angle: -90, position: "insideLeft" }
-            }
-        />
-    );
-}
 
 export function Cartesian({
     data,
@@ -117,7 +91,7 @@ export function Cartesian({
                     top: 8,
                     right: 12,
                     bottom: layout.xaxis.title.text ? 24 : 0,
-                    left: layout.yaxis.title.text ? 12 : 0,
+                    left: 0,
                 }}
             >
                 <CartesianGrid vertical={false} />
@@ -144,9 +118,10 @@ export function Cartesian({
                         position: "bottom",
                     }}
                 />
-                <ValueAxis
+                <YAxis
                     domain={[Math.min(0, ...ys), Math.max(0, ...ys)]}
-                    title={layout.yaxis.title.text}
+                    hide
+                    width={0}
                 />
                 <ChartTooltip
                     cursor={

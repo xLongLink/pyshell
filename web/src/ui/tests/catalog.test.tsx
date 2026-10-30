@@ -54,6 +54,67 @@ function bar(title: string) {
     };
 }
 
+test("appending another surface preserves an existing chart and its keyboard focus", async () => {
+    const messages = surface([bar("First")], "first");
+    const { rerender } = render(<Results messages={messages} />);
+    const chart = await screen.findByRole("application");
+    chart.focus();
+    rerender(
+        <Results
+            messages={[...messages, ...surface([bar("Second")], "second")]}
+        />,
+    );
+    await waitFor(() => expect(screen.getByText("Second")).toBeTruthy());
+    expect(chart.isConnected).toBe(true);
+    expect(document.activeElement).toBe(chart);
+    expect(
+        screen
+            .getByRole("article", { name: "Widget first" })
+            .querySelector('[role="application"]'),
+    ).toBe(chart);
+});
+
+test("replacement snapshots rebuild surfaces even when their history has the same length", async () => {
+    const { rerender } = render(
+        <Results messages={surface([bar("Old")], "old")} />,
+    );
+    await waitFor(() => expect(screen.getByText("Old")).toBeTruthy());
+    rerender(<Results messages={surface([bar("New")], "new")} />);
+    await waitFor(() => expect(screen.getByText("New")).toBeTruthy());
+    expect(screen.queryByText("Old")).toBeNull();
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+});
+
+test.each(["duplicate", "unknown update", "unknown delete", "capacity"])(
+    "invalid appended lifecycle messages fail closed: %s",
+    async (invalid) => {
+        const messages = surface([bar("Valid")]);
+        const { rerender } = render(<Results messages={messages} />);
+        await waitFor(() => expect(screen.getByText("Valid")).toBeTruthy());
+        const addition =
+            invalid === "duplicate"
+                ? [messages[0]]
+                : invalid === "unknown update"
+                  ? surface([bar("Unknown")], "unknown").slice(1)
+                  : invalid === "unknown delete"
+                    ? a2uiBatchSchema.parse([
+                          {
+                              version: "v0.9",
+                              deleteSurface: { surfaceId: "unknown" },
+                          },
+                      ])
+                    : Array.from({ length: 20 }, (_, index) =>
+                          surface([bar(`Extra ${index}`)], `extra_${index}`),
+                      ).flat();
+        rerender(<Results messages={[...messages, ...addition]} />);
+        await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+        expect(screen.queryByRole("article")).toBeNull();
+        rerender(<Results messages={surface([bar("Recovered")])} />);
+        await waitFor(() => expect(screen.getByText("Recovered")).toBeTruthy());
+        expect(screen.queryByRole("alert")).toBeNull();
+    },
+);
+
 test.each(["bar", "pie"])(
     "%s charts use keyboard-only focus styling without disabling focus",
     async (type) => {
@@ -326,7 +387,7 @@ test("independent lines and markers share numeric axes without adding gaps", asy
     expect(screen.getByText("Predicted")).toBeTruthy();
     expect(screen.getByText("Observed")).toBeTruthy();
     expect(screen.getByText("Time")).toBeTruthy();
-    expect(screen.getByText("Amount")).toBeTruthy();
+    expect(screen.queryByText("Amount")).toBeNull();
     const application = screen.getByRole("application");
     fireEvent.focus(application);
     fireEvent.keyDown(application, { key: "ArrowRight" });
@@ -549,8 +610,8 @@ test("backend placement moves widgets between center and sidebar without control
         <Results
             messages={messages}
             placements={{
-                first: { pinned: false, focused: true },
-                second: { pinned: true, focused: false },
+                first: { pinned: false },
+                second: { pinned: true },
             }}
         />,
     );
@@ -563,8 +624,8 @@ test("backend placement moves widgets between center and sidebar without control
         <Results
             messages={messages}
             placements={{
-                first: { pinned: false, focused: true },
-                second: { pinned: false, focused: true },
+                first: { pinned: false },
+                second: { pinned: false },
             }}
         />,
     );
@@ -575,7 +636,7 @@ test("backend placement moves widgets between center and sidebar without control
 });
 
 test.each(["scatter", "bar", "pie"] as const)(
-    "pinned %s plots hide long legends and restore them when centered",
+    "%s plots limit legends to two rows and hide them when pinned",
     async (type) => {
         const names = Array.from(
             { length: 20 },
@@ -608,10 +669,23 @@ test.each(["scatter", "bar", "pie"] as const)(
         expect(
             screen.getByRole("article").classList.contains(legendClass),
         ).toBe(false);
+        const legend = screen
+            .getByRole("article")
+            .querySelector(".recharts-legend-wrapper > div")!;
+        expect(legend.classList.contains("max-h-16")).toBe(true);
+        expect(legend.classList.contains("overflow-hidden")).toBe(true);
+        expect(legend.classList.contains("gap-y-2")).toBe(true);
+        expect(legend.children).toHaveLength(20);
+        for (const item of legend.children) {
+            expect(item.classList.contains("h-5")).toBe(true);
+            expect(
+                item.querySelector("span")?.classList.contains("truncate"),
+            ).toBe(true);
+        }
         rerender(
             <Results
                 messages={messages}
-                placements={{ sales: { pinned: true, focused: false } }}
+                placements={{ sales: { pinned: true } }}
             />,
         );
         const pinned = screen
@@ -624,7 +698,7 @@ test.each(["scatter", "bar", "pie"] as const)(
         rerender(
             <Results
                 messages={messages}
-                placements={{ sales: { pinned: false, focused: true } }}
+                placements={{ sales: { pinned: false } }}
             />,
         );
         await waitFor(() =>
@@ -654,7 +728,7 @@ test.each(["scatter", "bar"] as const)(
         const { container, rerender } = render(
             <Results
                 messages={messages}
-                placements={{ sales: { pinned: true, focused: false } }}
+                placements={{ sales: { pinned: true } }}
             />,
         );
         const titleClass = "[&_.plot-xaxis-title]:hidden";
@@ -674,7 +748,7 @@ test.each(["scatter", "bar"] as const)(
         rerender(
             <Results
                 messages={messages}
-                placements={{ sales: { pinned: false, focused: true } }}
+                placements={{ sales: { pinned: false } }}
             />,
         );
         await waitFor(() =>
@@ -687,7 +761,7 @@ test.each(["scatter", "bar"] as const)(
 );
 
 test.each(["scatter", "bar"] as const)(
-    "narrow %s previews hide the value axis and restore it at full width",
+    "%s plots hide value axis titles and numbers at every width and placement",
     async (type) => {
         mockChartWidth(320);
         const messages = surface([
@@ -708,13 +782,16 @@ test.each(["scatter", "bar"] as const)(
         const { container, rerender } = render(
             <Results
                 messages={messages}
-                placements={{ sales: { pinned: true, focused: false } }}
+                placements={{ sales: { pinned: true } }}
             />,
         );
         await waitFor(() =>
             expect(container.querySelector(".recharts-xAxis")).not.toBeNull(),
         );
         expect(container.querySelector(".recharts-yAxis")).toBeNull();
+        expect(
+            container.querySelector(".recharts-yAxis-tick-labels"),
+        ).toBeNull();
         expect(screen.queryByText("Business submissions")).toBeNull();
         fireEvent.focus(screen.getByRole("application"));
         await waitFor(() =>
@@ -727,19 +804,23 @@ test.each(["scatter", "bar"] as const)(
         rerender(
             <Results
                 messages={messages}
-                placements={{ sales: { pinned: false, focused: true } }}
+                placements={{ sales: { pinned: false } }}
             />,
         );
         await waitFor(() =>
-            expect(screen.getByText("Business submissions")).toBeTruthy(),
+            expect(container.querySelector(".recharts-xAxis")).not.toBeNull(),
         );
-        expect(container.querySelector(".recharts-yAxis")).not.toBeNull();
+        expect(screen.queryByText("Business submissions")).toBeNull();
+        expect(container.querySelector(".recharts-yAxis")).toBeNull();
+        expect(
+            container.querySelector(".recharts-yAxis-tick-labels"),
+        ).toBeNull();
     },
 );
 
 test("an in-place widget update retains its sidebar placement", async () => {
     const messages = surface([bar("Original")]);
-    const placements = { sales: { pinned: true, focused: false } };
+    const placements = { sales: { pinned: true } };
     const { rerender } = render(
         <Results messages={messages} placements={placements} />,
     );

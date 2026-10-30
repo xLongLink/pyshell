@@ -3,9 +3,6 @@ import { cn } from "@/lib/utils";
 import * as RechartsPrimitive from "recharts";
 import type { TooltipValueType } from "recharts";
 
-// Format: { THEME_NAME: CSS_SELECTOR }
-const THEMES = { light: "", dark: ".dark" } as const;
-
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
 type TooltipNameType = number | string;
 
@@ -13,11 +10,8 @@ export type ChartConfig = Record<
     string,
     {
         label?: React.ReactNode;
-        icon?: React.ComponentType;
-    } & (
-        | { color?: string; theme?: never }
-        | { color?: never; theme: Record<keyof typeof THEMES, string> }
-    )
+        color?: string;
+    }
 >;
 
 type ChartContextProps = {
@@ -80,7 +74,7 @@ function ChartContainer({
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     const colorConfig = Object.entries(config).filter(
-        ([, config]) => config.theme ?? config.color,
+        ([, config]) => config.color,
     );
 
     if (!colorConfig.length) {
@@ -90,22 +84,13 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return (
         <style
             dangerouslySetInnerHTML={{
-                __html: Object.entries(THEMES)
-                    .map(
-                        ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
+                __html: `
+[data-chart=${id}] {
 ${colorConfig
-    .map(([key, itemConfig]) => {
-        const color =
-            itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ??
-            itemConfig.color;
-        return color ? `  --color-${key}: ${color};` : null;
-    })
+    .map(([key, itemConfig]) => `  --color-${key}: ${itemConfig.color};`)
     .join("\n")}
 }
 `,
-                    )
-                    .join("\n"),
             }}
         />
     );
@@ -226,39 +211,34 @@ function ChartTooltipContent({
                                     )
                                 ) : (
                                     <>
-                                        {itemConfig?.icon ? (
-                                            <itemConfig.icon />
-                                        ) : (
-                                            !hideIndicator && (
-                                                <div
-                                                    className={cn(
-                                                        "shrink-0 rounded-[2px] border-(--color-border) bg-(--color-bg)",
-                                                        {
-                                                            "h-2.5 w-2.5":
-                                                                indicator ===
-                                                                "dot",
-                                                            "w-1":
-                                                                indicator ===
-                                                                "line",
-                                                            "w-0 border-[1.5px] border-dashed bg-transparent":
-                                                                indicator ===
+                                        {!hideIndicator && (
+                                            <div
+                                                className={cn(
+                                                    "shrink-0 rounded-[2px] border-(--color-border) bg-(--color-bg)",
+                                                    {
+                                                        "h-2.5 w-2.5":
+                                                            indicator === "dot",
+                                                        "w-1":
+                                                            indicator ===
+                                                            "line",
+                                                        "w-0 border-[1.5px] border-dashed bg-transparent":
+                                                            indicator ===
+                                                            "dashed",
+                                                        "my-0.5":
+                                                            nestLabel &&
+                                                            indicator ===
                                                                 "dashed",
-                                                            "my-0.5":
-                                                                nestLabel &&
-                                                                indicator ===
-                                                                    "dashed",
-                                                        },
-                                                    )}
-                                                    style={
-                                                        {
-                                                            "--color-bg":
-                                                                indicatorColor,
-                                                            "--color-border":
-                                                                indicatorColor,
-                                                        } as React.CSSProperties
-                                                    }
-                                                />
-                                            )
+                                                    },
+                                                )}
+                                                style={
+                                                    {
+                                                        "--color-bg":
+                                                            indicatorColor,
+                                                        "--color-border":
+                                                            indicatorColor,
+                                                    } as React.CSSProperties
+                                                }
+                                            />
                                         )}
                                         <div
                                             className={cn(
@@ -300,12 +280,10 @@ const ChartLegend = RechartsPrimitive.Legend;
 
 function ChartLegendContent({
     className,
-    hideIcon = false,
     payload,
     verticalAlign = "bottom",
     nameKey,
 }: React.ComponentProps<"div"> & {
-    hideIcon?: boolean;
     nameKey?: string;
 } & RechartsPrimitive.DefaultLegendContentProps) {
     const { config } = useChart();
@@ -317,7 +295,7 @@ function ChartLegendContent({
     return (
         <div
             className={cn(
-                "flex items-center justify-center gap-4",
+                "flex max-h-16 flex-wrap items-center justify-center gap-x-4 gap-y-2 overflow-hidden",
                 verticalAlign === "top" ? "pb-3" : "pt-3",
                 className,
             )}
@@ -336,20 +314,18 @@ function ChartLegendContent({
                         <div
                             key={index}
                             className={cn(
-                                "flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground",
+                                "flex h-5 min-w-0 max-w-full items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:shrink-0 [&>svg]:text-muted-foreground",
                             )}
                         >
-                            {itemConfig?.icon && !hideIcon ? (
-                                <itemConfig.icon />
-                            ) : (
-                                <div
-                                    className="h-2 w-2 shrink-0 rounded-[2px]"
-                                    style={{
-                                        backgroundColor: item.color,
-                                    }}
-                                />
-                            )}
-                            {itemConfig?.label}
+                            <div
+                                className="h-2 w-2 shrink-0 rounded-[2px]"
+                                style={{
+                                    backgroundColor: item.color,
+                                }}
+                            />
+                            <span className="truncate">
+                                {itemConfig?.label}
+                            </span>
                         </div>
                     );
                 })}
