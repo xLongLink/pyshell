@@ -19,6 +19,8 @@ INSTRUCTIONS = """You are an agent working in a persistent Python session inside
 Respond with ONLY executable Python code, without Markdown fences or prose.
 Your complete response is executed through a local HTTP API. Use Python's
 standard library, installed packages, and subprocess as necessary.
+pandas, numpy, openpyxl, and scipy are installed for data analysis and Excel files.
+Use the provided ui charts for plotting, not matplotlib or other plotting libraries.
 Variables, imports, and working-directory changes persist across executions and
 user turns. Write normal Python scripts, without interactive prompt text.
 Use print() to display results; bare expressions are not displayed automatically.
@@ -31,6 +33,44 @@ Do not call input(): the user supplies instructions through the outer shell.
 Do not perform destructive operations unless the user requested them.
 Import the modules you need before using them. No modules are pre-imported;
 imports persist until the session is reset.
+
+The provided ui object publishes rich results through A2UI. It is available
+without imports. These are normal synchronous Python calls; do not await them.
+Use UI widgets for useful results, while still printing a concise summary:
+- ui.text(text, title="", surface_id=None): plain text, no HTML or Markdown.
+- ui.metric(label, value, detail="", surface_id=None): value is a formatted string.
+- ui.table(columns, rows, title="", surface_id=None): columns is a list of strings;
+  rows is a list of lists of JSON scalar values (up to 500 rows, 20 columns).
+- ui.chart.bar(points, title="", surface_id=None): compare labeled values.
+- ui.chart.line(points, title="", surface_id=None): show ordered trends.
+- ui.chart.pie(points, title="", surface_id=None): show nonnegative shares.
+  Charts accept up to 200 points, each
+  {"label": "Product", "value": 42}. Use None for missing numeric values.
+  Do not call ui.chart() or pass a kind argument. Pie rejects negative values
+  and omits missing values from slices, while retaining them in its data table.
+- ui.remove(surface_id): remove an existing surface.
+Each creation call returns a widget object, not a string. Keep it in a variable:
+chart = ui.chart.line(points=[{"label": "Jan", "value": 42}], title="Revenue")
+chart.update(points=[{"label": "Jan", "value": 50}]) updates validated attributes.
+chart.focus() highlights it and scrolls it into view; chart.unfocus() clears focus.
+chart.pin() keeps it in the pinned results section; chart.unpin() restores normal placement.
+chart.remove() removes its surface. chart.surface_id is its stable identifier.
+All widgets share these methods. Removed or replaced widget handles are invalid.
+Widget attributes are read-only outside update(); identity and type cannot change.
+Reuse a widget or a short named surface_id to avoid duplication. Surfaces persist until
+reset or removal; at most 20 may exist. Do not repeat successful mutations after
+errors: earlier Python changes and published widgets may already have applied.
+For custom layouts use ui.show(components, surface_id=None). Components form a complete
+tree, with a root whose id is "root", unique IDs, and no missing or repeated
+children. Approved components (flat dictionaries, not nested components):
+Text: id, component="Text", text, optional title.
+Metric: id, component="Metric", label, value (string), optional detail.
+Table: id, component="Table", columns, rows, optional title.
+BarChart/LineChart/PieChart: id, component="BarChart"/"LineChart"/"PieChart",
+points, optional title. PieChart points must have nonnegative values or None.
+Column/Row/Card: id, component="Column"/"Row"/"Card", children=[child IDs].
+Use only these components and fields; executable UI, URLs, images, inputs, and
+arbitrary actions are not supported. Convert pandas/numpy objects to plain Python values.
 """
 
 
@@ -38,7 +78,7 @@ class Settings(BaseSettings):
     """Load terminal client configuration from the environment."""
 
     model_config = SettingsConfigDict(
-        env_file=Path(__file__).with_name(".env"), env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True
+        env_file=Path(__file__).resolve().parents[1] / ".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True
     )
 
     # Environment variables override the client-local dotenv file.
@@ -55,6 +95,7 @@ class ExecutionResult(TypedDict):
     stderr: str
     exception: str | None
     done: bool
+    ui: list[dict[str, object]]
 
 
 # Requests bypass proxy settings for the local execution server.
@@ -175,7 +216,19 @@ class Agent:
             self.message_history = history
             message = json.dumps(result)
             if on_event is not None:
-                on_event({"type": "result", **result})
+                on_event({"type": "result", **{key: value for key, value in result.items() if key != "ui"}})
+                if result.get("ui"):
+                    messages = []
+                    for item in result["ui"]:
+                        if item.get("type") == "widget":
+                            if messages:
+                                on_event({"type": "a2ui", "messages": messages})
+                                messages = []
+                            on_event(item)
+                        else:
+                            messages.append(item)
+                    if messages:
+                        on_event({"type": "a2ui", "messages": messages})
             if result["done"]:
                 self.pending_feedback = message
                 return

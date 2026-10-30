@@ -1,10 +1,19 @@
 # Contributing to pyshell
 
-pyshell runs model-generated Python in a persistent execution API. `api/src/api/` owns
-FastAPI endpoints and Python execution; Docker configuration lives in `api/`.
-`web/server.py` owns the browser-facing agent API and one shared workspace.
-`web/script.py` contains the reusable agent loop and original terminal client.
-`web/src/` contains the React/shadcn UI. Vite proxies `/ws` to the agent API.
+pyshell runs model-generated Python in a persistent execution API. `api/main.py` owns
+FastAPI endpoints; `api/src/` owns Python execution. Docker configuration lives in `api/`.
+`web/main.py` exposes the browser-facing app from `web/src/server.py`, which owns
+the agent API and one shared workspace. `web/src/script.py` contains the reusable
+agent loop and original terminal client. `web/src/ui/` is the self-contained React/shadcn
+frontend project, including npm dependencies, build configuration, and frontend tests.
+Vite proxies `/ws` to the agent API.
+`api/src/ui/widget.py` defines the shared widget methods. Component models in
+`api/src/ui/` inherit that base; `api/src/ui/session.py` owns their factories and
+uses `a2ui-core` for catalog validation and protocol messages.
+`web/src/ui/lib/a2ui.ts` validates incoming display messages, and
+`web/src/ui/components/catalog.tsx` implements the approved React component catalog.
+Chart models live in `api/src/ui/chart/`, with `bar.py`, `line.py`, and `pie.py`
+sharing their common fields. `web/src/ui/components/chart.tsx` renders the charts.
 
 <br />
 
@@ -24,15 +33,31 @@ make up
 
 Open `http://127.0.0.1:8010`. `make up` builds and starts the container, installs
 frontend dependencies, builds the website, and starts the foreground web server
-and agent API. `make agent` starts the server using the existing frontend build.
-For frontend development, run `make web` in another terminal and open
+and agent API. For frontend development, run `npm --prefix web/src/ui run dev`
+in another terminal and open
 `http://127.0.0.1:5180`. The execution endpoint is hardcoded to
 `http://127.0.0.1:8000`. Browser tabs share one conversation and namespace.
 Use Reset for a fresh session. Closing a tab does not cancel submitted work.
 Press Ctrl-C to stop the agent API; the container runs until `make down`.
 
-Run `npm --prefix web run typecheck` and `make build` to check the frontend.
-`npm --prefix web run format` formats frontend sources.
+Run `npm --prefix web/src/ui run typecheck` and `npm --prefix web/src/ui run build` to check the frontend.
+`npm --prefix web/src/ui run format` formats frontend sources.
+
+To add a result component, inherit `Widget` in its own `api/src/ui/` module,
+define its typed attributes and default component name, and register the model
+in `api/src/ui/session.py`. Add a factory to the session if it needs a convenience
+constructor. Factories use model attributes rather than repeating their fields.
+Then add
+its wire schema in `web/src/ui/lib/a2ui.ts`, and its renderer/catalog entry in
+`web/src/ui/components/catalog.tsx`. Update the agent instructions in `web/src/script.py`.
+Keep catalog changes backward compatible or version the catalog ID on both sides.
+Rebuild the execution container and frontend with `make up` after changes.
+
+Widget content uses A2UI; pin/focus commands use separate workspace events.
+The agent API owns placement state and broadcasts it to all tabs. Browser
+placement controls never invoke the model or execute Python. Keep those
+controls available during model work, and preserve their state during content
+updates. Reset and surface deletion clear placement state.
 
 Cleanup:
 
@@ -41,6 +66,10 @@ make down
 ```
 
 ## Dependencies
+
+See [api/pyproject.toml](api/pyproject.toml) for default libraries and version constraints,
+and [api/uv.lock](api/uv.lock) for exact locked versions. Plotting uses the provided
+`ui` charts rather than a separate plotting library.
 
 Set `PYSHELL_REQUIREMENTS` to newline-separated requirements, or pass file contents
 with `PYSHELL_REQUIREMENTS="$(cat requirements.txt)" make up`. No file is mounted.
@@ -86,6 +115,9 @@ make test
 Tests cover the execution API under `api/tests/` and the agent/client under `web/tests/`.
 API tests use an in-process FastAPI client; model requests are mocked. No live
 OpenAI requests or Docker containers are needed for the unit tests.
+
+Frontend tests in `web/src/ui/tests/` include real A2UI rendering under jsdom,
+without browser automation.
 
 The API must run with one worker because the Python namespace is in memory.
 Execution and reset are serialized. Interrupting the host client does not cancel

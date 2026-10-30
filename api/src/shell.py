@@ -1,6 +1,7 @@
 import io
 import traceback
 import contextlib
+from src.ui.session import UI
 
 
 class PythonShell:
@@ -8,17 +9,19 @@ class PythonShell:
 
     def __init__(self) -> None:
         """Initialize the namespace and completion hook."""
-        self.namespace = {"__name__": "__main__", "done": self.done}
+        self.ui = UI()
+        self.namespace = {"__name__": "__main__", "done": self.done, "ui": self.ui}
         self.finished = False
 
     def done(self) -> None:
         """Mark the current task as complete."""
         self.finished = True
 
-    def execute(self, source: str) -> dict[str, str | bool | None]:
+    def execute(self, source: str) -> dict[str, object]:
         """Run source and capture its output, errors, and completion state."""
         stdout, stderr = io.StringIO(), io.StringIO()
         self.finished = False
+        self.ui.messages = []
         error = None
 
         # Keep partial namespace updates even when execution raises.
@@ -30,4 +33,4 @@ class PythonShell:
             except (Exception, SystemExit, KeyboardInterrupt):
                 self.finished = False
                 error = traceback.format_exc()
-        return {"stdout": stdout.getvalue(), "stderr": stderr.getvalue(), "exception": error, "done": self.finished}
+        return {"stdout": stdout.getvalue(), "stderr": stderr.getvalue(), "exception": error, "done": self.finished, "ui": self.ui.messages}

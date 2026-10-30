@@ -8,7 +8,7 @@ def test_health_without_model_credentials(api_client):
 def test_execution_preserves_namespace_and_captures_output(api_client):
     assert api_client.post("/", json={"code": "import math\nvalue = math.sqrt(16)"}).status_code == 200
     response = api_client.post("/", json={"code": "print(value)\nimport sys\nprint('warning', file=sys.stderr)\ndone()"})
-    assert response.json() == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": True}
+    assert response.json() == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
 
 
 def test_reset_clears_namespace(api_client):
@@ -29,7 +29,7 @@ def test_errors_preserve_prior_updates_and_do_not_kill_server(api_client):
 
 def test_output_and_done_are_per_request(api_client):
     api_client.post("/", json={"code": "print('old')\ndone()"})
-    assert api_client.post("/", json={"code": "pass"}).json() == {"stdout": "", "stderr": "", "exception": None, "done": False}
+    assert api_client.post("/", json={"code": "pass"}).json() == {"stdout": "", "stderr": "", "exception": None, "done": False, "ui": []}
 
 
 def test_invalid_request_is_rejected(api_client):

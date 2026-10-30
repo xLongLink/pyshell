@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
-from api.shell import PythonShell
+from pydantic import Field, BaseModel, JsonValue
+from src.shell import PythonShell
 from threading import Lock
 
 
@@ -17,6 +17,7 @@ class ExecutionResult(BaseModel):
     stderr: str
     stdout: str
     exception: str | None
+    ui: list[dict[str, JsonValue]] = Field(default_factory=list)
 
 
 def create_app() -> FastAPI:
@@ -30,7 +31,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     @app.post("/", response_model=ExecutionResult)
-    def execute(request: ExecutionRequest) -> dict[str, str | bool | None]:
+    def execute(request: ExecutionRequest) -> dict[str, object]:
         with lock:
             return shell.execute(request.code)
 
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
     def reset() -> dict[str, str]:
         nonlocal shell
         with lock:
+            shell.ui.close()
             shell = PythonShell()
         return {"status": "reset"}
 

@@ -13,6 +13,11 @@
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-ring: var(--primary);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
 }
 
 :root {
@@ -25,6 +30,11 @@
   --accent: #eef1eb;
   --destructive: #bd3939;
   --border: #dfe5dd;
+  --chart-1: #315c45;
+  --chart-2: oklch(0.6 0.12 240);
+  --chart-3: oklch(0.65 0.15 65);
+  --chart-4: oklch(0.55 0.15 305);
+  --chart-5: oklch(0.6 0.17 20);
 }
 
 @layer base {

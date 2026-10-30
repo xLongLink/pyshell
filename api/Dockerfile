@@ -8,6 +8,7 @@ ENV UV_PYTHON_DOWNLOADS=never \
 
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
+COPY main.py ./
 COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
 
@@ -34,6 +35,6 @@ if [ -n \"${PYSHELL_REQUIREMENTS:-}\" ]; then \
     uv pip install --no-cache --python \"$environment/bin/python\" -r \"$requirements\"; \
     uv pip check --no-cache --python \"$environment/bin/python\"; \
     export PATH=\"$environment/bin:$PATH\"; \
-    exec \"$environment/bin/python\" -m api \"$@\"; \
+    exec \"$environment/bin/python\" -m src \"$@\"; \
 fi; \
-exec /opt/venv/bin/python -m api \"$@\"", "pyshell-api"]
+exec /opt/venv/bin/python -m src \"$@\"", "pyshell-api"]

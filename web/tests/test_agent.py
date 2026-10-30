@@ -1,7 +1,7 @@
 import json
 import pytest
-from script import Agent
 from unittest.mock import Mock, patch
+from web.src.script import Agent
 
 
 def test_reset_clears_remote_session_and_conversation(model_for, remote_shell):

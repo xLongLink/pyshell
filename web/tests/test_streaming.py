@@ -1,6 +1,6 @@
 import pytest
-from script import stream_response
 from pydantic_ai import Agent
+from web.src.script import stream_response
 
 
 def test_prints_code_without_timing(model_for, capsys):

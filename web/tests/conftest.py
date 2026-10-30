@@ -1,7 +1,7 @@
 import pytest
-from script import RemoteShell
-from api.main import create_app
+from main import create_app
 from contextlib import asynccontextmanager
+from web.src.script import RemoteShell
 from fastapi.testclient import TestClient
 from pydantic_ai.models.function import FunctionModel
 
@@ -19,7 +19,7 @@ def remote_shell(api_client, monkeypatch):
         kwargs.pop("trust_env", None)
         return api_client.post(url, **kwargs)
 
-    monkeypatch.setattr("script.httpx.post", post)
+    monkeypatch.setattr("web.src.script.httpx.post", post)
     return RemoteShell("http://testserver")
 
 

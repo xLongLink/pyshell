@@ -1,20 +1,20 @@
 import pytest
-from script import Agent, Settings, main
 from unittest.mock import patch
+from web.src.script import Agent, Settings, main
 
 
 @pytest.fixture
 def run_main(monkeypatch, remote_shell):
     def run(inputs, run_effect):
         settings = Settings(_env_file=None, openai_api_key="test-key")
-        monkeypatch.setattr("script.Settings", lambda: settings)
-        monkeypatch.setattr("script.RemoteShell", lambda url: remote_shell)
+        monkeypatch.setattr("web.src.script.Settings", lambda: settings)
+        monkeypatch.setattr("web.src.script.RemoteShell", lambda url: remote_shell)
         monkeypatch.setattr("sys.argv", ["script.py"])
 
         # Exercise the real input loop without making API requests.
         with (
             patch("builtins.input", side_effect=inputs),
-            patch("script.OpenAIProvider"),
+            patch("web.src.script.OpenAIProvider"),
             patch.object(Agent, "run", autospec=True, side_effect=run_effect) as agent_run,
         ):
             status = main()
@@ -40,9 +40,9 @@ def test_interactive_instructions_share_imports(run_main):
 
 def test_startup_and_exit_make_no_model_requests(monkeypatch):
     settings = Settings(_env_file=None, openai_api_key="test-key")
-    monkeypatch.setattr("script.Settings", lambda: settings)
+    monkeypatch.setattr("web.src.script.Settings", lambda: settings)
     monkeypatch.setattr("sys.argv", ["script.py"])
-    with patch("builtins.input", side_effect=KeyboardInterrupt), patch("script.OpenAIProvider") as provider:
+    with patch("builtins.input", side_effect=KeyboardInterrupt), patch("web.src.script.OpenAIProvider") as provider:
         assert main() == 0
     provider.return_value.client.responses.create.assert_not_called()
 
@@ -93,7 +93,7 @@ def test_exit_and_quit_are_not_local_commands(run_main):
 
 def test_cli_rejects_command_line_instruction(monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["script.py", "calculate"])
-    with patch("script.Settings") as settings:
+    with patch("web.src.script.Settings") as settings:
         with pytest.raises(SystemExit) as exc:
             main()
 

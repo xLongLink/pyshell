@@ -1,6 +1,6 @@
 import httpx
 import pytest
-from script import RemoteShell
+from web.src.script import RemoteShell
 
 
 def test_remote_execution_and_reset(remote_shell):
@@ -17,7 +17,7 @@ def test_execution_transport_failure_is_not_retried(monkeypatch):
         calls.append(args)
         raise httpx.ReadError("disconnected")
 
-    monkeypatch.setattr("script.httpx.post", post)
+    monkeypatch.setattr("web.src.script.httpx.post", post)
     with pytest.raises(RuntimeError, match="may already have run"):
         RemoteShell().execute("value = 42")
     assert len(calls) == 1

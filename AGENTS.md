@@ -8,7 +8,9 @@
 
 ```bash
 ├── api/
-│   ├── src/api/       # Persistent Python namespace
+│   ├── main.py        # FastAPI application and endpoints
+│   ├── src/           # Execution API and persistent Python namespace
+│   │   └── ui/        # One module per UI element
 │   ├── tests/         # Server tests
 │   ├── Dockerfile     # Execution container image
 │   ├── Dockerfile.dockerignore
@@ -16,8 +18,12 @@
 │   ├── uv.lock
 │   └── compose.yaml   # Execution environment configuration
 ├── web/
-│   ├── script.py      # Terminal client
-│   ├── tests/         # Terminal client tests
+│   ├── main.py        # Browser-facing application entry point
+│   ├── src/
+│   │   ├── script.py  # Agent loop and terminal client
+│   │   ├── server.py  # Agent API and shared workspace
+│   │   └── ui/        # Self-contained React frontend, npm configuration, and tests
+│   ├── tests/         # Agent and server tests
 │   ├── pyproject.toml # Client dependencies
 │   └── uv.lock
 ├── README.md          # Setup and usage
