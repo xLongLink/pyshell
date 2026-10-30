@@ -1,21 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { z } from "zod";
 import {
-    eventSchema,
     messageSchema,
     type Placements,
     type VoiceEvent,
 } from "@/lib/workspace";
 import type { A2uiMessage } from "@/lib/a2ui";
-
-function reduceOutput(text: string, event: z.infer<typeof eventSchema>) {
-    if (event.type === "instruction") return "";
-    if (event.type === "stdout_delta" || event.type === "stderr_delta")
-        return (text + event.text).slice(-65536);
-    if (event.type === "result" && event.exception)
-        return (text + event.exception).slice(-65536);
-    return text;
-}
 
 function retainWidgets(messages: A2uiMessage[]) {
     if (messages.length <= 200) return messages;
@@ -45,7 +34,6 @@ export function useWorkspace() {
     const [uiMessages, setUiMessages] = useState<A2uiMessage[]>([]);
     const [placements, setPlacements] = useState<Placements>({});
     const [voiceEvent, setVoiceEvent] = useState<VoiceEvent | null>(null);
-    const [output, setOutput] = useState("");
 
     useEffect(() => {
         let disposed = false;
@@ -73,13 +61,11 @@ export function useWorkspace() {
                         setBusy(event.busy);
                         setError("");
                         setConnected(true);
-                        setOutput(event.events.reduce(reduceOutput, ""));
                     } else if (event.type === "state") {
                         setBusy(event.busy);
                     } else {
                         if (event.type === "error") setError(event.text);
                         if (event.type === "instruction") setError("");
-                        setOutput((previous) => reduceOutput(previous, event));
                         if (event.type === "placement")
                             setPlacements(event.widgets);
                         if (event.type === "a2ui")
@@ -141,6 +127,5 @@ export function useWorkspace() {
         send,
         sendVoice,
         voiceEvent,
-        output,
     };
 }

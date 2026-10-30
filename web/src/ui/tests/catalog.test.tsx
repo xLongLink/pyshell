@@ -285,26 +285,79 @@ test.each(["bar", "scatter", "pie"] as const)(
     },
 );
 
-test("pie labels are rendered as text, never as generated CSS keys", async () => {
-    const label = '</style><img src=x onerror="alert(1)">';
-    const { container } = render(
-        <Results
-            messages={surface([
-                {
-                    id: "root",
-                    component: "Figure",
-                    data: [{ type: "pie", labels: [label], values: [42] }],
-                },
-            ])}
-        />,
-    );
-    await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
-    expect(container.querySelector("img")).toBeNull();
-    const chart = container.querySelector<HTMLElement>('[data-slot="chart"]')!;
-    expect(chart.style.getPropertyValue("--color-slice_0")).not.toBe("");
-    expect(chart.getAttribute("style")).not.toContain(label);
-    expect(chart.querySelector("style")).toBeNull();
-});
+test.each(['</style><img src=x onerror="alert(1)">', "__proto__", "slice_1"])(
+    "pie legends and tooltips resolve slice labels as inert text: %s",
+    async (label) => {
+        const { container } = render(
+            <Results
+                messages={surface([
+                    {
+                        id: "root",
+                        component: "Figure",
+                        data: [{ type: "pie", labels: [label], values: [42] }],
+                    },
+                ])}
+            />,
+        );
+        await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
+        expect(container.querySelector("img")).toBeNull();
+        const chart = container.querySelector<HTMLElement>(
+            '[data-slot="chart"]',
+        )!;
+        expect(chart.style.getPropertyValue("--color-slice_0")).not.toBe("");
+        expect(chart.getAttribute("style")).not.toContain(label);
+        expect(chart.querySelector("style")).toBeNull();
+        fireEvent.mouseEnter(container.querySelector(".recharts-pie-sector")!);
+        await waitFor(() =>
+            expect(
+                container.querySelector(".recharts-tooltip-wrapper")
+                    ?.textContent,
+            ).toBe(`${label}42`),
+        );
+        expect(
+            container
+                .querySelector<HTMLElement>(".recharts-tooltip-wrapper [style]")
+                ?.style.getPropertyValue("--color-bg"),
+        ).toBe("var(--color-slice_0)");
+        expect(container.querySelector("img")).toBeNull();
+    },
+);
+
+test.each(["bar", "scatter"] as const)(
+    "%s legends and keyboard tooltips preserve user labels and default series names",
+    async (type) => {
+        const name = '<img src=x onerror="alert(1)">__proto__';
+        const { container } = render(
+            <Results
+                messages={surface([
+                    {
+                        id: "root",
+                        component: "Figure",
+                        data: [
+                            { type, name, x: ["A"], y: [42] },
+                            { type, x: ["B"], y: [10] },
+                        ],
+                    },
+                ])}
+            />,
+        );
+        await screen.findByText(name);
+        expect(screen.getByText("Series 2")).toBeTruthy();
+        fireEvent.focus(screen.getByRole("application"));
+        await waitFor(() =>
+            expect(
+                container.querySelector(".recharts-tooltip-wrapper")
+                    ?.textContent,
+            ).toBe(`A${name}42`),
+        );
+        expect(
+            container
+                .querySelector<HTMLElement>(".recharts-tooltip-wrapper [style]")
+                ?.style.getPropertyValue("--color-bg"),
+        ).toBe("var(--color-trace_0)");
+        expect(container.querySelector("img")).toBeNull();
+    },
+);
 
 test("chart colors stay scoped to their containers and preserve supplied styles", () => {
     const { container, rerender } = render(

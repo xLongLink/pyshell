@@ -20,7 +20,6 @@ function workspace(overrides = {}) {
         send: vi.fn(() => true),
         sendVoice: vi.fn(() => true),
         voiceEvent: null,
-        output: "",
         ...overrides,
     };
     vi.mocked(useWorkspace).mockReturnValue(state);
@@ -28,7 +27,7 @@ function workspace(overrides = {}) {
 }
 
 test("workspace offers voice without chat or execution output", () => {
-    workspace({ output: "Execution details" });
+    workspace();
     const { container } = render(<App />);
     expect(screen.queryByRole("heading", { name: "Workspace" })).toBeNull();
     expect(screen.queryByText("Ready")).toBeNull();
@@ -38,7 +37,6 @@ test("workspace offers voice without chat or execution output", () => {
     ).toBeNull();
     expect(container.querySelector("pre, code")).toBeNull();
     expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
-    expect(screen.queryByText("Execution details")).toBeNull();
     const voice = screen.getByRole("button", { name: "Start voice" });
     expect((voice as HTMLButtonElement).disabled).toBe(false);
     expect(voice.parentElement?.classList.contains("top-1/2")).toBe(true);
@@ -64,7 +62,10 @@ test("workspace disables voice while disconnected", () => {
     workspace({ connected: false });
     render(<App />);
     expect(
-        (screen.getByRole("button", { name: "Start voice" }) as HTMLButtonElement)
-            .disabled,
+        (
+            screen.getByRole("button", {
+                name: "Start voice",
+            }) as HTMLButtonElement
+        ).disabled,
     ).toBe(true);
 });

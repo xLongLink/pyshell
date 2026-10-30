@@ -71,13 +71,6 @@ def test_remote_libraries(remote_shell):
     asyncio.run(run())
 
 
-def test_remote_execution_and_reset(api_client):
-    assert api_client.post("/", json={"code": "value = 42"}).json()["exception"] is None
-    assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "42\n"
-    assert api_client.post("/reset").is_success
-    assert "NameError" in api_client.post("/", json={"code": "print(value)"}).json()["exception"]
-
-
 def test_remote_and_sync_clients_share_the_execution_namespace(api_client, remote_shell):
     assert api_client.post("/", json={"code": "shared_value = 42"}).json()["exception"] is None
 

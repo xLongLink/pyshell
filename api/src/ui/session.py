@@ -24,15 +24,9 @@ class UI:
         self._closed = False
         self._processor = MessageProcessor([CATALOG_MODEL])
 
-    def plot(self, *values: object, surface_id: str | None = None, **attributes: object) -> Figure:
+    def plot(self, data: object = None, *, surface_id: str | None = None, **attributes: object) -> Figure:
         """Validate and publish a figure, accepting positional or keyword data."""
-        if len(values) > 1:
-            raise TypeError("Figure accepts at most 1 positional arguments")
-        if values:
-            if "data" in attributes:
-                raise TypeError("Multiple values for 'data'")
-            attributes["data"] = values[0]
-        widget = Figure.model_validate(attributes)
+        widget = Figure.model_validate({"data": data, **attributes})
         self.show(widget, surface_id=surface_id)
         return widget
 

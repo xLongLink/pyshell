@@ -48,15 +48,15 @@ def test_show_publishes_a_typed_handle_once():
 def test_plot_rejects_duplicate_or_excess_positional_data_before_publication():
     ui = UI()
     data = [{"type": "bar", "x": ["A"], "y": [1]}]
-    with pytest.raises(TypeError, match="Multiple values for 'data'"):
+    with pytest.raises(TypeError):
         ui.plot(data, data=data)
-    with pytest.raises(TypeError, match="at most 1 positional"):
+    with pytest.raises(TypeError):
         ui.plot(data, data)
     assert ui.messages == []
     assert ui.surfaces == set()
 
 
-@pytest.mark.parametrize("attributes", [{}, {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True}])
+@pytest.mark.parametrize("attributes", [{}, {"data": None}, {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True}])
 def test_invalid_plot_arguments_do_not_publish(attributes):
     ui = UI()
     with pytest.raises(ValidationError):

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import * as RechartsPrimitive from "recharts";
-import type { TooltipValueType } from "recharts";
+import type { TooltipPayloadEntry, TooltipValueType } from "recharts";
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
 type TooltipNameType = number | string;
@@ -87,7 +87,7 @@ function ChartTooltipContent({
     Omit<React.ComponentProps<"div">, "color"> & {
         hideLabel?: boolean;
         indicator?: "line" | "dot";
-        nameKey?: string;
+        nameKey?: "category";
     } & Omit<
         RechartsPrimitive.DefaultTooltipContentProps<
             TooltipValueType,
@@ -103,8 +103,7 @@ function ChartTooltipContent({
         }
 
         const [item] = payload;
-        const key = `${item?.dataKey ?? item?.name ?? "value"}`;
-        const itemConfig = getPayloadConfigFromPayload(config, item, key);
+        const itemConfig = getChartItemConfig(config, item);
         const value =
             typeof label === "string"
                 ? (config[label]?.label ?? label)
@@ -143,11 +142,10 @@ function ChartTooltipContent({
                 {payload
                     .filter((item) => item.type !== "none")
                     .map((item, index) => {
-                        const key = `${nameKey ?? item.name ?? item.dataKey ?? "value"}`;
-                        const itemConfig = getPayloadConfigFromPayload(
+                        const itemConfig = getChartItemConfig(
                             config,
                             item,
-                            key,
+                            nameKey,
                         );
                         const indicatorColor = item.payload?.fill ?? item.color;
 
@@ -211,7 +209,7 @@ function ChartLegendContent({
     payload,
     nameKey,
 }: React.ComponentProps<"div"> & {
-    nameKey?: string;
+    nameKey?: "category";
 } & Omit<RechartsPrimitive.DefaultLegendContentProps, "verticalAlign">) {
     const { config } = useChart();
 
@@ -229,11 +227,10 @@ function ChartLegendContent({
             {payload
                 .filter((item) => item.type !== "none")
                 .map((item, index) => {
-                    const key = `${nameKey ?? item.dataKey ?? "value"}`;
-                    const itemConfig = getPayloadConfigFromPayload(
+                    const itemConfig = getChartItemConfig(
                         config,
                         item,
-                        key,
+                        nameKey,
                     );
 
                     return (
@@ -259,41 +256,22 @@ function ChartLegendContent({
     );
 }
 
-// Helper to extract item config from a payload.
-function getPayloadConfigFromPayload(
+function getChartItemConfig(
     config: ChartConfig,
-    payload: unknown,
-    key: string,
+    item: Pick<TooltipPayloadEntry, "dataKey"> & { payload?: unknown },
+    nameKey?: "category",
 ) {
-    if (typeof payload !== "object" || payload === null) {
-        return undefined;
-    }
-
-    const payloadPayload =
-        "payload" in payload &&
-        typeof payload.payload === "object" &&
-        payload.payload !== null
-            ? payload.payload
+    if (nameKey === "category") {
+        const slice = item.payload;
+        return typeof slice === "object" &&
+            slice !== null &&
+            "category" in slice &&
+            typeof slice.category === "string"
+            ? config[slice.category]
             : undefined;
-
-    let configLabelKey: string = key;
-
-    if (
-        key in payload &&
-        typeof payload[key as keyof typeof payload] === "string"
-    ) {
-        configLabelKey = payload[key as keyof typeof payload] as string;
-    } else if (
-        payloadPayload &&
-        key in payloadPayload &&
-        typeof payloadPayload[key as keyof typeof payloadPayload] === "string"
-    ) {
-        configLabelKey = payloadPayload[
-            key as keyof typeof payloadPayload
-        ] as string;
     }
 
-    return configLabelKey in config ? config[configLabelKey] : config[key];
+    return config[typeof item.dataKey === "string" ? item.dataKey : "value"];
 }
 
 export {
