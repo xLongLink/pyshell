@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     model = OpenAIResponsesModel(settings.openai_model, provider=provider)
     shell = RemoteShell("http://127.0.0.1:8000")
     await shell.open()
-    workspace = Workspace(Agent(model, settings.openai_service_tier, shell=shell))
+    workspace = Workspace(Agent(model, shell=shell))
     app.state.workspace = workspace
     app.state.realtime_model = OpenAIRealtimeModel(settings.openai_realtime_model, provider=provider)
 

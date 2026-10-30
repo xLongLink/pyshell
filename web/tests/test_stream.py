@@ -57,7 +57,7 @@ def test_confirmed_stream_forwards_events_in_order_without_terminal_marker():
         try:
             result = await shell.stream("print('output')", received.append)
             assert received == events[:-1]
-            assert result == {"stdout": "output\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
+            assert result == {"stdout": "output\n", "stderr": "warning\n", "exception": None, "done": True}
             assert shell.uncertain is False
         finally:
             await shell.close()

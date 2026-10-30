@@ -12,7 +12,6 @@ class ExecutionResult(TypedDict):
     stderr: str
     exception: str | None
     done: bool
-    ui: list[dict[str, object]]
 
 
 # Requests bypass proxy settings for the local execution server.
@@ -83,7 +82,7 @@ class RemoteShell:
 
                     else:
                         if event["type"] == "result":
-                            result = {**event, "ui": []}
+                            result = dict(event)
                             result.pop("type")
                         emit(event)
 

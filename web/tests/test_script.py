@@ -212,18 +212,17 @@ def test_model_imports_persist_between_requests(model_for, remote_shell):
     assert '"done": true' in str(requests[1][0][-1])
 
 
-def test_requests_priority_processing(model_for, remote_shell):
+def test_requests_low_reasoning_effort(model_for, remote_shell):
     requests = []
     model = model_for(["done()"], requests=requests)
 
     async def run():
         async with opened_shell(remote_shell):
-            await Agent(model, service_tier="priority", shell=remote_shell).arun("finish")
+            await Agent(model, shell=remote_shell).arun("finish")
 
     asyncio.run(run())
     settings = requests[0][1].model_settings
-    assert settings["openai_service_tier"] == "priority"
-    assert settings["openai_reasoning_effort"] == "low"
+    assert settings == {"openai_reasoning_effort": "low"}
 
 
 def test_agent_does_not_log_code_or_results(model_for, remote_shell, capsys):
@@ -232,7 +231,7 @@ def test_agent_does_not_log_code_or_results(model_for, remote_shell, capsys):
 
     async def run():
         async with opened_shell(remote_shell):
-            result = {"stdout": "result\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
+            result = {"stdout": "result\n", "stderr": "warning\n", "exception": None, "done": True}
             with patch.object(remote_shell, "stream", new_callable=AsyncMock, return_value=result) as execute:
                 assert await agent.arun("work") == "result\nwarning\n"
                 assert execute.await_count == 1
@@ -255,6 +254,7 @@ def test_continues_until_done_and_sends_execution_feedback(model_for, remote_she
 
     asyncio.run(run())
     feedback = json.loads(requests[1][0][-1].parts[0].content)
+    assert set(feedback) == {"stdout", "stderr", "exception", "done"}
     assert "ZeroDivisionError" in feedback["exception"]
     assert json.loads(agent.pending_feedback)["stdout"] == "fixed\n"
 

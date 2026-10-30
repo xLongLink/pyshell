@@ -1,6 +1,5 @@
 import json
 import asyncio
-from typing import Literal
 from pydantic_ai import Agent as PydanticAgent
 from web.src.shell import RemoteShell
 from collections.abc import Callable
@@ -90,16 +89,14 @@ async def stream_response(
 class Agent:
     """Run generated Python and feed results back to the model."""
 
-    def __init__(
-        self, model: Model, service_tier: Literal["auto", "default", "flex", "priority"] = "auto", shell: RemoteShell | None = None
-    ) -> None:
+    def __init__(self, model: Model, *, shell: RemoteShell) -> None:
         """Create a model-backed agent for a remote Python session."""
-        self.shell = shell if shell is not None else RemoteShell()
+        self.shell = shell
         self._libraries: list[dict[str, str]] | None = None
 
         # Resolve the execution environment's package inventory on the first turn.
         self.agent = PydanticAgent(
-            model, instructions=self._instructions, model_settings={"openai_service_tier": service_tier, "openai_reasoning_effort": "low"}
+            model, instructions=self._instructions, model_settings={"openai_reasoning_effort": "low"}
         )
 
         # Conversation state is committed only after execution succeeds.
