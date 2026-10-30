@@ -2,6 +2,6 @@
 !Dockerfile
 !pyproject.toml
 !uv.lock
-!README.md
-!api/
-!api/*.py
+!src/
+!src/api/
+!src/api/*.py

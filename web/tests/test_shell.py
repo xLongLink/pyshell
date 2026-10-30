@@ -1,6 +1,5 @@
 import httpx
 import pytest
-
 from script import RemoteShell
 
 

@@ -7,14 +7,19 @@
 ## Project layout
 
 ```bash
-├── api/               # Persistent Python namespace
-├── script.py          # Local example usage
-├── tests/
-│   ├── api/           # Server tests
-│   └── client/        # Terminal client tests
-├── pyproject.toml     # Dependencies, pytest settings, and Ruff rules
-├── Dockerfile         # Execution container image
-├── compose.yaml       # Execution environment configuration
+├── api/
+│   ├── src/api/       # Persistent Python namespace
+│   ├── tests/         # Server tests
+│   ├── Dockerfile     # Execution container image
+│   ├── Dockerfile.dockerignore
+│   ├── pyproject.toml # API dependencies
+│   ├── uv.lock
+│   └── compose.yaml   # Execution environment configuration
+├── web/
+│   ├── script.py      # Terminal client
+│   ├── tests/         # Terminal client tests
+│   ├── pyproject.toml # Client dependencies
+│   └── uv.lock
 ├── README.md          # Setup and usage
 └── CONTRIBUTING.md    # Development and operational details
 ```

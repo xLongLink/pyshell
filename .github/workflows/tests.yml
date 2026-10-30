@@ -35,7 +35,10 @@ jobs:
         with:
           version: '0.13.4'
           enable-cache: true
-      - run: uv run --locked --python "${PYTHON_VERSION}" pytest -v
+      - run: uv run --locked --project api --python "${PYTHON_VERSION}" pytest -c api/pyproject.toml api/tests -v
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+      - run: uv run --locked --project web --python "${PYTHON_VERSION}" pytest -c web/pyproject.toml web/tests -v
         env:
           PYTHON_VERSION: ${{ matrix.python }}
 
@@ -44,7 +47,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker build -t pyshell:test .
+      - run: docker build -t pyshell:test api
       - run: docker run --rm --network none pyshell:test --help
       - name: Check startup requirements with a read-only filesystem
         run: |

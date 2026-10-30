@@ -1,7 +1,6 @@
 import pytest
-from script import main, Agent
+from script import Agent, Settings, main
 from unittest.mock import patch
-from script import Settings
 
 
 @pytest.fixture
@@ -15,7 +14,7 @@ def run_main(monkeypatch, remote_shell):
         # Exercise the real input loop without making API requests.
         with (
             patch("builtins.input", side_effect=inputs),
-            patch("openai.OpenAI"),
+            patch("script.OpenAIProvider"),
             patch.object(Agent, "run", autospec=True, side_effect=run_effect) as agent_run,
         ):
             status = main()
@@ -43,10 +42,9 @@ def test_startup_and_exit_make_no_model_requests(monkeypatch):
     settings = Settings(_env_file=None, openai_api_key="test-key")
     monkeypatch.setattr("script.Settings", lambda: settings)
     monkeypatch.setattr("sys.argv", ["script.py"])
-    with patch("builtins.input", side_effect=KeyboardInterrupt), patch("openai.OpenAI") as client:
+    with patch("builtins.input", side_effect=KeyboardInterrupt), patch("script.OpenAIProvider") as provider:
         assert main() == 0
-    client.return_value.responses.create.assert_not_called()
-    client.return_value.responses.stream.assert_not_called()
+    provider.return_value.client.responses.create.assert_not_called()
 
 
 def test_interactive_reset_clears_imports(run_main, capsys):

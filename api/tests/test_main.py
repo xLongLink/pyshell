@@ -29,9 +29,7 @@ def test_errors_preserve_prior_updates_and_do_not_kill_server(api_client):
 
 def test_output_and_done_are_per_request(api_client):
     api_client.post("/", json={"code": "print('old')\ndone()"})
-    assert api_client.post("/", json={"code": "pass"}).json() == {
-        "stdout": "", "stderr": "", "exception": None, "done": False,
-    }
+    assert api_client.post("/", json={"code": "pass"}).json() == {"stdout": "", "stderr": "", "exception": None, "done": False}
 
 
 def test_invalid_request_is_rejected(api_client):

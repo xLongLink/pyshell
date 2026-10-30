@@ -7,8 +7,8 @@ ENV UV_PYTHON_DOWNLOADS=never \
     UV_LINK_MODE=copy
 
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md ./
-COPY api ./api
+COPY pyproject.toml uv.lock ./
+COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
 
 FROM python:3.12-slim AS runtime

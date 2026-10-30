@@ -45,7 +45,7 @@ normal Python script: use `print()` for results. Use one server worker only.
 
 ## Customize the environment
 
-Configure your API key, model, and processing tier in [`.env`](.env.sample).
+Configure your API key, model, and processing tier in [`web/.env`](web/.env.sample).
 `PYSHELL_API_URL` selects the execution server for the terminal client.
 The selected model must be available to your OpenAI account; Priority processing
 may cost more. Model requests are made only when you submit an instruction.
@@ -92,8 +92,8 @@ Docker Compose v2.24+, and an OpenAI API key.
 Run from the repository root:
 
 ```bash
-cp .env.sample .env
-# Edit .env and set OPENAI_API_KEY.
+cp web/.env.sample web/.env
+# Edit web/.env and set OPENAI_API_KEY.
 make up
 ```
 
@@ -102,6 +102,15 @@ Stop project containers without deleting workspace data:
 ```bash
 make down
 ```
+
+The API and client have independent uv projects in `api/` and `web/`.
+To run the terminal client separately from the repository root:
+
+```bash
+uv run --locked --project web python web/script.py
+```
+
+Run tests for both environments with `make test`.
 
 
 <br />

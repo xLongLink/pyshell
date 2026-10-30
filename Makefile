@@ -1,11 +1,15 @@
-.PHONY: up down format
+.PHONY: up down test format
 
 up:
-	docker compose up --build --detach --wait pyshell
-	uv run --locked python script.py
+	docker compose -f api/compose.yaml up --build --detach --wait pyshell
+	uv run --locked --project web python web/script.py
 
 down:
-	docker compose down --remove-orphans
+	docker compose -f api/compose.yaml down --remove-orphans
+
+test:
+	uv run --locked --project api pytest -c api/pyproject.toml api/tests -v
+	uv run --locked --project web pytest -c web/pyproject.toml web/tests -v
 
 format:
 	uvx ruff check --fix .

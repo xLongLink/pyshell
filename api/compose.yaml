@@ -1,7 +1,10 @@
+name: pyshell
+
 services:
   pyshell:
     build:
       context: .
+      dockerfile: Dockerfile
       target: runtime
     environment:
       PYSHELL_REQUIREMENTS: ${PYSHELL_REQUIREMENTS:-}

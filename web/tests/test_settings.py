@@ -1,7 +1,8 @@
 import os
 import pytest
-from pydantic import ValidationError
 from script import Settings
+from pathlib import Path
+from pydantic import ValidationError
 
 
 @pytest.fixture
@@ -10,17 +11,22 @@ def clean_environment(monkeypatch):
         monkeypatch.delenv(name)
 
 
-def test_loads_dotenv_from_current_directory(clean_environment, tmp_path, monkeypatch):
-    (tmp_path / ".env").write_text(
-        "OPENAI_API_KEY=test-key\nOPENAI_MODEL=test-model\n", encoding="utf-8",
-    )
+def test_loads_dotenv_from_configured_path(clean_environment, tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text("OPENAI_API_KEY=test-key\nOPENAI_MODEL=test-model\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(Settings.model_config, "env_file", tmp_path / ".env")
 
     settings = Settings()
 
     assert settings.openai_api_key.get_secret_value() == "test-key"
     assert "test-key" not in repr(settings)
     assert settings.openai_model == "test-model"
+
+
+def test_default_dotenv_is_in_web():
+    import script
+
+    assert Settings.model_config["env_file"] == Path(script.__file__).with_name(".env")
 
 
 def test_environment_overrides_dotenv(clean_environment, tmp_path, monkeypatch):
