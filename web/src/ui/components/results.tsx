@@ -1,44 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { A2uiSurface, type ReactCatalogComponent } from "@a2ui/react/v0_9";
 import { MessageProcessor, type SurfaceModel } from "@a2ui/web_core/v0_9";
 import { resultCatalog } from "@/components/catalog";
 import type { A2uiMessage } from "@/lib/a2ui";
-import type { Placements, WidgetAction } from "@/lib/workspace";
-import { Focus, Pin, PinOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import type { Placements } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 
 export function Results({
   messages,
   placements = {},
-  onAction,
 }: {
   messages: A2uiMessage[];
   placements?: Placements;
-  onAction?: (surfaceId: string, action: WidgetAction) => void;
 }) {
   const [surfaces, setSurfaces] = useState<
     SurfaceModel<ReactCatalogComponent>[]
   >([]);
   const [error, setError] = useState("");
-  const elements = useRef(new Map<string, HTMLElement>());
-  const focusedElement = useRef<HTMLElement | null>(null);
-  const focusedId = Object.entries(placements).find(
-    ([, placement]) => placement.focused,
-  )?.[0];
-
-  useEffect(() => {
-    if (!focusedId) {
-      if (document.activeElement === focusedElement.current)
-        focusedElement.current?.blur();
-      focusedElement.current = null;
-      return;
-    }
-    const element = elements.current.get(focusedId);
-    focusedElement.current = element ?? null;
-    element?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-    element?.focus({ preventScroll: true });
-  }, [focusedId, surfaces]);
 
   useEffect(() => {
     const processor = new MessageProcessor<ReactCatalogComponent>([
@@ -63,82 +41,62 @@ export function Results({
     } catch {
       setSurfaces([]);
       setError(
-        "The generated interface could not be rendered. Execution output is still available below.",
+        "The generated interface could not be rendered. Check the server console for execution details.",
       );
     }
     return () => processor.dispose();
   }, [messages]);
 
   if (!surfaces.length && !error) return null;
+  const centered = surfaces
+    .filter((surface) => !placements[surface.id]?.pinned)
+    .slice(-4);
+  const centerIds = new Set(centered.map((surface) => surface.id));
+  const sidebar = surfaces.filter((surface) => !centerIds.has(surface.id));
+
+  function widget(surface: SurfaceModel<ReactCatalogComponent>) {
+    return (
+      <article
+        key={surface.id}
+        aria-label={`Widget ${surface.id}`}
+        className="min-w-0"
+      >
+        <A2uiSurface surface={surface} />
+      </article>
+    );
+  }
+
   return (
-    <section aria-label="Results" className="space-y-4 border-b pb-6">
-      <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Results
-      </h2>
+    <section aria-label="Results" className="space-y-4">
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}
-      {[...surfaces]
-        .sort(
-          (left, right) =>
-            Number(placements[right.id]?.pinned ?? false) -
-            Number(placements[left.id]?.pinned ?? false),
-        )
-        .map((surface) => {
-          const pinned = placements[surface.id]?.pinned ?? false;
-          const focused = placements[surface.id]?.focused ?? false;
-          return (
-            <article
-              key={surface.id}
-              aria-label={`Widget ${surface.id}`}
-              tabIndex={-1}
-              ref={(element) => {
-                if (element) elements.current.set(surface.id, element);
-                else elements.current.delete(surface.id);
-              }}
-              className={cn(
-                "min-w-0 rounded-lg p-1 outline-none",
-                focused && "ring-2 ring-primary ring-offset-2",
-              )}
-            >
-              <header className="mb-2 flex items-center justify-between gap-3">
-                <span className="text-xs text-muted-foreground">
-                  {surface.id}
-                  {pinned ? " · Pinned" : ""}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label={`${focused ? "Unfocus" : "Focus"} ${surface.id}`}
-                    aria-pressed={focused}
-                    disabled={!onAction}
-                    onClick={() =>
-                      onAction?.(surface.id, focused ? "unfocus" : "focus")
-                    }
-                  >
-                    <Focus />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    aria-label={`${pinned ? "Unpin" : "Pin"} ${surface.id}`}
-                    aria-pressed={pinned}
-                    disabled={!onAction}
-                    onClick={() =>
-                      onAction?.(surface.id, pinned ? "unpin" : "pin")
-                    }
-                  >
-                    {pinned ? <PinOff /> : <Pin />}
-                  </Button>
-                </div>
-              </header>
-              <A2uiSurface surface={surface} />
-            </article>
-          );
-        })}
+      <div
+        className={cn(
+          "grid gap-6",
+          sidebar.length > 0 && "lg:grid-cols-[minmax(0,1fr)_20rem]",
+        )}
+      >
+        <section
+          aria-label="Center widgets"
+          className={cn(
+            "grid min-w-0 content-start gap-4",
+            centered.length > 1 && "md:grid-cols-2",
+          )}
+        >
+          {centered.map(widget)}
+        </section>
+        {sidebar.length > 0 && (
+          <aside
+            aria-label="Side widgets"
+            className="min-w-0 space-y-4 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto"
+          >
+            {sidebar.map(widget)}
+          </aside>
+        )}
+      </div>
     </section>
   );
 }

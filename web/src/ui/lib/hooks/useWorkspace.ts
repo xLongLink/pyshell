@@ -4,7 +4,6 @@ import {
   messageSchema,
   type Entry,
   type Placements,
-  type WidgetCommand,
 } from "@/lib/workspace";
 import type { A2uiMessage } from "@/lib/a2ui";
 
@@ -45,6 +44,9 @@ export function useWorkspace() {
           } else if (event.type === "state") {
             setBusy(event.busy);
           } else {
+            if (event.type === "error") setError(event.text);
+            if (event.type === "instruction" || event.type === "reset")
+              setError("");
             if (event.type === "reset") {
               setUiMessages([]);
               setPlacements({});
@@ -77,20 +79,11 @@ export function useWorkspace() {
   }, []);
 
   const send = useCallback(
-    (
-      command:
-        | { type: "run"; instruction: string }
-        | { type: "reset" }
-        | WidgetCommand,
-    ) => {
-      if (
-        socket.current?.readyState !== WebSocket.OPEN ||
-        !connected ||
-        (busy && command.type !== "widget")
-      )
+    (command: { type: "run"; instruction: string } | { type: "reset" }) => {
+      if (socket.current?.readyState !== WebSocket.OPEN || !connected || busy)
         return false;
       socket.current.send(JSON.stringify(command));
-      if (command.type !== "widget") setBusy(true);
+      setBusy(true);
       return true;
     },
     [connected, busy],

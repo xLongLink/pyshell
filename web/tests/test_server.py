@@ -138,7 +138,7 @@ def test_browser_rejects_untrusted_origin(browser_api):
     assert error.value.code == 1008
 
 
-def test_python_and_browser_controls_share_state_without_model_calls(browser_api, model_for, remote_shell):
+def test_python_placement_replays_and_survives_updates(browser_api, model_for, remote_shell):
     client, requests = browser_api
     model = model_for(
         ["chart = ui.chart.line([{'label': 'Jan', 'value': 42}], surface_id='sales')\nchart.pin()\nchart.focus()\ndone()"],
@@ -151,11 +151,10 @@ def test_python_and_browser_controls_share_state_without_model_calls(browser_api
         socket.send_json({"type": "run", "instruction": "show sales"})
         events = receive_until_idle(socket)
         placements = [event for event in events if event["type"] == "placement"]
-        assert placements[-1]["widgets"] == {"sales": {"pinned": True, "focused": True}}
+        assert placements[-1]["widgets"] == {"sales": {"pinned": False, "focused": True}}
         initial = placements[0]["widgets"]
-        assert initial == {"sales": {"pinned": False, "focused": False}}
-        socket.send_json({"type": "widget", "surface_id": "sales", "action": "unpin"})
-        assert socket.receive_json() == {"type": "placement", "widgets": {"sales": {"pinned": False, "focused": True}}}
+        assert initial == {"sales": {"pinned": False, "focused": True}}
+        assert any(event["widgets"] == {"sales": {"pinned": True, "focused": False}} for event in placements)
         assert len(requests) == 1
         socket.send_json({"type": "run", "instruction": "update the title"})
         events = receive_until_idle(socket)
@@ -186,17 +185,18 @@ def test_control_order_is_preserved_when_a_named_widget_is_replaced(browser_api,
         events = receive_until_idle(socket)
         placements = [event["widgets"] for event in events if event["type"] == "placement"]
         assert any(item["notice"]["pinned"] for item in placements if "notice" in item)
-        assert placements[-1] == {"notice": {"pinned": False, "focused": False}}
+        assert placements[-1] == {"notice": {"pinned": False, "focused": True}}
 
 
-def test_unknown_widget_control_is_rejected_without_starting_work(browser_api):
+@pytest.mark.parametrize("surface_id", ["missing", "sales"])
+def test_browser_widget_commands_are_rejected_without_starting_work(browser_api, surface_id):
     client, requests = browser_api
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
-        socket.send_json({"type": "widget", "surface_id": "missing", "action": "pin"})
+        socket.send_json({"type": "widget", "surface_id": surface_id, "action": "pin"})
         events = receive_until_idle(socket)
         assert events[0]["type"] == "error"
-        assert "Unknown or removed" in events[0]["text"]
+        assert "validation error" in events[0]["text"]
         assert requests == []
 
 
@@ -215,10 +215,10 @@ def test_focusing_another_widget_and_unfocusing_the_old_one_preserves_new_focus(
         socket.send_json({"type": "run", "instruction": "focus second"})
         events = receive_until_idle(socket)
         placements = [event["widgets"] for event in events if event["type"] == "placement"]
-        assert placements[-1] == {"first": {"pinned": False, "focused": False}, "second": {"pinned": False, "focused": True}}
+        assert placements[-1] == {"first": {"pinned": True, "focused": False}, "second": {"pinned": False, "focused": True}}
 
 
-def test_browser_controls_remain_available_during_agent_work(browser_api, model_for, remote_shell, monkeypatch):
+def test_python_placement_remains_available_during_agent_work(browser_api, model_for, remote_shell, monkeypatch):
     client, _ = browser_api
     agent = server.Agent(model_for(["ui.chart.bar([{'label': 'A', 'value': 1}], surface_id='notice')\ndone()"]), shell=remote_shell)
     client.app.state.workspace.agent = agent
@@ -226,6 +226,7 @@ def test_browser_controls_remain_available_during_agent_work(browser_api, model_
     release = threading.Event()
 
     def work(instruction, emit):
+        emit({"type": "widget", "surface_id": "notice", "action": "pin"})
         started.set()
         assert release.wait(timeout=5)
 
@@ -239,11 +240,42 @@ def test_browser_controls_remain_available_during_agent_work(browser_api, model_
         assert socket.receive_json()["type"] == "instruction"
         try:
             assert started.wait(timeout=5)
-            socket.send_json({"type": "widget", "surface_id": "notice", "action": "pin"})
             assert socket.receive_json() == {"type": "placement", "widgets": {"notice": {"pinned": True, "focused": False}}}
         finally:
             release.set()
         assert {"type": "done"} in receive_until_idle(socket)
+
+
+def test_center_capacity_eviction_and_return_from_sidebar(browser_api, model_for, remote_shell):
+    client, _ = browser_api
+    client.app.state.workspace.agent = server.Agent(
+        model_for(
+            ["charts = [ui.chart.bar([{'label': 'A', 'value': n}], surface_id=f'chart_{n}') for n in range(5)]\ndone()"],
+            ["charts[0].focus()\ndone()"],
+            ["charts[2].pin()\ncharts[2].unpin()\ncharts[4].remove()\ndone()"],
+        ),
+        shell=remote_shell,
+    )
+    with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
+        socket.receive_json()
+        socket.send_json({"type": "run", "instruction": "create five widgets"})
+        events = receive_until_idle(socket)
+        placements = [event["widgets"] for event in events if event["type"] == "placement"]
+        assert all(sum(value["focused"] for value in state.values()) <= 4 for state in placements)
+        assert placements[-1]["chart_0"] == {"pinned": True, "focused": False}
+        assert all(placements[-1][f"chart_{n}"]["focused"] for n in range(1, 5))
+        socket.send_json({"type": "run", "instruction": "focus the first chart"})
+        events = receive_until_idle(socket)
+        state = [event["widgets"] for event in events if event["type"] == "placement"][-1]
+        assert state["chart_0"] == {"pinned": False, "focused": True}
+        assert state["chart_1"] == {"pinned": True, "focused": False}
+        socket.send_json({"type": "run", "instruction": "unpin a chart and remove another"})
+        events = receive_until_idle(socket)
+        state = [event["widgets"] for event in events if event["type"] == "placement"][-1]
+        assert state["chart_2"] == {"pinned": False, "focused": True}
+        assert "chart_4" not in state
+    with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
+        assert socket.receive_json()["placements"] == state
 
 
 def test_invalid_command_does_not_start_work(browser_api):

@@ -48,8 +48,10 @@ Only three chart widgets are available. Print summaries and any tabular results:
 Each creation call returns a widget object, not a string. Keep it in a variable:
 chart = ui.chart.line(points=[{"label": "Jan", "value": 42}], title="Revenue")
 chart.update(points=[{"label": "Jan", "value": 50}]) updates validated attributes.
-chart.focus() highlights it and scrolls it into view; chart.unfocus() clears focus.
-chart.pin() keeps it in the pinned results section; chart.unpin() restores normal placement.
+New widgets appear in the center, which holds up to four widgets. A fifth moves
+the oldest centered widget to the sidebar. chart.focus() moves a widget into the
+center; chart.pin() or chart.unfocus() moves it to the sidebar. chart.unpin()
+moves it back into the center. These placement operations are backend-only.
 chart.remove() removes its surface. chart.surface_id is its stable identifier.
 All widgets share these methods. Removed or replaced widget handles are invalid.
 Widget attributes are read-only outside update(); identity and type cannot change.

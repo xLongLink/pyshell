@@ -1,11 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { Results } from "../components/results";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui";
 
@@ -88,7 +82,7 @@ test("chart titles remain inert even when they contain HTML", async () => {
 });
 
 test.each(["BarChart", "LineChart", "PieChart"] as const)(
-  "%s renders its plot and accessible data while preserving missing values",
+  "%s renders its plot without a data table while preserving missing values",
   async (component) => {
     const { container } = render(
       <Results
@@ -106,11 +100,9 @@ test.each(["BarChart", "LineChart", "PieChart"] as const)(
         ])}
       />,
     );
-    await waitFor(() =>
-      expect(screen.getByRole("table", { name: "Revenue data" })).toBeTruthy(),
-    );
-    expect(screen.getByRole("cell", { name: "Missing" })).toBeTruthy();
-    expect(screen.getByRole("cell", { name: "42" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Revenue")).toBeTruthy());
+    expect(screen.queryByText("View chart data")).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
     const plot = {
       BarChart: ".recharts-bar",
       LineChart: ".recharts-line",
@@ -126,8 +118,8 @@ test.each(["BarChart", "LineChart", "PieChart"] as const)(
       expect(path?.match(/M/g)).toHaveLength(2);
     }
     if (component === "PieChart") {
-      expect(screen.getAllByText("Apples")).toHaveLength(2);
-      expect(screen.getAllByText("Pears")).toHaveLength(1);
+      expect(screen.getAllByText("Apples")).toHaveLength(1);
+      expect(screen.queryByText("Pears")).toBeNull();
     }
   },
 );
@@ -141,7 +133,7 @@ test("pie labels are rendered as text, never as generated CSS keys", async () =>
       ])}
     />,
   );
-  await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(2));
+  await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
   expect(container.querySelector("img")).toBeNull();
   const style = container.querySelector(
     '[data-slot="chart"] style',
@@ -150,7 +142,7 @@ test("pie labels are rendered as text, never as generated CSS keys", async () =>
   expect(style).not.toContain(label);
 });
 
-test("a pie with zero or missing values reports an empty plot without losing data", async () => {
+test("a pie with zero or missing values reports an empty plot", async () => {
   render(
     <Results
       messages={surface([
@@ -168,67 +160,54 @@ test("a pie with zero or missing values reports an empty plot without losing dat
   await waitFor(() =>
     expect(screen.getByText("No positive values to display.")).toBeTruthy(),
   );
-  expect(screen.getByRole("cell", { name: "0" })).toBeTruthy();
-  expect(screen.getByRole("cell", { name: "Missing" })).toBeTruthy();
+  expect(screen.queryByRole("table")).toBeNull();
 });
 
-test("widget controls emit actions and authoritative placement orders and focuses results", async () => {
+test("backend placement moves widgets between center and sidebar without controls or visible IDs", async () => {
   const messages = [
     ...surface([bar("First result")], "first"),
     ...surface([bar("Second result")], "second"),
   ];
-  const onAction = vi.fn();
-  const scroll = vi.fn();
-  const { rerender } = render(
-    <Results messages={messages} onAction={onAction} />,
-  );
+  const { rerender } = render(<Results messages={messages} />);
   await waitFor(() => expect(screen.getByText("Second result")).toBeTruthy());
   const second = screen.getByRole("article", { name: "Widget second" });
-  second.scrollIntoView = scroll;
-  fireEvent.click(screen.getByRole("button", { name: "Pin second" }));
-  fireEvent.click(screen.getByRole("button", { name: "Focus second" }));
-  expect(onAction.mock.calls).toEqual([
-    ["second", "pin"],
-    ["second", "focus"],
-  ]);
+  expect(
+    screen.getByRole("region", { name: "Center widgets" }).contains(second),
+  ).toBe(true);
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.queryByText("second")).toBeNull();
   rerender(
     <Results
       messages={messages}
       placements={{
-        first: { pinned: false, focused: false },
-        second: { pinned: true, focused: true },
+        first: { pinned: false, focused: true },
+        second: { pinned: true, focused: false },
       }}
-      onAction={onAction}
     />,
   );
-  await waitFor(() => expect(document.activeElement).toBe(second));
-  expect(scroll).toHaveBeenCalled();
-  expect(screen.getAllByRole("article")[0]).toBe(second);
-  fireEvent.click(screen.getByRole("button", { name: "Unpin second" }));
-  fireEvent.click(screen.getByRole("button", { name: "Unfocus second" }));
-  expect(onAction.mock.calls.slice(-2)).toEqual([
-    ["second", "unpin"],
-    ["second", "unfocus"],
-  ]);
+  expect(
+    screen
+      .getByRole("complementary", { name: "Side widgets" })
+      .contains(screen.getByRole("article", { name: "Widget second" })),
+  ).toBe(true);
   rerender(
     <Results
       messages={messages}
       placements={{
-        first: { pinned: false, focused: false },
-        second: { pinned: false, focused: false },
+        first: { pinned: false, focused: true },
+        second: { pinned: false, focused: true },
       }}
-      onAction={onAction}
     />,
   );
-  await waitFor(() => expect(document.activeElement).not.toBe(second));
+  expect(screen.queryByRole("complementary")).toBeNull();
   expect(screen.getAllByRole("article")[0].getAttribute("aria-label")).toBe(
     "Widget first",
   );
 });
 
-test("an in-place widget update retains its pin and focus placement", async () => {
+test("an in-place widget update retains its sidebar placement", async () => {
   const messages = surface([bar("Original")]);
-  const placements = { sales: { pinned: true, focused: true } };
+  const placements = { sales: { pinned: true, focused: false } };
   const { rerender } = render(
     <Results messages={messages} placements={placements} />,
   );
@@ -249,11 +228,23 @@ test("an in-place widget update retains its pin and focus placement", async () =
   expect(screen.queryByText("Original")).toBeNull();
   expect(screen.getAllByRole("article")).toHaveLength(1);
   expect(
-    screen
-      .getByRole("button", { name: "Unpin sales" })
-      .getAttribute("aria-pressed"),
-  ).toBe("true");
-  expect(document.activeElement).toBe(
-    screen.getByRole("article", { name: "Widget sales" }),
+    screen.getByRole("complementary").contains(screen.getByRole("article")),
+  ).toBe(true);
+});
+
+test("the center holds at most four widgets and overflow stays visible on the side", async () => {
+  const messages = [1, 2, 3, 4, 5].flatMap((index) =>
+    surface([bar(`Chart ${index}`)], `chart_${index}`),
   );
+  render(<Results messages={messages} />);
+  await waitFor(() => expect(screen.getByText("Chart 5")).toBeTruthy());
+  expect(
+    screen
+      .getByRole("region", { name: "Center widgets" })
+      .querySelectorAll("article"),
+  ).toHaveLength(4);
+  expect(
+    screen.getByRole("complementary").querySelectorAll("article"),
+  ).toHaveLength(1);
+  expect(screen.getByRole("complementary").textContent).toContain("Chart 1");
 });

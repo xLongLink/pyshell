@@ -2,7 +2,7 @@ import asyncio
 from typing import Literal
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pathlib import Path
-from pydantic import Field, BaseModel, ConfigDict, TypeAdapter, ValidationError
+from pydantic import Field, BaseModel, ConfigDict, ValidationError
 from contextlib import suppress, asynccontextmanager
 from web.src.script import Agent, Settings, RemoteShell
 from collections.abc import AsyncGenerator
@@ -22,15 +22,12 @@ class Command(BaseModel):
 
 
 class WidgetCommand(BaseModel):
-    """Validate workspace controls independently of model instructions."""
+    """Validate placement operations emitted by Python widgets."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
     type: Literal["widget"]
     surface_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
     action: Literal["focus", "unfocus", "pin", "unpin"]
-
-
-COMMAND = TypeAdapter(Command | WidgetCommand)
 
 
 class Workspace:
@@ -58,7 +55,9 @@ class Workspace:
         elif event["type"] == "a2ui":
             for message in event["messages"]:
                 if "createSurface" in message:
-                    self.placements[message["createSurface"]["surfaceId"]] = {"pinned": False, "focused": False}
+                    surface_id = message["createSurface"]["surfaceId"]
+                    self.placements[surface_id] = {"pinned": False, "focused": False}
+                    self._focus(surface_id)
                     placement_changed = True
                 elif "deleteSurface" in message:
                     self.placements.pop(message["deleteSurface"]["surfaceId"], None)
@@ -73,19 +72,23 @@ class Workspace:
     def _placement_event(self) -> None:
         self.publish({"type": "placement", "widgets": {key: dict(value) for key, value in self.placements.items()}})
 
+    def _focus(self, surface_id: str) -> None:
+        placement = self.placements.pop(surface_id)
+        placement.update(pinned=False, focused=True)
+        self.placements[surface_id] = placement
+        centered = [value for value in self.placements.values() if value["focused"]]
+        for oldest in centered[:-4]:
+            oldest.update(pinned=True, focused=False)
+
     def place(self, command: WidgetCommand) -> None:
         """Keep one authoritative placement state for Python and all browser tabs."""
         placement = self.placements.get(command.surface_id)
         if placement is None:
             raise ValueError("Unknown or removed widget")
-        if command.action == "focus":
-            for other in self.placements.values():
-                other["focused"] = False
-            placement["focused"] = True
-        elif command.action == "unfocus":
-            placement["focused"] = False
+        if command.action in {"focus", "unpin"}:
+            self._focus(command.surface_id)
         else:
-            placement["pinned"] = command.action == "pin"
+            placement.update(pinned=True, focused=False)
         self._placement_event()
 
     def start(self, command: Command) -> None:
@@ -183,11 +186,8 @@ async def workspace_socket(socket: WebSocket) -> None:
     async def receive_command() -> None:
         text = await socket.receive_text()
         try:
-            command = COMMAND.validate_json(text)
-            if isinstance(command, WidgetCommand):
-                workspace.place(command)
-            else:
-                workspace.start(command)
+            command = Command.model_validate_json(text)
+            workspace.start(command)
         except (ValidationError, ValueError, RuntimeError) as error:
             queue.put_nowait({"type": "error", "text": str(error)})
             queue.put_nowait({"type": "state", "busy": workspace.task is not None and not workspace.task.done()})

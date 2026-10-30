@@ -11,37 +11,12 @@ export const valueConfig = {
 
 export function Widget({
   title,
-  points,
   children,
 }: ChartProps & { children: ReactNode }) {
   return (
     <figure className="min-w-0 rounded-lg border bg-card p-5">
       <figcaption className="mb-4 font-semibold">{title}</figcaption>
       {children}
-      <details className="mt-4 text-sm">
-        <summary className="cursor-pointer text-muted-foreground">
-          View chart data
-        </summary>
-        <table className="mt-2 w-full text-left">
-          <caption className="sr-only">{title} data</caption>
-          <thead>
-            <tr>
-              <th scope="col">Label</th>
-              <th scope="col">Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            {points.map((point, index) => (
-              <tr key={index}>
-                <th scope="row" className="font-normal">
-                  {point.label}
-                </th>
-                <td>{point.value ?? "Missing"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </details>
     </figure>
   );
 }

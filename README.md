@@ -121,10 +121,11 @@ chart.unpin()
 chart.remove()
 ```
 
-`focus()` scrolls to and highlights a widget; `unfocus()` clears that focus.
-`pin()` moves it to the pinned results section; `unpin()` restores normal order.
-The browser's focus and pin buttons use the same shared state without model
-requests. `update()` validates attributes and preserves widget identity and
+New widgets appear in the center, which holds up to four widgets in a grid.
+When a fifth arrives, the oldest centered widget moves to the sidebar.
+`focus()` and `unpin()` move a widget into the center; `pin()` and `unfocus()`
+move it to the sidebar. Placement is controlled only by Python or the agent;
+the browser has no placement controls. `update()` validates attributes and preserves widget identity and
 placement. Use it instead of assigning widget attributes directly.
 
 `widget.surface_id` is its stable identifier. Reuse a `surface_id` to replace

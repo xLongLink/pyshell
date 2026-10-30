@@ -1,18 +1,11 @@
 import { z } from "zod";
 import { a2uiBatchSchema } from "./a2ui.ts";
 
-export const widgetActionSchema = z.enum(["focus", "unfocus", "pin", "unpin"]);
-export type WidgetAction = z.infer<typeof widgetActionSchema>;
 export const placementsSchema = z.record(
   z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
   z.object({ pinned: z.boolean(), focused: z.boolean() }).strict(),
 );
 export type Placements = z.infer<typeof placementsSchema>;
-export type WidgetCommand = {
-  type: "widget";
-  surface_id: string;
-  action: WidgetAction;
-};
 
 export const eventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("a2ui"), messages: a2uiBatchSchema }),

@@ -45,19 +45,19 @@ class Widget(BaseModel):
         self._publisher().update(self, attributes)
 
     def focus(self) -> None:
-        """Bring this result into view and emphasize it."""
+        """Move this widget into the center, which holds up to four widgets."""
         self._publisher().action(self, "focus")
 
     def unfocus(self) -> None:
-        """Remove this result's focus without affecting another result."""
+        """Move this widget out of the center into the sidebar."""
         self._publisher().action(self, "unfocus")
 
     def pin(self) -> None:
-        """Keep this result in the workspace's pinned section."""
+        """Move this widget into the sidebar."""
         self._publisher().action(self, "pin")
 
     def unpin(self) -> None:
-        """Return this result to normal workspace placement."""
+        """Move this widget back into the center."""
         self._publisher().action(self, "unpin")
 
     def remove(self) -> None:
