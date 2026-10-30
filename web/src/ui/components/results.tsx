@@ -4,7 +4,7 @@ import { MessageProcessor, type SurfaceModel } from "@a2ui/web_core/v0_9";
 import { resultCatalog } from "@/components/catalog";
 import type { A2uiMessage } from "@/lib/a2ui";
 import type { Placements } from "@/lib/workspace";
-import { cn } from "@/lib/utils";
+import { cn } from "cn";
 
 export function Results({
     messages,
