@@ -1,6 +1,5 @@
 .PHONY: up down logs test format
 
-up: export PYSHELL_REQUIREMENTS ?= swissparlpy
 up:
 	docker compose -f api/compose.yaml build pyshell
 	docker compose -f api/compose.yaml up --force-recreate --detach --wait pyshell

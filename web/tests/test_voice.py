@@ -3,6 +3,7 @@ import asyncio
 from types import SimpleNamespace
 from contextlib import asynccontextmanager
 from unittest.mock import Mock, AsyncMock
+from src.ui.session import UI
 from web.src.agents import voice
 from web.src.workspace import Command, Workspace
 
@@ -159,10 +160,14 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         release = asyncio.Event()
 
         settings = install_agent(monkeypatch, realtime, tools)
+        ui = UI()
 
         async def execute(instruction, emit):
             if instruction == "slow":
                 await release.wait()
+            else:
+                ui.on_publish = emit
+                ui.plot([{"type": "bar", "x": ["A"], "y": [42]}], surface_id="sales")
             return "Confirmed answer: 42"
 
         workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), arun=execute))
@@ -178,10 +183,14 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         assert "Calculate answer" in realtime.messages[0]
         assert "persistent Python workspace" in settings["instructions"]
         assert "Confirmed answer: 42" in realtime.messages[0]
-        context = json.loads(await tools["workspace_context"]())
+        context = json.loads(await tools["inspect_workspace"]())
         assert context["recent_tasks"][0]["instruction"] == "Calculate answer"
+        assert context["charts"][0]["surface_id"] == "sales"
+        assert context["status"]["execution_uncertain"] is False
         task = workspace.start(Command(type="run", instruction="slow"))
-        assert json.loads(await tools["workspace_status"]())["busy"] is True
+        status = json.loads(await tools["inspect_workspace"]())["status"]
+        assert status["busy"] is True
+        assert status["instruction"] == "slow"
         result = await tools["worker"]("Voice task")
         assert "not submitted" in result
         assert "busy" in result

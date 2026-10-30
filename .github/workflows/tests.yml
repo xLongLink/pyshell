@@ -55,18 +55,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker build -t pyshell:test api
       - run: docker run --rm --network none pyshell:test --help
-      - name: Check startup requirements with a read-only filesystem
+      - name: Check startup with a read-only filesystem
         run: |
           docker run --rm --network none --read-only \
             --tmpfs /tmp:size=512m,mode=1777,exec \
-            -e PYSHELL_REQUIREMENTS=$'fastapi\nuvicorn' \
             pyshell:test --help
-          if docker run --rm --network none --read-only \
-            --tmpfs /tmp:size=512m,mode=1777,exec \
-            -e PYSHELL_REQUIREMENTS='invalid requirement !!!' \
-            pyshell:test --help; then
-            exit 1
-          fi
       - name: Check container permissions and workspace
         run: |
           docker run --rm --network none --entrypoint python pyshell:test -c '

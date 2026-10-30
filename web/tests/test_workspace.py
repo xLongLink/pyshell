@@ -46,7 +46,7 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
         assert context["charts"] == [
             {"surface_id": "sales", "title": "Monthly sales", "trace_types": ["bar"], "series": ["Sales"], "pinned": False}
         ]
-        assert json.loads(reports[0])["changed_charts"] == ["sales"]
+        assert json.loads(reports[0]) == context["recent_tasks"][0]
         assert context["recent_tasks"][0]["result"] == "Confirmed sales: 42"
         ui.on_publish = workspace.publish
         ui.remove("sales")
@@ -137,7 +137,7 @@ def test_recent_work_is_bounded_and_preserves_failed_partial_changes():
     asyncio.run(run())
 
 
-def test_task_outcomes_track_chart_updates_placements_and_partial_removal():
+def test_tasks_preserve_current_charts_and_partial_changes_on_failure():
     async def run():
         ui = UI()
         chart = None
@@ -159,13 +159,11 @@ def test_task_outcomes_track_chart_updates_placements_and_partial_removal():
         workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), arun=execute))
         for instruction in ("create", "update", "pin"):
             await workspace.start(Command(type="run", instruction=instruction))
-            assert workspace.status()["latest_outcome"]["changed_charts"] == ["sales"]
         assert workspace.context()["charts"][0]["title"] == "Updated sales"
         assert workspace.context()["charts"][0]["pinned"] is True
         await workspace.start(Command(type="run", instruction="remove"))
         result = workspace.status()["latest_outcome"]
         assert result["outcome"] == "failed"
-        assert result["removed_charts"] == ["sales"]
         assert workspace.context()["charts"] == []
 
     asyncio.run(run())

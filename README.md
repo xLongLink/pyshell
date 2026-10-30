@@ -19,7 +19,6 @@ Give instructions in your browser. Watch the agent write and run Python inside D
 
 - 🧠 **Persistent sessions:** Variables, imports, and conversation context carry over between instructions.
 - 🔄 **Execution feedback:** Output and errors go back to the model so it can continue or correct mistakes.
-- 📦 **Custom environment:** Install Python libraries at container startup.
 - 📊 **Rich results:** A2UI renders Plotly-style figures with lines, markers, bars, and pies alongside code and printed output.
 - 🎙️ **Voice and text:** Speak to the voice assistant or submit text instructions. Both use the same persistent workspace.
 
@@ -32,7 +31,7 @@ Give instructions in your browser. Watch the agent write and run Python inside D
 ```bash
 docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/xlonglink/pyshell:latest
 ```
-See [api/pyproject.toml](api/pyproject.toml) for default libraries and version constraints. Pass `-e PYSHELL_REQUIREMENTS=httpx2` to `docker run` to install extra libraries.
+See [api/pyproject.toml](api/pyproject.toml) for installed libraries and version constraints.
 
 <br />
 
@@ -43,7 +42,7 @@ See [api/pyproject.toml](api/pyproject.toml) for default libraries and version c
 
 The browser connects to the web server over `/ws`. Text instructions and voice-delegated tasks share one execution agent, Python namespace, and widget layout. Only one task runs at a time; closing a tab or ending a call does not cancel submitted work. Reconnecting restores the workspace without resubmitting it.
 
-Generated code executes only after the model response completes successfully. The Docker execution API streams stdout, stderr, and widget updates over `/execute/stream`; the web server forwards widget updates, not execution output, to connected tabs. Execution feedback goes back to the agent until it calls `done()` or reaches its task budget.
+Generated code executes only after the model response completes successfully. The Docker execution API streams widget updates and final execution results over `/execute/stream`; the web server forwards widget updates, not execution output, to connected tabs. Execution feedback goes back to the agent until it calls `done()` or reaches its task budget.
 
 Voice uses browser microphone audio over WebRTC and server-side OpenAI Realtime signaling. Allow microphone access on localhost or HTTPS. Provider credentials stay on the server. Voice conversation lasts for the call; Python state and the execution agent's history persist across calls and text turns.
 

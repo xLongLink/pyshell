@@ -17,22 +17,12 @@ FROM python:3.12-slim AS runtime
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYSHELL_REQUIREMENTS=""
 
 RUN useradd --create-home --uid 1000 pyshell \
     && mkdir /workspace \
     && chown pyshell:pyshell /workspace
 COPY --from=builder /opt/venv /opt/venv
-COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 
 USER pyshell
 WORKDIR /workspace
-ENTRYPOINT ["sh", "-eu", "-c", "\
-environment=$(mktemp -d /tmp/pyshell-env.XXXXXX); \
-requirements=\"$environment/requirements.txt\"; \
-printf '%s\\n' \"$PYSHELL_REQUIREMENTS\" > \"$requirements\"; \
-cp -a /opt/venv/. \"$environment/\"; \
-uv pip install --no-cache --python \"$environment/bin/python\" -r \"$requirements\"; \
-uv pip check --no-cache --python \"$environment/bin/python\"; \
-export PATH=\"$environment/bin:$PATH\"; \
-exec python -m uvicorn main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 --no-access-log --log-level warning \"$@\"", "pyshell-api"]
+ENTRYPOINT ["python", "-m", "uvicorn", "main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-access-log", "--log-level", "warning"]

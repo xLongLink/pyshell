@@ -192,8 +192,6 @@ class Workspace:
     async def _execute(self, instruction: str) -> None:
         """Record execution feedback for voice and publish shared status."""
         outcome = "completed"
-        before = dict(self.surfaces)
-        placements = self._copy_placements()
         try:
             result = await self.agent.arun(instruction, self.publish)
         except Exception as error:
@@ -205,15 +203,7 @@ class Workspace:
         finally:
             self.phase = "idle"
             self.current_instruction = None
-        record = {
-            "instruction": instruction[:2000],
-            "outcome": outcome,
-            "result": result[-4000:],
-            "changed_charts": [
-                key for key, value in self.surfaces.items() if before.get(key) != value or placements.get(key) != self.placements[key]
-            ],
-            "removed_charts": [key for key in before if key not in self.surfaces],
-        }
+        record = {"instruction": instruction[:2000], "outcome": outcome, "result": result[-4000:]}
         self.recent_tasks.append(record)
         self.recent_tasks = self.recent_tasks[-8:]
         for report in self.results:

@@ -6,8 +6,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runtime
-    environment:
-      PYSHELL_REQUIREMENTS: ${PYSHELL_REQUIREMENTS:-}
     ports:
       - "127.0.0.1:8000:8000"
     init: true
