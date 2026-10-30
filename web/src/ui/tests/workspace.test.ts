@@ -70,6 +70,33 @@ test("UI events are accepted at the browser boundary", () => {
     assert.equal(event.type, "a2ui");
 });
 
+test("surface IDs and placement keys enforce the same boundaries", () => {
+    for (const [surfaceId, valid] of [
+        ["", false],
+        ["invalid/id", false],
+        ["a".repeat(64), true],
+        ["a".repeat(65), false],
+        ["Sales_2026-01", true],
+    ] as const) {
+        assert.equal(
+            a2uiBatchSchema.safeParse([
+                {
+                    version: "v0.9",
+                    createSurface: { surfaceId, catalogId },
+                },
+            ]).success,
+            valid,
+        );
+        assert.equal(
+            messageSchema.safeParse({
+                type: "placement",
+                widgets: { [surfaceId]: { pinned: false } },
+            }).success,
+            valid,
+        );
+    }
+});
+
 test("removed widgets, invalid charts, and unknown catalog IDs are rejected", () => {
     for (const component of [
         { id: "root", component: "Image", url: "https://example.com" },

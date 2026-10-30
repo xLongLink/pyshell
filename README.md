@@ -44,6 +44,8 @@ Generated code executes only after the model response completes successfully. Th
 
 Voice uses browser microphone audio over WebRTC and server-side OpenAI Realtime signaling. Allow microphone access on localhost or HTTPS. Provider credentials stay on the server. Voice conversation lasts for the call; Python state and the execution agent's history persist across calls and text turns.
 
+The voice assistant can check the current task and execution phase, inspect chart titles and types, and recall the last eight task summaries across calls. Ask “what are you doing?” or “change the sales chart to a bar chart.” Say “end the call” to hang up without cancelling submitted work. Steering or stopping running Python is not supported.
+
 Configure `OPENAI_API_KEY` in `web/.env`. Optional settings are `OPENAI_MODEL`, `OPENAI_SERVICE_TIER`, and `OPENAI_REALTIME_MODEL` (default: `gpt-realtime`). Voice requires access to the realtime model. The web server requires Python 3.11 or newer.
 
 Execution stream failures are not retried: code may already have run. Restart both the execution container and web server before submitting more work after an unconfirmed execution. A transport timeout does not terminate Python; restarting the container does. Browser transcripts and listener queues are bounded; current widgets remain available in reconnect snapshots.

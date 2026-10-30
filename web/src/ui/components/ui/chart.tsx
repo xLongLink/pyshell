@@ -104,21 +104,17 @@ function ChartTooltipContent({
     className,
     indicator = "dot",
     hideLabel = false,
-    hideIndicator = false,
     label,
     labelFormatter,
     labelClassName,
     formatter,
     color,
     nameKey,
-    labelKey,
 }: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
     React.ComponentProps<"div"> & {
         hideLabel?: boolean;
-        hideIndicator?: boolean;
-        indicator?: "line" | "dot" | "dashed";
+        indicator?: "line" | "dot";
         nameKey?: string;
-        labelKey?: string;
     } & Omit<
         RechartsPrimitive.DefaultTooltipContentProps<
             TooltipValueType,
@@ -134,10 +130,10 @@ function ChartTooltipContent({
         }
 
         const [item] = payload;
-        const key = `${labelKey ?? item?.dataKey ?? item?.name ?? "value"}`;
+        const key = `${item?.dataKey ?? item?.name ?? "value"}`;
         const itemConfig = getPayloadConfigFromPayload(config, item, key);
         const value =
-            !labelKey && typeof label === "string"
+            typeof label === "string"
                 ? (config[label]?.label ?? label)
                 : itemConfig?.label;
 
@@ -154,15 +150,7 @@ function ChartTooltipContent({
         }
 
         return <div className={cn("font-medium", labelClassName)}>{value}</div>;
-    }, [
-        label,
-        labelFormatter,
-        payload,
-        hideLabel,
-        labelClassName,
-        config,
-        labelKey,
-    ]);
+    }, [label, labelFormatter, payload, hideLabel, labelClassName, config]);
 
     if (!active || !payload?.length) {
         return null;
@@ -211,35 +199,24 @@ function ChartTooltipContent({
                                     )
                                 ) : (
                                     <>
-                                        {!hideIndicator && (
-                                            <div
-                                                className={cn(
-                                                    "shrink-0 rounded-[2px] border-(--color-border) bg-(--color-bg)",
-                                                    {
-                                                        "h-2.5 w-2.5":
-                                                            indicator === "dot",
-                                                        "w-1":
-                                                            indicator ===
-                                                            "line",
-                                                        "w-0 border-[1.5px] border-dashed bg-transparent":
-                                                            indicator ===
-                                                            "dashed",
-                                                        "my-0.5":
-                                                            nestLabel &&
-                                                            indicator ===
-                                                                "dashed",
-                                                    },
-                                                )}
-                                                style={
-                                                    {
-                                                        "--color-bg":
-                                                            indicatorColor,
-                                                        "--color-border":
-                                                            indicatorColor,
-                                                    } as React.CSSProperties
-                                                }
-                                            />
-                                        )}
+                                        <div
+                                            className={cn(
+                                                "shrink-0 rounded-[2px] border-(--color-border) bg-(--color-bg)",
+                                                {
+                                                    "h-2.5 w-2.5":
+                                                        indicator === "dot",
+                                                    "w-1": indicator === "line",
+                                                },
+                                            )}
+                                            style={
+                                                {
+                                                    "--color-bg":
+                                                        indicatorColor,
+                                                    "--color-border":
+                                                        indicatorColor,
+                                                } as React.CSSProperties
+                                            }
+                                        />
                                         <div
                                             className={cn(
                                                 "flex flex-1 justify-between leading-none",

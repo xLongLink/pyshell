@@ -3,12 +3,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pathlib import Path
 from pydantic import TypeAdapter, ValidationError
 from contextlib import suppress, asynccontextmanager
-from web.src.voice import VoiceCommand, VoiceSession
-from web.src.script import Agent, RemoteShell
+from web.src.shell import RemoteShell
 from collections.abc import AsyncGenerator
 from web.src.settings import settings
 from web.src.workspace import Command, Workspace
+from web.src.agents.voice import VoiceCommand, VoiceSession
 from starlette.staticfiles import StaticFiles
+from web.src.agents.script import Agent
 from pydantic_ai.models.openai import OpenAIResponsesModel
 from pydantic_ai.realtime.openai import OpenAIRealtimeModel
 from pydantic_ai.providers.openai import OpenAIProvider

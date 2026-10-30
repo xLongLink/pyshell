@@ -1,8 +1,9 @@
+import json
 import asyncio
 from types import SimpleNamespace
-from web.src import voice
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
+from web.src.agents import voice
 from web.src.workspace import Command, Workspace
 
 
@@ -134,5 +135,62 @@ def test_voice_rejects_a_task_while_text_work_is_running(monkeypatch):
         await call.stop()
         release.set()
         await text
+
+    asyncio.run(run())
+
+
+def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(monkeypatch):
+    async def run():
+        realtime = Realtime()
+        tools = {}
+        release = asyncio.Event()
+        closed = asyncio.Event()
+
+        class Agent:
+            def __init__(self, **kwargs):
+                assert "persistent Python workspace" in kwargs["instructions"]
+
+            def tool_plain(self, function):
+                tools[function.__name__] = function
+                return function
+
+            def realtime(self, *args, **kwargs):
+                return realtime
+
+        monkeypatch.setattr(voice, "Agent", Agent)
+
+        async def execute(instruction, emit):
+            if instruction == "slow":
+                await release.wait()
+            return "Confirmed answer: 42"
+
+        workspace = Workspace(SimpleNamespace(model="test", shell=SimpleNamespace(uncertain=False), arun=execute))
+        await workspace.start(Command(type="run", instruction="Calculate answer"))
+        events = []
+
+        async def emit(event):
+            events.append(event)
+            if event.get("name") == "closed":
+                closed.set()
+
+        call = voice.VoiceSession(None, workspace, emit)
+        await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
+        await asyncio.sleep(0)
+        assert "Calculate answer" in realtime.messages[0]
+        assert "Confirmed answer: 42" in realtime.messages[0]
+        context = json.loads(await tools["workspace_context"]())
+        assert context["recent_tasks"][0]["instruction"] == "Calculate answer"
+        task = workspace.start(Command(type="run", instruction="slow"))
+        assert json.loads(await tools["workspace_status"]())["busy"] is True
+        assert workspace.task is task
+        assert "end shortly" in await tools["end_call"]()
+        await tools["end_call"]()
+        await asyncio.wait_for(closed.wait(), 4)
+        assert events[-1]["name"] == "closed"
+        realtime.hang_up.assert_awaited_once()
+        assert not task.cancelled()
+        assert workspace.busy
+        release.set()
+        await task
 
     asyncio.run(run())

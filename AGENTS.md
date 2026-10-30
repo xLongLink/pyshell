@@ -20,7 +20,8 @@
 ├── web/
 │   ├── main.py        # Browser-facing FastAPI app and shared workspace
 │   ├── src/
-│   │   ├── script.py  # Agent loop
+│   │   ├── agents/    # Execution agent loop and voice assistant
+│   │   ├── shell.py   # Execution container client
 │   │   ├── settings.py # Shared application settings
 │   │   └── ui/        # Self-contained React frontend, npm configuration, and tests
 │   ├── tests/         # Agent and server tests

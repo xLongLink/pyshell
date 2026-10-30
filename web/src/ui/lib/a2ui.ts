@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const catalogId = "urn:pyshell:catalog:v3";
-const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+export const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const text = z.string().max(10000);
 const number = z.number().finite();
 const coordinates = {

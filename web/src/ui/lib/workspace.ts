@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { a2uiBatchSchema } from "./a2ui.ts";
+import { a2uiBatchSchema, identifier } from "./a2ui.ts";
 
 export const placementsSchema = z.record(
-    z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+    identifier,
     z.object({ pinned: z.boolean() }).strict(),
 );
 export type Placements = z.infer<typeof placementsSchema>;

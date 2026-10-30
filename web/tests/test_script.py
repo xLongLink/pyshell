@@ -4,8 +4,9 @@ import pytest
 import asyncio
 from pydantic_ai import Agent as PydanticAgent
 from unittest.mock import Mock, AsyncMock, patch
-from web.src.script import Agent, RemoteShell, stream_response
+from web.src.shell import RemoteShell
 from importlib.metadata import version
+from web.src.agents.script import Agent, stream_response
 
 
 def test_installed_libraries_are_in_model_context(model_for, remote_shell):
@@ -60,7 +61,7 @@ def test_execution_transport_failure_is_not_retried(monkeypatch):
         calls.append(args)
         raise httpx.ReadError("disconnected")
 
-    monkeypatch.setattr("web.src.script.httpx.post", post)
+    monkeypatch.setattr("web.src.shell.httpx.post", post)
     with pytest.raises(RuntimeError, match="may already have run"):
         RemoteShell().execute("value = 42")
     assert len(calls) == 1
@@ -76,6 +77,50 @@ def test_streams_code_to_callback_without_console_logs(model_for, capsys):
     assert output.err == ""
     assert code == "print('hello')"
     assert history[-1].parts[0].content == code
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("with_callback", [False, True])
+def test_agent_event_lifecycle_with_optional_callback(model_for, remote_shell, streaming, with_callback):
+    code = "print('confirmed')\ndone()"
+    agent = Agent(model_for([code]), shell=remote_shell)
+    events = []
+
+    async def run():
+        if streaming:
+            await remote_shell.open()
+        try:
+            result = await agent.arun("finish", events.append if with_callback else None)
+            assert "confirmed" in result
+        finally:
+            await remote_shell.close()
+
+    asyncio.run(run())
+    if not with_callback:
+        assert events == []
+        return
+    assert events[0] == {"type": "code_start"}
+    assert "".join(event["text"] for event in events if event["type"] == "code_delta") == code
+    types = [event["type"] for event in events]
+    assert types.index("code_start") < types.index("code_delta") < types.index("execution_start") < types.index("result")
+    assert types.count("result") == 1
+    assert "execution_finished" not in types
+    assert events[-1] == {"type": "result", "stdout": "confirmed\n", "stderr": "", "exception": None, "done": True}
+
+
+def test_synchronous_ui_feedback_keeps_content_batches_around_placement(model_for, remote_shell):
+    code = """chart = ui.plot([{"type": "bar", "x": ["Jan"], "y": [1]}], surface_id="sales")
+chart.pin()
+chart.update(data=[{"type": "bar", "x": ["Jan"], "y": [2]}])
+done()
+"""
+    events = []
+    Agent(model_for([code]), shell=remote_shell).run("plot and pin sales", events.append)
+    feedback = [event for event in events if event["type"] in {"result", "a2ui", "widget"}]
+    assert [event["type"] for event in feedback] == ["result", "a2ui", "widget", "a2ui"]
+    assert "createSurface" in feedback[1]["messages"][0]
+    assert feedback[2] == {"type": "widget", "surface_id": "sales", "action": "pin"}
+    assert feedback[3]["messages"][0]["updateComponents"]["components"][0]["data"][0]["y"] == [2]
 
 
 def test_stream_failure_propagates_without_timing(model_for, capsys):

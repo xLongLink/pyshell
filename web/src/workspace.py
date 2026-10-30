@@ -4,8 +4,8 @@ from uuid import uuid4
 from typing import Literal
 from pydantic import Field, BaseModel, ConfigDict
 from web.src.events import WidgetCommand
-from web.src.script import Agent
 from collections.abc import Callable
+from web.src.agents.script import Agent
 
 
 class Command(BaseModel):
@@ -35,13 +35,41 @@ class Workspace:
         self.history_bytes = 0
         self.compacted = False
         self.closing = False
-        self.running = False
+        self.busy = False
         self.results: set[Callable[[str], None]] = set()
+        self.current_instruction: str | None = None
+        self.phase = "idle"
+        self.recent_tasks: list[dict[str, object]] = []
 
-    @property
-    def busy(self) -> bool:
-        """Whether a submitted operation is still running."""
-        return self.running
+    def status(self) -> dict[str, object]:
+        """Describe current work without submitting Python or changing state."""
+        return {
+            "busy": self.busy,
+            "phase": self.phase,
+            "run_id": self.run_id,
+            "instruction": self.current_instruction,
+            "execution_uncertain": self.agent.shell.uncertain,
+            "latest_outcome": dict(self.recent_tasks[-1]) if self.recent_tasks else None,
+        }
+
+    def context(self) -> dict[str, object]:
+        """Summarize recent work and current charts without copying their datasets."""
+        charts = []
+        for identifier, messages in self.surfaces.items():
+            for message in messages:
+                for component in message.get("updateComponents", {}).get("components", []):
+                    if component.get("component") != "Figure":
+                        continue
+                    charts.append(
+                        {
+                            "surface_id": identifier,
+                            "title": component.get("layout", {}).get("title", {}).get("text", "")[:300],
+                            "trace_types": list(dict.fromkeys(trace["type"] for trace in component.get("data", []))),
+                            "series": [trace.get("name", "")[:100] for trace in component.get("data", [])],
+                            "pinned": self.placements[identifier]["pinned"],
+                        }
+                    )
+        return {"recent_tasks": [dict(task) for task in self.recent_tasks], "charts": charts}
 
     def snapshot(self) -> dict[str, object]:
         """Copy current state without replaying any submitted operation."""
@@ -57,13 +85,15 @@ class Workspace:
             "events": events,
             "busy": self.busy,
             "model": self.agent.model,
-            "placements": {key: dict(value) for key, value in self.placements.items()},
+            "placements": self._copy_placements(),
             "sequence": self.sequence,
             "run_id": self.run_id,
         }
 
     def publish(self, event: dict[str, object]) -> None:
         """Apply ordered mutations and broadcast without waiting on slow tabs."""
+        if self.busy and event["type"] in {"code_start", "execution_start"}:
+            self.phase = "generating_code" if event["type"] == "code_start" else "executing_python"
         if event["type"] == "widget":
             self.place(WidgetCommand.model_validate(event))
             return
@@ -135,8 +165,11 @@ class Workspace:
         if placement_changed:
             self._placement_event()
 
+    def _copy_placements(self) -> dict[str, dict[str, bool]]:
+        return {key: dict(value) for key, value in self.placements.items()}
+
     def _placement_event(self) -> None:
-        self.publish({"type": "placement", "widgets": {key: dict(value) for key, value in self.placements.items()}})
+        self.publish({"type": "placement", "widgets": self._copy_placements()})
 
     def _focus(self, surface_id: str) -> None:
         placement = self.placements.pop(surface_id)
@@ -167,34 +200,56 @@ class Workspace:
             raise RuntimeError("The shared workspace is busy. Wait for the current operation to finish.")
 
         # Reject unsafe submissions before changing shared run state.
-        if not command.instruction.strip():
+        instruction = command.instruction.strip()
+        if not instruction:
             raise ValueError("Enter an instruction.")
         if self.agent.shell.uncertain:
             raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
         self.run_id = str(uuid4())
-        self.running = True
+        self.busy = True
+        self.current_instruction = instruction
+        self.phase = "starting"
 
         # Publish acceptance before scheduling work independently of its caller.
         self.publish({"type": "state", "busy": True})
-        self.publish({"type": "instruction", "text": command.instruction.strip()})
+        self.publish({"type": "instruction", "text": instruction})
         self.task = asyncio.create_task(self.execute(command))
         return self.task
 
     async def execute(self, command: Command) -> str:
         """Return confirmed execution feedback to voice and publish shared status."""
+        outcome = "completed"
+        instruction = command.instruction.strip()
+        before = dict(self.surfaces)
+        placements = self._copy_placements()
         try:
-            result = await self.agent.arun(command.instruction.strip(), self.publish)
+            result = await self.agent.arun(instruction, self.publish)
             self.publish({"type": "done"})
         except Exception as error:
+            outcome = "failed"
             self.publish({"type": "error", "text": str(error)})
 
             # A failed task may still have changed the persistent session.
             result = f"Task failed: {error}. Earlier changes may have applied; do not automatically resubmit."
         finally:
-            self.running = False
+            self.busy = False
+            self.phase = "idle"
+            self.current_instruction = None
             self.publish({"type": "state", "busy": False})
+        record = {
+            "run_id": self.run_id,
+            "instruction": instruction[:2000],
+            "outcome": outcome,
+            "result": result[-4000:],
+            "changed_charts": [
+                key for key, value in self.surfaces.items() if before.get(key) != value or placements.get(key) != self.placements[key]
+            ],
+            "removed_charts": [key for key in before if key not in self.surfaces],
+        }
+        self.recent_tasks.append(record)
+        self.recent_tasks = self.recent_tasks[-8:]
         for report in self.results:
-            report(f"Task instruction (data): {command.instruction}\nExecution feedback:\n{result}")
+            report(json.dumps(record))
         return result
 
     async def close(self) -> None:

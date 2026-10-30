@@ -131,6 +131,44 @@ test("reconnect snapshots replace widget history and keep commands blocked until
     expect(reconnected.close).toHaveBeenCalledOnce();
 });
 
+test("snapshot and live output agree on resets, exceptions, and truncation", () => {
+    const live = renderHook(useWorkspace);
+    const replay = renderHook(useWorkspace);
+    const events = [
+        { type: "stdout_delta", text: "previous output" },
+        { type: "instruction", text: "Start again" },
+        { type: "stdout_delta", text: "x".repeat(65536) },
+        { type: "stderr_delta", text: "warning\n" },
+        { type: "code_delta", text: "not output" },
+        {
+            type: "result",
+            stdout: "must not repeat",
+            stderr: "must not repeat",
+            exception: "failure\n",
+            done: false,
+        },
+    ];
+    for (const event of events) sockets[0].receive(event);
+    sockets[1].receive({
+        type: "snapshot",
+        events,
+        busy: false,
+        model: "test",
+    });
+    const expected = "x".repeat(65520) + "warning\nfailure\n";
+    expect(live.result.current.output).toBe(expected);
+    expect(replay.result.current.output).toBe(expected);
+    sockets[0].receive({ type: "instruction", text: "Clear" });
+    sockets[1].receive({
+        type: "snapshot",
+        events: [...events, { type: "instruction", text: "Clear" }],
+        busy: false,
+        model: "test",
+    });
+    expect(live.result.current.output).toBe("");
+    expect(replay.result.current.output).toBe("");
+});
+
 test("execution output streams without duplicating final output and voice controls work while busy", () => {
     const { result } = renderHook(useWorkspace);
     const socket = sockets[0];

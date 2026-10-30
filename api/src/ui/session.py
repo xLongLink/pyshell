@@ -10,8 +10,7 @@ from a2ui.core.processing import MessageProcessor
 from a2ui.core.schema.v0_9 import server_to_client
 
 CATALOG = "urn:pyshell:catalog:v3"
-MODELS = [Figure]
-CATALOG_MODEL = Catalog(CATALOG, "v0.9", [ModelComponentApi(model) for model in MODELS])
+CATALOG_MODEL = Catalog(CATALOG, "v0.9", [ModelComponentApi(Figure)])
 T = TypeVar("T", bound=Widget)
 
 

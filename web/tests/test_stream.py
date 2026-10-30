@@ -3,7 +3,7 @@ import httpx
 import pytest
 import asyncio
 from types import SimpleNamespace
-from web.src.script import RemoteShell
+from web.src.shell import RemoteShell
 from web.src.workspace import Workspace
 
 
@@ -35,6 +35,30 @@ def test_unconfirmed_stream_is_not_replayed_and_blocks_more_work(events):
             with pytest.raises(RuntimeError, match="uncertain"):
                 await shell.stream("value = 42", lambda _event: None)
             assert len(requests) == 1
+        finally:
+            await shell.close()
+
+    asyncio.run(run())
+
+
+def test_confirmed_stream_forwards_events_in_order_without_terminal_marker():
+    events = [
+        {"type": "stdout_delta", "text": "output\n"},
+        {"type": "stderr_delta", "text": "warning\n"},
+        {"type": "result", "stdout": "output\n", "stderr": "warning\n", "exception": None, "done": True},
+        {"type": "execution_finished"},
+    ]
+
+    async def run():
+        shell = RemoteShell()
+        transport = httpx.MockTransport(lambda request: httpx.Response(200, text="\n".join(json.dumps(event) for event in events)))
+        shell.client = httpx.AsyncClient(transport=transport, base_url=shell.url)
+        received = []
+        try:
+            result = await shell.stream("print('output')", received.append)
+            assert received == events[:-1]
+            assert result == {"stdout": "output\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
+            assert shell.uncertain is False
         finally:
             await shell.close()
 
