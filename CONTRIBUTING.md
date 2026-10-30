@@ -2,8 +2,9 @@
 
 pyshell runs model-generated Python in a persistent execution API. `api/src/api/` owns
 FastAPI endpoints and Python execution; Docker configuration lives in `api/`.
-`web/script.py` contains the local terminal UI,
-model requests, conversation state, HTTP calls, and printing.
+`web/server.py` owns the browser-facing agent API and one shared workspace.
+`web/script.py` contains the reusable agent loop and original terminal client.
+`web/src/` contains the React/shadcn UI. Vite proxies `/ws` to the agent API.
 
 <br />
 
@@ -21,8 +22,17 @@ Run from the repository root with Make, Docker, and Docker Compose v2.24+:
 make up
 ```
 
-Press Ctrl-C to exit the terminal client. The API keeps running until `make down`.
-Use `/reset` for a fresh session; `/exit` and `/quit` are not local commands.
+Open `http://127.0.0.1:8010`. `make up` builds and starts the container, installs
+frontend dependencies, builds the website, and starts the foreground web server
+and agent API. `make agent` starts the server using the existing frontend build.
+For frontend development, run `make web` in another terminal and open
+`http://127.0.0.1:5180`. The execution endpoint is hardcoded to
+`http://127.0.0.1:8000`. Browser tabs share one conversation and namespace.
+Use Reset for a fresh session. Closing a tab does not cancel submitted work.
+Press Ctrl-C to stop the agent API; the container runs until `make down`.
+
+Run `npm --prefix web run typecheck` and `make build` to check the frontend.
+`npm --prefix web run format` formats frontend sources.
 
 Cleanup:
 
@@ -73,7 +83,7 @@ explicitly and print it if the agent needs to inspect it.
 make test
 ```
 
-Tests cover the API under `api/tests/` and the local client under `web/tests/`.
+Tests cover the execution API under `api/tests/` and the agent/client under `web/tests/`.
 API tests use an in-process FastAPI client; model requests are mocked. No live
 OpenAI requests or Docker containers are needed for the unit tests.
 

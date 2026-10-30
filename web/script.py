@@ -8,6 +8,7 @@ from typing import Literal, TypedDict
 from pathlib import Path
 from pydantic import Field, SecretStr, ValidationError
 from pydantic_ai import Agent as PydanticAgent
+from collections.abc import Callable
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_ai.models import Model
 from pydantic_ai.messages import ModelMessage
@@ -83,13 +84,17 @@ class RemoteShell:
         response.raise_for_status()
 
 
-def stream_response(agent: PydanticAgent[None, str], message: str, message_history: list[ModelMessage]) -> tuple[str, list[ModelMessage]]:
+def stream_response(
+    agent: PydanticAgent[None, str], message: str, message_history: list[ModelMessage], on_code: Callable[[str], None] | None = None
+) -> tuple[str, list[ModelMessage]]:
     """Display generated code and return only a completed response."""
     print()
     try:
         stream = agent.run_stream_sync(message, message_history=message_history)
         for text in stream.stream_text(delta=True, debounce_by=None):
             print(text, end="", flush=True)
+            if on_code is not None:
+                on_code(text)
 
         # Display partial output, but never execute an incomplete response.
         code = stream.get_output()
@@ -124,7 +129,7 @@ class Agent:
         self.message_history = []
         self.pending_feedback = None
 
-    def run(self, instruction: str) -> None:
+    def run(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> None:
         """Execute model responses until the task signals completion."""
         message = instruction
         while True:
@@ -134,7 +139,14 @@ class Agent:
 
             # Preserve execution feedback across failed model requests.
             try:
-                code, history = stream_response(self.agent, prompt, self.message_history)
+                if on_event is not None:
+                    on_event({"type": "code_start"})
+                code, history = stream_response(
+                    self.agent,
+                    prompt,
+                    self.message_history,
+                    on_code=(lambda text: on_event({"type": "code_delta", "text": text})) if on_event is not None else None,
+                )
 
             except (Exception, KeyboardInterrupt) as exc:
                 feedback = json.dumps({"stream_error": f"{type(exc).__name__}: {exc}", "executed": False})
@@ -150,6 +162,8 @@ class Agent:
                 raise RuntimeError("The model returned no Python code.")
 
             # Execute once; an ambiguous transport failure must not trigger a retry.
+            if on_event is not None:
+                on_event({"type": "execution_start"})
             result = self.shell.execute(code)
             print(result["stdout"], end="", flush=True)
             print(result["stderr"], end="", file=sys.stderr, flush=True)
@@ -160,6 +174,8 @@ class Agent:
             self.pending_feedback = None
             self.message_history = history
             message = json.dumps(result)
+            if on_event is not None:
+                on_event({"type": "result", **result})
             if result["done"]:
                 self.pending_feedback = message
                 return
