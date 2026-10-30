@@ -111,24 +111,11 @@ class UI:
         if batch:
             self.on_publish({"type": "a2ui", "messages": batch})
 
-    def show(self, component: Widget | list[dict[str, object]], *, surface_id: str | None = None) -> Widget:
+    def show(self, component: Widget, *, surface_id: str | None = None) -> Widget:
         """Publish a single figure as the root of its own surface."""
-        if isinstance(component, Widget):
-            if component._owner is not None:
-                raise RuntimeError("Use update() to change an already published widget")
-            widget = component
-
-        # Wire models must describe exactly one known root component.
-        else:
-            if not isinstance(component, list) or len(component) != 1:
-                raise ValueError("A surface requires exactly one figure")
-            if len(json.dumps(component, allow_nan=False).encode()) > 262144:
-                raise ValueError("A surface must not exceed 256 KiB")
-
-            attributes = component[0]
-            if not isinstance(attributes, dict) or attributes.get("component") != "Figure":
-                raise ValueError("Unknown UI component")
-            widget = Figure.model_validate(attributes)
+        if component._owner is not None:
+            raise RuntimeError("Use update() to change an already published widget")
+        widget = component
         if widget.id != "root":
             raise ValueError("A figure requires the component ID 'root'")
 

@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 from src.ui.widget import Widget
 from src.ui.session import UI
+from src.ui.plot.figure import Figure
 
 
 @pytest.mark.parametrize(
@@ -28,6 +29,20 @@ def test_plot_returns_typed_widgets_with_common_methods(data):
     assert [message["action"] for message in ui.messages] == ["focus", "unfocus", "pin", "unpin"]
     widget.remove()
     assert ui.messages[-1] == {"version": "v0.9", "deleteSurface": {"surfaceId": "surface_1"}}
+
+
+def test_show_publishes_a_typed_handle_once():
+    ui = UI()
+    figure = Figure(data=[{"type": "bar", "x": ["A"], "y": [1]}])
+    assert ui.show(figure, surface_id="sales") is figure
+    assert figure.surface_id == "sales"
+    previous = list(ui.messages)
+    with pytest.raises(RuntimeError, match=r"Use update\(\)"):
+        ui.show(figure, surface_id="other")
+    assert ui.messages == previous
+    assert ui.surfaces == {"sales"}
+    figure.pin()
+    assert ui.messages[-1] == {"type": "widget", "surface_id": "sales", "action": "pin"}
 
 
 def test_plot_rejects_duplicate_or_excess_positional_data_before_publication():
@@ -74,6 +89,7 @@ def test_update_keeps_the_handle_and_surface_identity():
         {"id": "other"},
         {"component": "Other"},
         {"unknown": True},
+        {"layout": {"yaxis": {"title": {"text": "Amount"}}}},
         {"layout": {"title": {"text": "Not published"}}, "data": [{"type": "scatter", "x": [1, 2], "y": [1]}]},
     ],
 )
@@ -128,23 +144,21 @@ def test_removed_replaced_and_reset_handles_cannot_mutate_new_widgets(invalidate
 
 
 @pytest.mark.parametrize(
-    ("component", "message"),
+    ("attributes", "message"),
     [
-        ([], "exactly one figure"),
-        ([None], "Unknown UI component"),
-        ([{"id": "root", "component": "Unknown"}], "Unknown UI component"),
-        ([{"id": "root", "component": "Figure", "data": [{"type": "pie", "labels": ["A"], "values": [-1]}]}], "greater than or equal to 0"),
-        ([{"id": "other", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}], "component ID 'root'"),
-        ([{"id": "root", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}], "extra": True}], "Extra inputs"),
-        ([{"id": "root", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}] * 2, "exactly one figure"),
+        ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "component": "Unknown"}, "Input should be 'Figure'"),
+        ({"data": [{"type": "pie", "labels": ["A"], "values": [-1]}]}, "greater than or equal to 0"),
+        ({"id": "other", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}, "component ID 'root'"),
+        ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "extra": True}, "Extra inputs"),
+        ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "layout": {"yaxis": {"title": {"text": "Amount"}}}}, "Extra inputs"),
     ],
 )
-def test_invalid_replacement_does_not_destroy_the_existing_surface(component, message):
+def test_invalid_replacement_does_not_destroy_the_existing_surface(attributes, message):
     ui = UI()
     original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}}, surface_id="notice")
     ui.messages = []
     with pytest.raises(ValueError, match=message):
-        ui.show(component, surface_id="notice")
+        ui.plot(**attributes, surface_id="notice")
     assert ui.messages == []
     original.update(layout={"title": {"text": "Still usable"}})
     assert original.layout.title.text == "Still usable"

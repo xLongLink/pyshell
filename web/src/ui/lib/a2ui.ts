@@ -38,7 +38,6 @@ const layout = z
     .object({
         title: title.default({}),
         xaxis: axis.default({}),
-        yaxis: axis.default({}),
         showlegend: z.boolean().default(true),
     })
     .strict();

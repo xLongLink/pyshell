@@ -23,12 +23,7 @@ def test_widgets_publish_a2ui_messages_and_preserve_python_state(api_client):
                         "id": "root",
                         "component": "Figure",
                         "data": [{"type": "bar", "name": "", "x": ["Revenue"], "y": [42]}],
-                        "layout": {
-                            "title": {"text": ""},
-                            "xaxis": {"title": {"text": ""}},
-                            "yaxis": {"title": {"text": ""}},
-                            "showlegend": True,
-                        },
+                        "layout": {"title": {"text": ""}, "xaxis": {"title": {"text": ""}}, "showlegend": True},
                     }
                 ],
             },
@@ -43,32 +38,32 @@ def test_widgets_publish_a2ui_messages_and_preserve_python_state(api_client):
     assert execute(api_client, "ui.remove('revenue')")["ui"] == [replacement[0]]
 
 
-def test_a_figure_can_be_published_from_its_wire_model(api_client):
-    result = execute(api_client, "ui.show([{'id': 'root', 'component': 'Figure', 'data': [{'type': 'scatter', 'x': ['Jan'], 'y': [42]}]}])")
+def test_a_typed_figure_can_be_published(api_client):
+    result = execute(
+        api_client, "from src.ui.plot.figure import Figure\nui.show(Figure(data=[{'type': 'scatter', 'x': ['Jan'], 'y': [42]}]))"
+    )
     assert result["exception"] is None
     assert result["ui"][1]["updateComponents"]["components"][0]["component"] == "Figure"
 
 
 # Unsupported components and malformed figures must fail before publication.
 @pytest.mark.parametrize(
-    "components",
+    "attributes",
     [
-        [{"id": "root", "component": "Image", "url": "https://example.com"}],
-        [{"id": "root", "component": "Text", "text": "Hello"}],
-        [{"id": "root", "component": "Metric", "label": "Revenue", "value": "$42"}],
-        [{"id": "root", "component": "Column", "children": ["root"]}],
-        [{"id": "root", "component": "Row", "children": ["root"]}],
-        [{"id": "root", "component": "Card", "children": ["root"]}],
-        [{"id": "root", "component": "Table", "columns": ["Name"], "rows": [["One"]]}],
-        # Known figures still reject extra fields, wrong roots, and multiple roots.
-        [{"id": "root", "component": "BarChart", "points": [{"label": "A", "value": 1}], "html": "<script>"}],
-        [{"id": "root", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}], "html": "<script>"}],
-        [{"id": "other", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}],
-        [{"id": "root", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}] * 2,
+        {"component": "Image", "url": "https://example.com"},
+        {"component": "Text", "text": "Hello"},
+        {"component": "Metric", "label": "Revenue", "value": "$42"},
+        {"component": "Column", "children": ["root"]},
+        {"component": "Row", "children": ["root"]},
+        {"component": "Card", "children": ["root"]},
+        {"component": "Table", "columns": ["Name"], "rows": [["One"]]},
+        {"component": "BarChart", "points": [{"label": "A", "value": 1}], "html": "<script>"},
+        {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "html": "<script>"},
+        {"id": "other", "data": [{"type": "bar", "x": ["A"], "y": [1]}]},
     ],
 )
-def test_invalid_ui_does_not_publish_partial_surface(api_client, components):
-    result = execute(api_client, f"ui.show({components!r})")
+def test_invalid_ui_does_not_publish_partial_surface(api_client, attributes):
+    result = execute(api_client, f"ui.plot(**{attributes!r})")
     assert result["exception"]
     assert result["ui"] == []
     assert execute(api_client, "print(ui.surfaces)")["stdout"] == "set()\n"

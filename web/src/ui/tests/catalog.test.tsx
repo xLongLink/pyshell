@@ -329,7 +329,6 @@ test("independent lines and markers share numeric axes without adding gaps", asy
                     component: "Figure",
                     layout: {
                         xaxis: { title: { text: "Time" } },
-                        yaxis: { title: { text: "Amount" } },
                     },
                     data: [
                         {
@@ -387,7 +386,6 @@ test("independent lines and markers share numeric axes without adding gaps", asy
     expect(screen.getByText("Predicted")).toBeTruthy();
     expect(screen.getByText("Observed")).toBeTruthy();
     expect(screen.getByText("Time")).toBeTruthy();
-    expect(screen.queryByText("Amount")).toBeNull();
     const application = screen.getByRole("application");
     fireEvent.focus(application);
     fireEvent.keyDown(application, { key: "ArrowRight" });
@@ -761,14 +759,13 @@ test.each(["scatter", "bar"] as const)(
 );
 
 test.each(["scatter", "bar"] as const)(
-    "%s plots hide value axis titles and numbers at every width and placement",
+    "%s plots hide value axis numbers at every width and placement",
     async (type) => {
         mockChartWidth(320);
         const messages = surface([
             {
                 id: "root",
                 component: "Figure",
-                layout: { yaxis: { title: { text: "Business submissions" } } },
                 data: [
                     {
                         type,
@@ -792,7 +789,6 @@ test.each(["scatter", "bar"] as const)(
         expect(
             container.querySelector(".recharts-yAxis-tick-labels"),
         ).toBeNull();
-        expect(screen.queryByText("Business submissions")).toBeNull();
         fireEvent.focus(screen.getByRole("application"));
         await waitFor(() =>
             expect(
@@ -810,7 +806,6 @@ test.each(["scatter", "bar"] as const)(
         await waitFor(() =>
             expect(container.querySelector(".recharts-xAxis")).not.toBeNull(),
         );
-        expect(screen.queryByText("Business submissions")).toBeNull();
         expect(container.querySelector(".recharts-yAxis")).toBeNull();
         expect(
             container.querySelector(".recharts-yAxis-tick-labels"),

@@ -43,7 +43,6 @@ test("figure defaults match the Python wire model", () => {
             layout: {
                 title: { text: "" },
                 xaxis: { title: { text: "" } },
-                yaxis: { title: { text: "" } },
                 showlegend: true,
             },
         },

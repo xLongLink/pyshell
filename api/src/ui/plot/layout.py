@@ -21,5 +21,4 @@ class Layout(PlotModel):
     # Each figure owns its title and axis defaults.
     title: Title = Field(default_factory=Title)
     xaxis: Axis = Field(default_factory=Axis)
-    yaxis: Axis = Field(default_factory=Axis)
     showlegend: bool = True
