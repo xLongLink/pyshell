@@ -64,6 +64,7 @@ test("world map requests only its backend boundaries and exposes hover and focus
     expect(germany.getAttribute("fill")).toBe("var(--muted)");
     expect(spain.getAttribute("fill")).not.toBe("var(--muted)");
     expect(screen.getByLabelText("Map legend")).toBeTruthy();
+    expect(screen.queryByRole("link")).toBeNull();
     expect(france.getAttribute("tabindex")).toBe("0");
     fireEvent.mouseEnter(france);
     expect(screen.getByRole("status").textContent).toBe("France: 42");
@@ -107,7 +108,7 @@ test("all-missing maps retain neutral boundaries and can hide the legend", async
     expect(screen.queryByLabelText("Map legend")).toBeNull();
 });
 
-test("regional map renders returned boundaries and includes attribution", async () => {
+test("regional map renders returned boundaries without attribution text", async () => {
     render(
         <Figure
             {...figureProps.parse({
@@ -127,7 +128,7 @@ test("regional map renders returned boundaries and includes attribution", async 
     expect(screen.getAllByRole("img")).toHaveLength(3);
     expect(screen.getByRole("img", { name: "Bretagne: 48" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Corse: No data" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /IGN/ })).toBeTruthy();
+    expect(screen.queryByRole("link")).toBeNull();
 });
 
 test("published map surfaces accept updates and geography changes without stale values", async () => {
@@ -238,7 +239,7 @@ test.each([
     ["JPN", "JP-27", "Osaka Prefecture", 1],
     ["AUS", "AU-NSW", "New South Wales", 1],
 ])(
-    "%s renders first-level divisions with data and attribution",
+    "%s renders first-level divisions with data and no attribution text",
     async (geography, code, name, count) => {
         render(
             <Figure
@@ -257,9 +258,7 @@ test.each([
         );
         await screen.findByRole("img", { name: `${name}: 42` });
         expect(screen.getAllByRole("img")).toHaveLength(count);
-        expect(
-            screen.getByRole("link", { name: /geoBoundaries/ }),
-        ).toBeTruthy();
+        expect(screen.queryByRole("link")).toBeNull();
     },
 );
 

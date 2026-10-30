@@ -84,7 +84,6 @@ function BoundaryMap({
     boundaries,
 }: MapProps & { boundaries: GeographyData }) {
     const [active, setActive] = useState<string | null>(null);
-    const source = boundaries.source;
     const projection = useMemo(
         () => mapProjection(boundaries, trace.geography === "world"),
         [trace.geography, boundaries],
@@ -195,26 +194,6 @@ function BoundaryMap({
                     <span>No data</span>
                 </div>
             )}
-            <div className="mt-2 shrink-0 text-right text-[10px] break-words text-muted-foreground">
-                <a
-                    href={source.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline"
-                >
-                    {source.source}
-                </a>
-                {source.year && ` (${source.year})`}
-                {" · "}
-                <a
-                    href={source.licenseUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline"
-                >
-                    {source.license}
-                </a>
-            </div>
         </div>
     );
 }

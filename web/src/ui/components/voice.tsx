@@ -197,20 +197,10 @@ export function Voice({
                     aria-hidden="true"
                 />
             </button>
-            {error ? (
+            {error && (
                 <p role="alert" className="text-sm text-destructive">
                     {error}
                 </p>
-            ) : (
-                phase !== "off" && (
-                    <p role="status" className="text-sm text-muted-foreground">
-                        {phase === "on"
-                            ? "Listening"
-                            : phase === "stopping"
-                              ? "Stopping…"
-                              : "Connecting voice…"}
-                    </p>
-                )
             )}
         </div>
     );
