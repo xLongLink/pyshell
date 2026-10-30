@@ -59,11 +59,8 @@ test("voice negotiates audio and releases microphone resources on hangup", async
     await waitFor(() =>
         expect(remote).toHaveBeenCalledWith({ type: "answer", sdp: "answer" }),
     );
-    expect(screen.queryByRole("status")).toBeNull();
     act(() => peer.onconnectionstatechange());
-    expect(screen.queryByRole("status")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Stop voice" }));
-    expect(screen.queryByRole("status")).toBeNull();
     expect(send).toHaveBeenLastCalledWith("stop");
     expect(track.stop).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();

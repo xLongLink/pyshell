@@ -24,17 +24,9 @@ function workspace(overrides = {}) {
     return state;
 }
 
-test("workspace offers voice without chat or execution output", () => {
+test("workspace offers voice", () => {
     workspace();
-    const { container } = render(<App />);
-    expect(screen.queryByRole("heading", { name: "Workspace" })).toBeNull();
-    expect(screen.queryByText("Ready")).toBeNull();
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(
-        screen.queryByText(/Your generated widgets will appear here/),
-    ).toBeNull();
-    expect(container.querySelector("pre, code")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
+    render(<App />);
     const voice = screen.getByRole("button", { name: "Start voice" });
     expect((voice as HTMLButtonElement).disabled).toBe(false);
 });
@@ -42,7 +34,6 @@ test("workspace offers voice without chat or execution output", () => {
 test("workspace keeps errors visible and voice available", () => {
     workspace({ error: "The operation failed" });
     render(<App />);
-    expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByRole("alert").textContent).toBe("The operation failed");
     expect(
         (

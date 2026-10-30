@@ -1,11 +1,14 @@
 import pytest
+from main import create_app
+from fastapi.testclient import TestClient
 
 
 def execute(client, code):
     return client.post("/", json={"code": code}).json()
 
 
-def test_widgets_publish_a2ui_messages_and_preserve_python_state(api_client):
+def test_widgets_publish_a2ui_messages_and_preserve_python_state():
+    api_client = TestClient(create_app())
     result = execute(
         api_client, "amount = 42\nui.plot([{'type': 'bar', 'x': ['Revenue'], 'y': [amount]}], surface_id='revenue')\nprint(amount)\ndone()"
     )
@@ -48,14 +51,16 @@ def test_widgets_publish_a2ui_messages_and_preserve_python_state(api_client):
         {"id": "other", "data": [{"type": "bar", "x": ["A"], "y": [1]}]},
     ],
 )
-def test_invalid_ui_does_not_publish_partial_surface(api_client, attributes):
+def test_invalid_ui_does_not_publish_partial_surface(attributes):
+    api_client = TestClient(create_app())
     result = execute(api_client, f"ui.plot(**{attributes!r})")
     assert result["exception"]
     assert result["ui"] == []
     assert execute(api_client, "print(ui.surfaces)")["stdout"] == "set()\n"
 
 
-def test_python_errors_preserve_widgets_but_reset_clears_display_state(api_client):
+def test_python_errors_preserve_widgets_but_reset_clears_display_state():
+    api_client = TestClient(create_app())
     result = execute(api_client, "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='notice')\n1 / 0")
     assert result["exception"]
     assert result["ui"][0]["createSurface"]["surfaceId"] == "notice"
@@ -65,7 +70,8 @@ def test_python_errors_preserve_widgets_but_reset_clears_display_state(api_clien
     assert "createSurface" in fresh[0]
 
 
-def test_display_limits_reject_excess_surfaces_and_nonfinite_numbers(api_client):
+def test_display_limits_reject_excess_surfaces_and_nonfinite_numbers():
+    api_client = TestClient(create_app())
     result = execute(api_client, "for number in range(21):\n    ui.plot([{'type': 'bar', 'x': ['A'], 'y': [number]}])")
     assert "20 surfaces" in result["exception"]
     assert sum("createSurface" in message for message in result["ui"]) == 20
@@ -75,7 +81,8 @@ def test_display_limits_reject_excess_surfaces_and_nonfinite_numbers(api_client)
     assert invalid["ui"] == []
 
 
-def test_pending_message_limit_keeps_last_successful_surface(api_client):
+def test_pending_message_limit_keeps_last_successful_surface():
+    api_client = TestClient(create_app())
     result = execute(
         api_client, "for number in range(40):\n    ui.plot([{'type': 'bar', 'x': ['A'], 'y': [number]}], surface_id='counter')"
     )
@@ -84,7 +91,8 @@ def test_pending_message_limit_keeps_last_successful_surface(api_client):
     assert execute(api_client, "ui.remove('counter')")["exception"] is None
 
 
-def test_automatic_surface_ids_do_not_replace_named_results(api_client):
+def test_automatic_surface_ids_do_not_replace_named_results():
+    api_client = TestClient(create_app())
     result = execute(
         api_client,
         "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='surface_1')\nui.plot([{'type': 'bar', 'x': ['B'], 'y': [2]}])",
@@ -96,7 +104,8 @@ def test_automatic_surface_ids_do_not_replace_named_results(api_client):
 
 
 @pytest.mark.parametrize("kind", ["bar", "scatter", "pie"])
-def test_trace_types_preserve_missing_values(api_client, kind):
+def test_trace_types_preserve_missing_values(kind):
+    api_client = TestClient(create_app())
     # Arrange
     trace = {
         "type": kind,

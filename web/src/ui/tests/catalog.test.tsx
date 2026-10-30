@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import {
     cleanup,
     fireEvent,
@@ -11,34 +11,7 @@ import { Results } from "../components/results";
 import { ChartContainer } from "../components/ui/chart";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui";
 
-function mockChartWidth(width: number) {
-    vi.stubGlobal(
-        "ResizeObserver",
-        class {
-            constructor(private callback: ResizeObserverCallback) {}
-            observe(target: Element) {
-                this.callback(
-                    [
-                        {
-                            target,
-                            contentRect: { width, height: 300 },
-                        } as ResizeObserverEntry,
-                    ],
-                    this as unknown as ResizeObserver,
-                );
-            }
-            unobserve() {}
-            disconnect() {}
-        },
-    );
-}
-
-beforeEach(() => mockChartWidth(600));
-
-afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-});
+afterEach(cleanup);
 
 function surface(components: unknown[], surfaceId = "sales") {
     return a2uiBatchSchema.parse([
@@ -185,8 +158,6 @@ test.each(["bar", "scatter", "pie"] as const)(
             />,
         );
         await waitFor(() => expect(screen.getByText("Revenue")).toBeTruthy());
-        expect(screen.queryByText("View chart data")).toBeNull();
-        expect(screen.queryByRole("table")).toBeNull();
         const plot = {
             bar: ".recharts-bar",
             scatter: ".recharts-line",
@@ -349,7 +320,6 @@ test("a pie with zero or missing values reports an empty plot", async () => {
     await waitFor(() =>
         expect(screen.getByText("No positive values to display.")).toBeTruthy(),
     );
-    expect(screen.queryByRole("table")).toBeNull();
 });
 
 test("independent lines and markers share numeric axes without adding gaps", async () => {

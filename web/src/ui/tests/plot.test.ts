@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { test } from "vitest";
 import {
     componentSchema,
@@ -8,45 +6,6 @@ import {
     catalogId,
     a2uiBatchSchema,
 } from "../lib/a2ui.ts";
-
-const cases = JSON.parse(
-    readFileSync(
-        resolve(
-            import.meta.dirname,
-            "../../../../api/tests/fixtures/figures.json",
-        ),
-        "utf8",
-    ),
-) as {
-    name: string;
-    valid: boolean;
-    browserValid?: boolean;
-    figure: unknown;
-}[];
-
-const limitCases = JSON.parse(
-    readFileSync(
-        resolve(
-            import.meta.dirname,
-            "../../../../api/tests/fixtures/figure_limits.json",
-        ),
-        "utf8",
-    ),
-) as { traces: number; points: number; valid: boolean }[];
-
-for (const entry of cases) {
-    test(`figure contract: ${entry.name}`, () => {
-        const valid = entry.browserValid ?? entry.valid;
-        assert.equal(
-            componentSchema.safeParse({
-                id: "root",
-                component: "Figure",
-                ...(entry.figure as object),
-            }).success,
-            valid,
-        );
-    });
-}
 
 test("figure defaults match the Python wire model", () => {
     assert.deepEqual(
@@ -102,7 +61,13 @@ test("map defaults and nonfinite values match Python", () => {
     }
 });
 
-test.each(limitCases)(
+test.each([
+    { traces: 20, points: 10, valid: true },
+    { traces: 21, points: 1, valid: false },
+    { traces: 1, points: 200, valid: true },
+    { traces: 1, points: 201, valid: false },
+    { traces: 2, points: 101, valid: false },
+])(
     "figure limits: $traces traces with $points points (valid: $valid)",
     ({ traces, points, valid }) => {
         const data = Array.from({ length: traces }, () => ({

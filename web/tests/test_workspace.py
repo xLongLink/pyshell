@@ -65,9 +65,11 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
         {"type": "stdout_delta", "text": "x" * 100000},
         {"type": "stderr_delta", "text": "warning"},
         {"type": "result", "stdout": "output", "stderr": "", "exception": None, "done": True},
+        {"type": "code_start"},
+        {"type": "execution_start"},
     ],
 )
-def test_execution_feedback_is_not_retained_or_broadcast_and_remains_unchanged(event):
+def test_idle_execution_events_are_not_retained_or_broadcast_and_remain_unchanged(event):
     workspace = Workspace(SimpleNamespace())
     queue = asyncio.Queue(maxsize=10)
     workspace.listeners.add(queue)
@@ -75,18 +77,8 @@ def test_execution_feedback_is_not_retained_or_broadcast_and_remains_unchanged(e
     workspace.publish(event)
     assert event == original
     assert queue.empty()
-    assert workspace.snapshot()["events"] == []
-
-
-def test_idle_phase_markers_are_not_retained_or_broadcast():
-    workspace = Workspace(SimpleNamespace())
-    queue = asyncio.Queue(maxsize=10)
-    workspace.listeners.add(queue)
-    workspace.publish({"type": "code_start"})
-    workspace.publish({"type": "execution_start"})
     assert workspace.phase == "idle"
     assert workspace.snapshot()["events"] == []
-    assert queue.empty()
 
 
 @pytest.mark.parametrize("event", [{"type": "instruction", "text": "Plot sales"}, {"type": "error", "text": "Task failed"}])

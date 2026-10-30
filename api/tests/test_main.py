@@ -6,17 +6,20 @@ from queue import Queue
 from types import SimpleNamespace
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
+from fastapi.testclient import TestClient
 from importlib.metadata import version
 from starlette.requests import ClientDisconnect
 
 
-def test_health_without_model_credentials(api_client):
+def test_health_without_model_credentials():
+    api_client = TestClient(create_app())
     response = api_client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_libraries_reports_installed_versions(api_client):
+def test_libraries_reports_installed_versions():
+    api_client = TestClient(create_app())
     response = api_client.get("/libraries")
     assert response.status_code == 200
     libraries = response.json()
@@ -25,7 +28,8 @@ def test_libraries_reports_installed_versions(api_client):
     assert libraries == sorted(libraries, key=lambda library: library["name"].casefold())
 
 
-def test_libraries_discovers_extra_packages(api_client, monkeypatch):
+def test_libraries_discovers_extra_packages(monkeypatch):
+    api_client = TestClient(create_app())
     packages = [
         SimpleNamespace(metadata={"Name": "z-extra"}, version="1.2.3"),
         SimpleNamespace(metadata={"Name": "Another"}, version="4.5.6"),
@@ -34,19 +38,22 @@ def test_libraries_discovers_extra_packages(api_client, monkeypatch):
     assert api_client.get("/libraries").json() == [{"name": "Another", "version": "4.5.6"}, {"name": "z-extra", "version": "1.2.3"}]
 
 
-def test_execution_preserves_namespace_and_captures_output(api_client):
+def test_execution_preserves_namespace_and_captures_output():
+    api_client = TestClient(create_app())
     assert api_client.post("/", json={"code": "import math\nvalue = math.sqrt(16)"}).status_code == 200
     response = api_client.post("/", json={"code": "print(value)\nimport sys\nprint('warning', file=sys.stderr)\ndone()"})
     assert response.json() == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
 
 
-def test_reset_clears_namespace(api_client):
+def test_reset_clears_namespace():
+    api_client = TestClient(create_app())
     api_client.post("/", json={"code": "value = 42"})
     assert api_client.post("/reset").status_code == 200
     assert "NameError" in api_client.post("/", json={"code": "print(value)"}).json()["exception"]
 
 
-def test_errors_preserve_prior_updates_and_do_not_kill_server(api_client):
+def test_errors_preserve_prior_updates_and_do_not_kill_server():
+    api_client = TestClient(create_app())
     result = api_client.post("/", json={"code": "value = 42\nprint('before')\n1 / 0\nvalue = 99"}).json()
     assert result["stdout"] == "before\n"
     assert "ZeroDivisionError" in result["exception"]
@@ -56,16 +63,19 @@ def test_errors_preserve_prior_updates_and_do_not_kill_server(api_client):
     assert api_client.get("/health").status_code == 200
 
 
-def test_output_and_done_are_per_request(api_client):
+def test_output_and_done_are_per_request():
+    api_client = TestClient(create_app())
     api_client.post("/", json={"code": "print('old')\ndone()"})
     assert api_client.post("/", json={"code": "pass"}).json() == {"stdout": "", "stderr": "", "exception": None, "done": False, "ui": []}
 
 
-def test_invalid_request_is_rejected(api_client):
+def test_invalid_request_is_rejected():
+    api_client = TestClient(create_app())
     assert api_client.post("/", json={"command": "print(42)"}).status_code == 422
 
 
-def test_requests_are_serialized(api_client):
+def test_requests_are_serialized():
+    api_client = TestClient(create_app())
     api_client.post("/", json={"code": "value = 0\nimport time"})
 
     def increment(_):
@@ -77,7 +87,8 @@ def test_requests_are_serialized(api_client):
     assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "8\n"
 
 
-def test_stream_preserves_output_widget_and_placement_order(api_client):
+def test_stream_preserves_output_widget_and_placement_order():
+    api_client = TestClient(create_app())
     response = api_client.post(
         "/execute/stream",
         json={
@@ -110,7 +121,8 @@ def test_stream_preserves_output_widget_and_placement_order(api_client):
     assert api_client.post("/", json={"code": "print(chart.surface_id)"}).json()["stdout"] == "sales\n"
 
 
-def test_stream_reports_partial_output_and_python_failure(api_client):
+def test_stream_reports_partial_output_and_python_failure():
+    api_client = TestClient(create_app())
     response = api_client.post("/execute/stream", json={"code": "value = 42\nprint('before')\ndone()\n1 / 0"})
     events = [json.loads(line) for line in response.text.splitlines()]
     assert "".join(event["text"] for event in events if event["type"] == "stdout_delta") == "before\n"
@@ -118,26 +130,6 @@ def test_stream_reports_partial_output_and_python_failure(api_client):
     assert events[-2]["done"] is False
     assert events[-1] == {"type": "execution_finished"}
     assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "42\n"
-
-
-@pytest.fixture
-def stream_app(monkeypatch):
-    queues = []
-
-    class BoundedWaitQueue(Queue):
-        def put(self, item, block=True, timeout=None):
-            return super().put(item, block=block, timeout=0.05)
-
-        def get(self, block=True, timeout=None):
-            return super().get(block=block, timeout=0.2)
-
-    def queue_factory(maxsize):
-        queue = BoundedWaitQueue(maxsize=maxsize)
-        queues.append(queue)
-        return queue
-
-    monkeypatch.setattr("main.Queue", queue_factory)
-    return create_app(), queues
 
 
 async def open_stream(app, code="pass"):
@@ -149,8 +141,10 @@ async def open_stream(app, code="pass"):
     return response, workers
 
 
-def test_stream_terminal_event_fits_at_queue_capacity(stream_app, monkeypatch):
-    app, queues = stream_app
+def test_stream_terminal_event_fits_at_queue_capacity(monkeypatch):
+    app = create_app()
+    queue = Queue(maxsize=256)
+    monkeypatch.setattr("main.Queue", lambda maxsize: queue)
     calls = []
 
     def execute(_shell, code, on_event):
@@ -164,18 +158,20 @@ def test_stream_terminal_event_fits_at_queue_capacity(stream_app, monkeypatch):
     async def check():
         response, workers = await open_stream(app)
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
-        assert queues[0].qsize() == queues[0].maxsize == 256
+        assert queue.qsize() == queue.maxsize == 256
         events = [json.loads(line) async for line in response.body_iterator]
         assert [event["text"] for event in events[:-2]] == [str(index) for index in range(254)]
         assert events[-2:] == [{"type": "result", "stdout": "complete"}, {"type": "execution_finished"}]
-        assert queues[0].empty()
+        assert queue.empty()
 
     asyncio.run(check())
     assert calls == ["pass"]
 
 
-def test_stream_saturated_queue_drains_without_resubmitting(stream_app, monkeypatch):
-    app, queues = stream_app
+def test_stream_saturated_queue_drains_without_resubmitting(monkeypatch):
+    app = create_app()
+    queue = Queue(maxsize=256)
+    monkeypatch.setattr("main.Queue", lambda maxsize: queue)
     calls = []
 
     def execute(_shell, code, on_event):
@@ -192,14 +188,14 @@ def test_stream_saturated_queue_drains_without_resubmitting(stream_app, monkeypa
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
         events = [json.loads(line) async for line in response.body_iterator]
         assert events == [{"type": "stdout_delta", "text": str(index)} for index in range(256)]
-        assert queues[0].empty()
+        assert queue.empty()
 
     asyncio.run(check())
     assert calls == ["pass", "completed"]
 
 
-def test_stream_worker_failure_still_emits_terminal_event(stream_app, monkeypatch):
-    app, _queues = stream_app
+def test_stream_worker_failure_still_emits_terminal_event(monkeypatch):
+    app = create_app()
 
     def execute(_shell, _code, on_event):
         on_event({"type": "stdout_delta", "text": "before"})
@@ -221,8 +217,10 @@ def test_stream_worker_failure_still_emits_terminal_event(stream_app, monkeypatc
     asyncio.run(check())
 
 
-def test_stream_disconnect_does_not_cancel_or_resubmit_execution(stream_app, monkeypatch):
-    app, queues = stream_app
+def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
+    app = create_app()
+    queue = Queue(maxsize=256)
+    monkeypatch.setattr("main.Queue", lambda maxsize: queue)
     disconnected = Event()
     calls = []
 
@@ -256,17 +254,17 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(stream_app, mon
             disconnected.set()
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
         assert json.loads(sent[-1]["body"]) == {"type": "stdout_delta", "text": "before"}
-        assert queues[0].qsize() == 256
+        assert queue.qsize() == 256
         events = [json.loads(line) async for line in response.body_iterator]
         assert events == [{"type": "stdout_delta", "text": str(index)} for index in range(256)]
-        assert queues[0].empty()
+        assert queue.empty()
 
     asyncio.run(check())
     assert calls == ["pass", "completed"]
 
 
-def test_stream_and_regular_requests_share_execution_lock(stream_app, monkeypatch):
-    app, _queues = stream_app
+def test_stream_and_regular_requests_share_execution_lock(monkeypatch):
+    app = create_app()
     entered = Event()
     release = Event()
     calls = []

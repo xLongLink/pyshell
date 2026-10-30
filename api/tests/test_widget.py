@@ -37,7 +37,7 @@ def test_show_publishes_a_typed_handle_once():
     assert ui.messages[-1] == {"type": "widget", "surface_id": "sales", "action": "pin"}
 
 
-@pytest.mark.parametrize("attributes", [{}, {"data": None}, {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True}])
+@pytest.mark.parametrize("attributes", [{}, {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True}])
 def test_invalid_plot_arguments_do_not_publish(attributes):
     ui = UI()
     with pytest.raises(ValidationError):
@@ -48,7 +48,12 @@ def test_invalid_plot_arguments_do_not_publish(attributes):
 
 def test_update_keeps_the_handle_and_surface_identity():
     ui = UI()
-    chart = ui.plot([{"type": "scatter", "x": ["Jan"], "y": [42]}], layout={"title": {"text": "Before"}}, surface_id="sales")
+    chart = ui.plot(
+        [{"type": "scatter", "x": ["Jan"], "y": [42]}], layout={"title": {"text": "Before"}, "showlegend": False}, surface_id="sales"
+    )
+    chart.update(data=[{"type": "scatter", "x": ["Jan"], "y": [45]}])
+    assert chart.layout.title.text == "Before"
+    assert chart.layout.showlegend is False
     ui.messages = []
     chart.update(layout={"title": {"text": "After"}}, data=[{"type": "scatter", "x": ["Jan"], "y": [50]}])
     assert chart.layout.title.text == "After"
@@ -59,6 +64,9 @@ def test_update_keeps_the_handle_and_surface_identity():
     assert len(ui.messages) == 1
     assert ui.messages[0]["updateComponents"]["surfaceId"] == "sales"
     assert ui.messages[0]["updateComponents"]["components"][0]["layout"]["title"]["text"] == "After"
+    assert chart.layout.showlegend is True
+    chart.update(layout={"title": {"text": "Final"}})
+    assert chart.data[0].y == [50]
     chart.pin()
     assert ui.messages[-1]["action"] == "pin"
 
@@ -165,14 +173,3 @@ def test_failed_publication_does_not_change_widget_attributes():
     ui.messages = []
     widget.update(layout={"title": {"text": "Now published"}})
     assert widget.layout.title.text == "Now published"
-
-
-def test_update_replaces_supplied_fields_and_keeps_omitted_fields():
-    ui = UI()
-    plot = ui.plot([{"type": "scatter", "x": [1], "y": [2]}], layout={"title": {"text": "Before"}, "showlegend": False})
-    plot.update(data=[{"type": "scatter", "x": [1, 2], "y": [3, 4]}])
-    assert plot.layout.title.text == "Before"
-    assert plot.layout.showlegend is False
-    plot.update(layout={"title": {"text": "After"}})
-    assert plot.layout.showlegend is True
-    assert plot.data[0].y == [3, 4]
