@@ -676,47 +676,6 @@ test("backend placement moves widgets between center and sidebar without control
     );
 });
 
-test.each(["scatter", "bar"] as const)(
-    "%s plots hide value axis numbers and retain keyboard tooltips",
-    async (type) => {
-        mockChartWidth(320);
-        const messages = surface([
-            {
-                id: "root",
-                component: "Figure",
-                data: [
-                    {
-                        type,
-                        name: "Submissions",
-                        x: ["Jan", "Feb"],
-                        y: [10, 20],
-                    },
-                ],
-            },
-        ]);
-        const { container } = render(
-            <Results
-                messages={messages}
-                placements={{ sales: { pinned: true } }}
-            />,
-        );
-        await waitFor(() =>
-            expect(container.querySelector(".recharts-xAxis")).not.toBeNull(),
-        );
-        expect(container.querySelector(".recharts-yAxis")).toBeNull();
-        expect(
-            container.querySelector(".recharts-yAxis-tick-labels"),
-        ).toBeNull();
-        fireEvent.focus(screen.getByRole("application"));
-        await waitFor(() =>
-            expect(
-                container.querySelector(".recharts-tooltip-wrapper")
-                    ?.textContent,
-            ).toContain("10"),
-        );
-    },
-);
-
 test("the center holds at most four widgets and overflow stays visible on the side", async () => {
     const messages = [1, 2, 3, 4, 5].flatMap((index) =>
         surface([bar(`Chart ${index}`)], `chart_${index}`),

@@ -15,6 +15,8 @@ def test_figure_contract(case, geography_provider):
         plot = ui.plot(**case["figure"])
         assert plot.component == "Figure"
         assert len(ui.messages) == 2
+        if "layout" in case["figure"]:
+            assert ui.messages[1]["updateComponents"]["components"][0]["layout"] == case["figure"]["layout"]
 
     # Rejected contract cases must not create protocol or session state.
     else:
