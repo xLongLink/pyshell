@@ -61,7 +61,32 @@ async def geography(request: Request, geography: str) -> Response:
     except (httpx.RequestError, RuntimeError) as error:
         raise HTTPException(status_code=502, detail="Map data is unavailable") from error
     headers = {name: response.headers[name] for name in ("cache-control", "etag", "last-modified") if name in response.headers}
-    return Response(response.content, media_type="application/geo+json", headers=headers)
+    return Response(response.content, media_type="application/geo+json", headers={**headers, "Access-Control-Allow-Origin": "*"})
+
+
+@app.get("/renderer/{path:path}")
+async def renderer(request: Request, path: str) -> Response:
+    """Proxy only renderer assets from the execution backend."""
+    if path and (not re.fullmatch(r"[A-Za-z0-9_./-]+", path) or any(part in {".", ".."} for part in path.split("/"))):
+        raise HTTPException(status_code=404, detail="Renderer asset not found")
+    try:
+        response = await request.app.state.workspace.agent.shell.renderer(path)
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Renderer asset not found") from error
+        raise HTTPException(status_code=502, detail="Renderer is unavailable") from error
+    except (httpx.RequestError, RuntimeError) as error:
+        raise HTTPException(status_code=502, detail="Renderer is unavailable") from error
+    return Response(
+        response.content,
+        headers={
+            "Content-Type": response.headers.get("content-type", "application/octet-stream"),
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "same-origin",
+        },
+    )
 
 
 @app.websocket("/ws")

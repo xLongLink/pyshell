@@ -3,12 +3,12 @@ import {
     messageSchema,
     type Placements,
     type VoiceEvent,
+    type WorkspaceMessage,
 } from "@/lib/workspace";
-import type { A2uiMessage } from "@/lib/a2ui";
 
-function retainWidgets(messages: A2uiMessage[]) {
+function retainWidgets(messages: WorkspaceMessage[]) {
     if (messages.length <= 200) return messages;
-    const surfaces = new Map<string, A2uiMessage[]>();
+    const surfaces = new Map<string, WorkspaceMessage[]>();
     for (const message of messages) {
         if ("createSurface" in message)
             surfaces.set(message.createSurface.surfaceId, [message]);
@@ -30,7 +30,7 @@ export function useWorkspace() {
     const socket = useRef<WebSocket | null>(null);
     const [connected, setConnected] = useState(false);
     const [error, setError] = useState("");
-    const [uiMessages, setUiMessages] = useState<A2uiMessage[]>([]);
+    const [uiMessages, setUiMessages] = useState<WorkspaceMessage[]>([]);
     const [placements, setPlacements] = useState<Placements>({});
     const [voiceEvent, setVoiceEvent] = useState<VoiceEvent | null>(null);
 

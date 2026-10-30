@@ -2,6 +2,7 @@ import json
 import asyncio
 from queue import Full, Queue
 from fastapi import FastAPI, HTTPException
+from pathlib import Path
 from pydantic import Field, BaseModel, JsonValue
 from src.shell import PythonShell
 from threading import Lock
@@ -9,6 +10,7 @@ from collections.abc import Iterator
 from importlib.metadata import distributions
 from starlette.responses import FileResponse, StreamingResponse
 from src.ui.plot.geography import UnsupportedGeographyError, geography_path
+from starlette.staticfiles import StaticFiles
 
 
 class Library(BaseModel):
@@ -125,4 +127,5 @@ def create_app() -> FastAPI:
             shell = PythonShell()
         return {"status": "reset"}
 
+    app.mount("/renderer", StaticFiles(directory=Path(__file__).parent / "web" / "dist", html=True, check_dir=False), name="renderer")
     return app

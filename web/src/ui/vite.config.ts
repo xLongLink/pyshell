@@ -10,6 +10,7 @@ export default defineConfig({
         proxy: {
             "/ws": { target: "ws://127.0.0.1:8010", ws: true },
             "/geographies": { target: "http://127.0.0.1:8010" },
+            "/renderer": { target: "http://127.0.0.1:8010" },
         },
     },
 });
