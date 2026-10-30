@@ -1,27 +1,18 @@
 import json
 from typing import Generic, TypeVar
 from pydantic import TypeAdapter
-from src.ui.row import Row
-from src.ui.card import Card
-from src.ui.text import Text
-from src.ui.table import Table
 from src.ui.types import Action, Identifier
-from src.ui.column import Column
-from src.ui.common import Layout
-from src.ui.metric import Metric
 from src.ui.widget import Widget
 from src.ui.chart.bar import BarChart
 from src.ui.chart.pie import PieChart
 from a2ui.core.catalog import Catalog, ModelComponentApi
 from src.ui.chart.line import LineChart
-from a2ui.core.processing import MessageProcessor, MessageProcessorOptions
-from a2ui.core.validation import ValidationConfig
+from a2ui.core.processing import MessageProcessor
 from a2ui.core.schema.v0_9 import server_to_client
 
-CATALOG = "urn:pyshell:catalog:v1"
-MODELS = [Text, Metric, Table, Column, Row, Card, BarChart, LineChart, PieChart]
+CATALOG = "urn:pyshell:catalog:v2"
+MODELS = [BarChart, LineChart, PieChart]
 CATALOG_MODEL = Catalog(CATALOG, "v0.9", [ModelComponentApi(model) for model in MODELS])
-OPTIONS = MessageProcessorOptions(validation_config=ValidationConfig(max_depth=15))
 T = TypeVar("T", bound=Widget)
 
 
@@ -62,13 +53,10 @@ class UI:
     def __init__(self) -> None:
         """Keep protocol state local to one execution session."""
         self.messages: list[dict[str, object]] = []
-        self._widgets: dict[str, list[Widget]] = {}
+        self._widgets: dict[str, Widget] = {}
         self._sequence = 0
         self._closed = False
-        self._processor = MessageProcessor([CATALOG_MODEL], options=OPTIONS)
-        self.text = Factory(Text, self)
-        self.metric = Factory(Metric, self)
-        self.table = Factory(Table, self)
+        self._processor = MessageProcessor([CATALOG_MODEL])
         self.chart = Charts(self)
 
     @property
@@ -81,8 +69,8 @@ class UI:
         message = server_to_client.CreateSurfaceMessage(createSurface=body)
         return message.model_dump(mode="json", by_alias=True, exclude_none=True)
 
-    def _content(self, surface_id: str, widgets: list[Widget]) -> dict[str, object]:
-        body = server_to_client.UpdateComponents(surfaceId=surface_id, components=[widget.model_dump(mode="json") for widget in widgets])
+    def _content(self, surface_id: str, widget: Widget) -> dict[str, object]:
+        body = server_to_client.UpdateComponents(surfaceId=surface_id, components=[widget.model_dump(mode="json")])
         message = server_to_client.UpdateComponentsMessage(updateComponents=body)
         return message.model_dump(mode="json", by_alias=True, exclude_none=True)
 
@@ -91,14 +79,11 @@ class UI:
         message = server_to_client.DeleteSurfaceMessage(deleteSurface=body)
         return message.model_dump(mode="json", by_alias=True, exclude_none=True)
 
-    def _validate(self, surface_id: str, widgets: list[Widget]) -> None:
-        if len(json.dumps([widget.model_dump(mode="json") for widget in widgets], allow_nan=False).encode()) > 262144:
+    def _validate(self, surface_id: str, widget: Widget) -> None:
+        if len(json.dumps(widget.model_dump(mode="json"), allow_nan=False).encode()) > 262144:
             raise ValueError("A surface must not exceed 256 KiB")
-        references = [str(child) for widget in widgets if isinstance(widget, Layout) for child in widget.children]
-        if len(set(references)) != len(references):
-            raise ValueError("A component cannot have multiple parents")
-        processor = MessageProcessor([CATALOG_MODEL], options=OPTIONS)
-        processor.process_messages([self._create(surface_id), self._content(surface_id, widgets)])
+        processor = MessageProcessor([CATALOG_MODEL])
+        processor.process_messages([self._create(surface_id), self._content(surface_id, widget)])
 
     def _publish(self, messages: list[dict[str, object]]) -> None:
         if self._closed:
@@ -123,27 +108,23 @@ class UI:
         self.messages.extend(messages)
 
     def show(self, component: Widget | list[dict[str, object]], *, surface_id: str | None = None) -> Widget:
-        """Publish a typed widget or a complete flat component tree."""
+        """Publish a single chart as the root of its own surface."""
         if isinstance(component, Widget):
             if component._owner is not None:
                 raise RuntimeError("Use update() to change an already published widget")
-            widgets = [component]
+            widget = component
         else:
-            if not isinstance(component, list) or not 1 <= len(component) <= 100:
-                raise ValueError("A surface requires between 1 and 100 components")
+            if not isinstance(component, list) or len(component) != 1:
+                raise ValueError("A surface requires exactly one chart")
             if len(json.dumps(component, allow_nan=False).encode()) > 262144:
                 raise ValueError("A surface must not exceed 256 KiB")
-            widgets = []
-            for attributes in component:
-                if not isinstance(attributes, dict) or attributes.get("component") not in CATALOG_MODEL.components:
-                    raise ValueError("Unknown UI component")
-                model = CATALOG_MODEL.components[attributes["component"]]
-                widgets.append(model.type_adapter.validate_python(attributes))
-        if len({widget.id for widget in widgets}) != len(widgets):
-            raise ValueError("Components require unique IDs")
-        root = next((widget for widget in widgets if widget.id == "root"), None)
-        if root is None:
-            raise ValueError("A surface requires a 'root' component")
+            attributes = component[0]
+            if not isinstance(attributes, dict) or attributes.get("component") not in CATALOG_MODEL.components:
+                raise ValueError("Unknown UI component")
+            model = CATALOG_MODEL.components[attributes["component"]]
+            widget = model.type_adapter.validate_python(attributes)
+        if widget.id != "root":
+            raise ValueError("A chart requires the component ID 'root'")
         if surface_id is None:
             self._sequence += 1
             surface_id = f"surface_{self._sequence}"
@@ -153,31 +134,28 @@ class UI:
         identifier = TypeAdapter(Identifier).validate_python(surface_id)
         if identifier not in self._widgets and len(self._widgets) >= 20:
             raise ValueError("At most 20 surfaces may be displayed; remove an existing surface first")
-        self._validate(identifier, widgets)
-        messages = [self._create(identifier), self._content(identifier, widgets)]
+        self._validate(identifier, widget)
+        messages = [self._create(identifier), self._content(identifier, widget)]
         if identifier in self._widgets:
             messages.insert(0, self._delete(identifier))
         self._publish(messages)
-        root._owner = self
-        root._surface_id = identifier
-        self._widgets[identifier] = widgets
-        return root
+        widget._owner = self
+        widget._surface_id = identifier
+        self._widgets[identifier] = widget
+        return widget
 
-    def _active(self, widget: Widget) -> list[Widget]:
-        widgets = self._widgets.get(widget.surface_id, [])
-        if self._closed or not any(node is widget for node in widgets):
+    def _active(self, widget: Widget) -> None:
+        if self._closed or self._widgets.get(widget.surface_id) is not widget:
             raise RuntimeError("This widget was removed, replaced, or reset")
-        return widgets
 
     def update(self, widget: Widget, attributes: dict[str, object]) -> None:
         """Validate a complete candidate before publishing an in-place update."""
-        widgets = self._active(widget)
+        self._active(widget)
         if {"id", "component"} & attributes.keys():
             raise ValueError("Widget identity and type cannot be changed by update()")
         candidate = type(widget).model_validate({**widget.model_dump(mode="json"), **attributes})
-        updated = [candidate if node is widget else node for node in widgets]
-        self._validate(widget.surface_id, updated)
-        self._publish([self._content(widget.surface_id, updated)])
+        self._validate(widget.surface_id, candidate)
+        self._publish([self._content(widget.surface_id, candidate)])
         for name in type(widget).model_fields:
             object.__setattr__(widget, name, getattr(candidate, name))
 

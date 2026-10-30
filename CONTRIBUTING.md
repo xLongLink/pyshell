@@ -7,13 +7,16 @@ the agent API and one shared workspace. `web/src/script.py` contains the reusabl
 agent loop and original terminal client. `web/src/ui/` is the self-contained React/shadcn
 frontend project, including npm dependencies, build configuration, and frontend tests.
 Vite proxies `/ws` to the agent API.
-`api/src/ui/widget.py` defines the shared widget methods. Component models in
-`api/src/ui/` inherit that base; `api/src/ui/session.py` owns their factories and
+`api/src/ui/widget.py` defines the shared widget methods. The three chart models
+in `api/src/ui/chart/` inherit that base; `api/src/ui/session.py` owns their factories and
 uses `a2ui-core` for catalog validation and protocol messages.
 `web/src/ui/lib/a2ui.ts` validates incoming display messages, and
 `web/src/ui/components/catalog.tsx` implements the approved React component catalog.
 Chart models live in `api/src/ui/chart/`, with `bar.py`, `line.py`, and `pie.py`
-sharing their common fields. `web/src/ui/components/chart.tsx` renders the charts.
+sharing their common fields. `web/src/ui/components/chart/` mirrors the three
+chart types in `bar.tsx`, `line.tsx`, and `pie.tsx`, with a shared widget frame.
+They compose Recharts with the installed shadcn chart primitives in
+`web/src/ui/components/ui/chart.tsx` for responsive sizing, tooltips, and legends.
 
 <br />
 
@@ -43,10 +46,10 @@ Press Ctrl-C to stop the agent API; the container runs until `make down`.
 Run `npm --prefix web/src/ui run typecheck` and `npm --prefix web/src/ui run build` to check the frontend.
 `npm --prefix web/src/ui run format` formats frontend sources.
 
-To add a result component, inherit `Widget` in its own `api/src/ui/` module,
+To add a chart type, inherit `Chart` in its own `api/src/ui/chart/` module,
 define its typed attributes and default component name, and register the model
-in `api/src/ui/session.py`. Add a factory to the session if it needs a convenience
-constructor. Factories use model attributes rather than repeating their fields.
+and constructor in `api/src/ui/session.py`. Each surface holds one chart.
+Factories use model attributes rather than repeating their fields.
 Then add
 its wire schema in `web/src/ui/lib/a2ui.ts`, and its renderer/catalog entry in
 `web/src/ui/components/catalog.tsx`. Update the agent instructions in `web/src/script.py`.

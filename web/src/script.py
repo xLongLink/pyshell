@@ -36,11 +36,7 @@ imports persist until the session is reset.
 
 The provided ui object publishes rich results through A2UI. It is available
 without imports. These are normal synchronous Python calls; do not await them.
-Use UI widgets for useful results, while still printing a concise summary:
-- ui.text(text, title="", surface_id=None): plain text, no HTML or Markdown.
-- ui.metric(label, value, detail="", surface_id=None): value is a formatted string.
-- ui.table(columns, rows, title="", surface_id=None): columns is a list of strings;
-  rows is a list of lists of JSON scalar values (up to 500 rows, 20 columns).
+Only three chart widgets are available. Print summaries and any tabular results:
 - ui.chart.bar(points, title="", surface_id=None): compare labeled values.
 - ui.chart.line(points, title="", surface_id=None): show ordered trends.
 - ui.chart.pie(points, title="", surface_id=None): show nonnegative shares.
@@ -60,17 +56,10 @@ Widget attributes are read-only outside update(); identity and type cannot chang
 Reuse a widget or a short named surface_id to avoid duplication. Surfaces persist until
 reset or removal; at most 20 may exist. Do not repeat successful mutations after
 errors: earlier Python changes and published widgets may already have applied.
-For custom layouts use ui.show(components, surface_id=None). Components form a complete
-tree, with a root whose id is "root", unique IDs, and no missing or repeated
-children. Approved components (flat dictionaries, not nested components):
-Text: id, component="Text", text, optional title.
-Metric: id, component="Metric", label, value (string), optional detail.
-Table: id, component="Table", columns, rows, optional title.
-BarChart/LineChart/PieChart: id, component="BarChart"/"LineChart"/"PieChart",
-points, optional title. PieChart points must have nonnegative values or None.
-Column/Row/Card: id, component="Column"/"Row"/"Card", children=[child IDs].
-Use only these components and fields; executable UI, URLs, images, inputs, and
-arbitrary actions are not supported. Convert pandas/numpy objects to plain Python values.
+Each chart occupies its own surface. Text, metrics, tables, and layout widgets
+are not available. Do not call ui.text(), ui.metric(), or ui.table(). Executable
+UI, URLs, images, inputs, and arbitrary actions are not supported.
+Convert pandas/numpy objects to plain Python values.
 """
 
 

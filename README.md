@@ -20,7 +20,7 @@ Give instructions in your browser. Watch the agent write and run Python inside D
 - 🧠 **Persistent sessions:** Variables, imports, and conversation context carry over between instructions.
 - 🔄 **Execution feedback:** Output and errors go back to the model so it can continue or correct mistakes.
 - 📦 **Custom environment:** Install Python libraries at container startup.
-- 📊 **Rich results:** A2UI renders text, metrics, tables, bar/line/pie charts, and custom layouts alongside code and output.
+- 📊 **Rich results:** A2UI renders bar, line, and pie charts alongside code and printed output.
 
 
 <br />
@@ -97,14 +97,13 @@ Python runs without approval.
 
 Try asking:
 
-> Create a clearly labeled synthetic sales dataset. Display a revenue metric,
-> a product sales table, and a bar chart. Use only the Python standard library.
+> Create a clearly labeled synthetic sales dataset. Show monthly revenue as a
+> line chart, product totals as a bar chart, and product shares as a pie chart.
+> Print a concise summary. Use only the Python standard library.
 
 Python has a provided `ui` object; no import or extra package is required:
 
 ```python
-ui.metric("Revenue", "$420", surface_id="revenue")
-ui.table(["Product", "Revenue"], [["Apples", 420]], title="Synthetic sales", surface_id="sales")
 chart = ui.chart.line([{"label": "Jan", "value": 420}], title="Synthetic revenue", surface_id="chart")
 chart.pin()
 chart.focus()
@@ -135,16 +134,18 @@ Widgets survive follow-up instructions and browser reconnection;
 Reset clears them with the conversation and Python namespace. Python errors
 preserve widgets already published before the error.
 
-The restricted A2UI v0.9 catalog supports `Text`, `Metric`, `Table`, `BarChart`,
-`LineChart`, `PieChart`, `Column`, `Row`, and `Card`. Create charts with
+The restricted A2UI v0.9 catalog supports only `BarChart`, `LineChart`, and
+`PieChart`. Create charts with
 `ui.chart.line(points, ...)`, `ui.chart.bar(points, ...)`, or
 `ui.chart.pie(points, ...)`. There is no `kind` argument or generic `ui.chart()` call.
 Each point has a `label` and numeric `value`, or `None` for missing data. Lines
 preserve gaps. Pie charts require nonnegative values and omit missing slices;
 all chart types retain missing values in their accessible data tables.
-`ui.show(components, surface_id=...)` accepts a flat
-component tree rooted at `id="root"` for custom layouts. It does not accept
-arbitrary HTML, JavaScript, remote catalogs, inputs, or custom executable actions.
+Each surface contains one chart with component ID `root`. The low-level
+`ui.show(...)` also accepts one typed chart or a one-item list containing its
+wire definition. Text, metric, table, and layout widgets are not available;
+use `print()` for summaries and tabular results. Arbitrary HTML, JavaScript,
+remote catalogs, inputs, and custom executable actions are not supported.
 
 The Python publisher uses official `a2ui-core` message models, catalogs, and
 structural validation. All Python components inherit `api/src/ui/widget.py`;

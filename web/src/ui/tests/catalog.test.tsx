@@ -1,14 +1,35 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import { Results } from "../components/results";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui";
+
+beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        this.callback(
+          [
+            {
+              target,
+              contentRect: { width: 600, height: 300 },
+            } as ResizeObserverEntry,
+          ],
+          this as unknown as ResizeObserver,
+        );
+      }
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+});
 
 afterEach(() => {
   cleanup();
@@ -22,63 +43,23 @@ function surface(components: unknown[], surfaceId = "sales") {
   ]);
 }
 
-test("renders the custom catalog through the real A2UI renderer", async () => {
-  render(
-    <Results
-      messages={surface([
-        {
-          id: "root",
-          component: "Column",
-          children: ["summary", "numbers", "data"],
-        },
-        {
-          id: "summary",
-          component: "Text",
-          text: "Synthetic sample",
-          title: "Sales overview",
-        },
-        { id: "numbers", component: "Row", children: ["card"] },
-        { id: "card", component: "Card", children: ["total"] },
-        {
-          id: "total",
-          component: "Metric",
-          label: "Revenue",
-          value: "$42",
-          detail: "Across all products",
-        },
-        {
-          id: "data",
-          component: "Table",
-          title: "Products",
-          columns: ["Product", "Revenue"],
-          rows: [
-            ["Apples", 42],
-            ["Pears", null],
-          ],
-        },
-      ])}
-    />,
-  );
-  await waitFor(() =>
-    expect(screen.getByText("Synthetic sample")).toBeTruthy(),
-  );
-  expect(screen.getByText("$42")).toBeTruthy();
-  const table = screen.getByRole("table", { name: "Products" });
-  expect(
-    within(table).getByRole("columnheader", { name: "Revenue" }),
-  ).toBeTruthy();
-  expect(within(table).getByRole("cell", { name: "Apples" })).toBeTruthy();
-  expect(within(table).getByRole("cell", { name: "—" })).toBeTruthy();
-});
+function bar(title: string) {
+  return {
+    id: "root",
+    component: "BarChart",
+    title,
+    points: [{ label: "A", value: 42 }],
+  };
+}
 
 test("replacement, removal, and reset do not duplicate result surfaces", async () => {
-  const messages = surface([{ id: "root", component: "Text", text: "Before" }]);
+  const messages = surface([bar("Before")]);
   const { rerender } = render(<Results messages={messages} />);
   await waitFor(() => expect(screen.getByText("Before")).toBeTruthy());
   const replaced = a2uiBatchSchema.parse([
     ...messages,
     { version: "v0.9", deleteSurface: { surfaceId: "sales" } },
-    ...surface([{ id: "root", component: "Text", text: "After" }]),
+    ...surface([bar("After")]),
   ]);
   rerender(<Results messages={replaced} />);
   await waitFor(() => expect(screen.getByText("After")).toBeTruthy());
@@ -99,11 +80,9 @@ test("replacement, removal, and reset do not duplicate result surfaces", async (
   await waitFor(() => expect(screen.queryByLabelText("Results")).toBeNull());
 });
 
-test("text remains inert even when it contains HTML", async () => {
+test("chart titles remain inert even when they contain HTML", async () => {
   const text = '<img src=x onerror="alert(1)">';
-  const { container } = render(
-    <Results messages={surface([{ id: "root", component: "Text", text }])} />,
-  );
+  const { container } = render(<Results messages={surface([bar(text)])} />);
   await waitFor(() => expect(screen.getByText(text)).toBeTruthy());
   expect(container.querySelector("img")).toBeNull();
 });
@@ -111,25 +90,6 @@ test("text remains inert even when it contains HTML", async () => {
 test.each(["BarChart", "LineChart", "PieChart"] as const)(
   "%s renders its plot and accessible data while preserving missing values",
   async (component) => {
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        constructor(private callback: ResizeObserverCallback) {}
-        observe(target: Element) {
-          this.callback(
-            [
-              {
-                target,
-                contentRect: { width: 600, height: 300 },
-              } as ResizeObserverEntry,
-            ],
-            this as unknown as ResizeObserver,
-          );
-        }
-        unobserve() {}
-        disconnect() {}
-      },
-    );
     const { container } = render(
       <Results
         messages={surface([
@@ -140,6 +100,7 @@ test.each(["BarChart", "LineChart", "PieChart"] as const)(
             points: [
               { label: "Apples", value: 42 },
               { label: "Pears", value: null },
+              { label: "Oranges", value: 84 },
             ],
           },
         ])}
@@ -156,8 +117,38 @@ test.each(["BarChart", "LineChart", "PieChart"] as const)(
       PieChart: ".recharts-pie",
     }[component];
     await waitFor(() => expect(container.querySelector(plot!)).not.toBeNull());
+    expect(container.querySelector('[data-slot="chart"]')).not.toBeNull();
+    expect(screen.getByRole("application").getAttribute("tabindex")).toBe("0");
+    if (component === "LineChart") {
+      const path = container
+        .querySelector(".recharts-line-curve")
+        ?.getAttribute("d");
+      expect(path?.match(/M/g)).toHaveLength(2);
+    }
+    if (component === "PieChart") {
+      expect(screen.getAllByText("Apples")).toHaveLength(2);
+      expect(screen.getAllByText("Pears")).toHaveLength(1);
+    }
   },
 );
+
+test("pie labels are rendered as text, never as generated CSS keys", async () => {
+  const label = '</style><img src=x onerror="alert(1)">';
+  const { container } = render(
+    <Results
+      messages={surface([
+        { id: "root", component: "PieChart", points: [{ label, value: 42 }] },
+      ])}
+    />,
+  );
+  await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(2));
+  expect(container.querySelector("img")).toBeNull();
+  const style = container.querySelector(
+    '[data-slot="chart"] style',
+  )?.textContent;
+  expect(style).toContain("--color-slice_0");
+  expect(style).not.toContain(label);
+});
 
 test("a pie with zero or missing values reports an empty plot without losing data", async () => {
   render(
@@ -183,14 +174,8 @@ test("a pie with zero or missing values reports an empty plot without losing dat
 
 test("widget controls emit actions and authoritative placement orders and focuses results", async () => {
   const messages = [
-    ...surface(
-      [{ id: "root", component: "Text", text: "First result" }],
-      "first",
-    ),
-    ...surface(
-      [{ id: "root", component: "Text", text: "Second result" }],
-      "second",
-    ),
+    ...surface([bar("First result")], "first"),
+    ...surface([bar("Second result")], "second"),
   ];
   const onAction = vi.fn();
   const scroll = vi.fn();
@@ -242,9 +227,7 @@ test("widget controls emit actions and authoritative placement orders and focuse
 });
 
 test("an in-place widget update retains its pin and focus placement", async () => {
-  const messages = surface([
-    { id: "root", component: "Text", text: "Original" },
-  ]);
+  const messages = surface([bar("Original")]);
   const placements = { sales: { pinned: true, focused: true } };
   const { rerender } = render(
     <Results messages={messages} placements={placements} />,
@@ -255,7 +238,7 @@ test("an in-place widget update retains its pin and focus placement", async () =
       version: "v0.9",
       updateComponents: {
         surfaceId: "sales",
-        components: [{ id: "root", component: "Text", text: "Updated" }],
+        components: [bar("Updated")],
       },
     },
   ]);

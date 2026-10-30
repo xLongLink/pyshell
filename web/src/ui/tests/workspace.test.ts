@@ -76,7 +76,11 @@ test("UI events are accepted without adding JSON to the execution log", () => {
         updateComponents: {
           surfaceId: "sales",
           components: [
-            { id: "root", component: "Metric", label: "Revenue", value: "$42" },
+            {
+              id: "root",
+              component: "BarChart",
+              points: [{ label: "Revenue", value: 42 }],
+            },
           ],
         },
       },
@@ -87,18 +91,27 @@ test("UI events are accepted without adding JSON to the execution log", () => {
   assert.deepEqual(applyEvent([], event), []);
 });
 
-test("unapproved components, catalog IDs, and cyclic layouts are rejected", () => {
+test("removed widgets, invalid charts, and unknown catalog IDs are rejected", () => {
   for (const component of [
     { id: "root", component: "Image", url: "https://example.com" },
-    { id: "root", component: "Text", text: "Hello", html: "<script>" },
+    { id: "root", component: "Text", text: "Hello" },
+    { id: "root", component: "Metric", label: "Revenue", value: "$42" },
     { id: "root", component: "Column", children: ["root"] },
-    { id: "root", component: "Column", children: ["missing"] },
+    { id: "root", component: "Row", children: ["root"] },
+    { id: "root", component: "Card", children: ["root"] },
     {
       id: "root",
       component: "Table",
       columns: ["Name"],
-      rows: [["Extra", "Cell"]],
+      rows: [["Cell"]],
     },
+    {
+      id: "root",
+      component: "BarChart",
+      points: [{ label: "A", value: 1 }],
+      html: "<script>",
+    },
+    { id: "other", component: "LineChart", points: [{ label: "A", value: 1 }] },
   ]) {
     assert.equal(
       a2uiBatchSchema.safeParse([
@@ -136,7 +149,12 @@ test("oversized collections fail before reaching A2UI's schema processor", () =>
         updateComponents: {
           surfaceId: "sales",
           components: [
-            { id: "root", component: "Text", text: "x".repeat(10001) },
+            {
+              id: "root",
+              component: "BarChart",
+              title: "x".repeat(10001),
+              points: [{ label: "A", value: 1 }],
+            },
           ],
         },
       },
@@ -160,4 +178,21 @@ test("pie charts reject negative shares while bar and line charts accept them", 
     ]);
     assert.equal(result.success, component !== "PieChart");
   }
+});
+
+test("each surface accepts exactly one chart", () => {
+  const chart = {
+    id: "root",
+    component: "BarChart",
+    points: [{ label: "A", value: 1 }],
+  };
+  assert.equal(
+    a2uiBatchSchema.safeParse([
+      {
+        version: "v0.9",
+        updateComponents: { surfaceId: "chart", components: [chart, chart] },
+      },
+    ]).success,
+    false,
+  );
 });

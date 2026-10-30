@@ -1,30 +1,8 @@
 import { z } from "zod";
 
-export const catalogId = "urn:pyshell:catalog:v1";
+export const catalogId = "urn:pyshell:catalog:v2";
 const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const text = z.string().max(10000);
-const cell = z.union([text, z.number().finite(), z.boolean(), z.null()]);
-
-export const textProps = z.object({ text, title: text.default("") }).strict();
-export const layoutProps = z
-  .object({
-    children: z
-      .array(identifier)
-      .min(1)
-      .max(50)
-      .describe("REF:#/$defs/ChildList"),
-  })
-  .strict();
-export const metricProps = z
-  .object({ label: text, value: text, detail: text.default("") })
-  .strict();
-export const tableProps = z
-  .object({
-    title: text.default(""),
-    columns: z.array(text).min(1).max(20),
-    rows: z.array(z.array(cell).max(20)).max(500),
-  })
-  .strict();
 export const chartProps = z
   .object({
     title: text.default(""),
@@ -54,51 +32,21 @@ export const pieChartProps = chartProps.extend({
 });
 
 export const componentSchema = z.discriminatedUnion("component", [
-  textProps.extend({ id: identifier, component: z.literal("Text") }),
-  layoutProps.extend({ id: identifier, component: z.literal("Column") }),
-  layoutProps.extend({ id: identifier, component: z.literal("Row") }),
-  layoutProps.extend({ id: identifier, component: z.literal("Card") }),
-  metricProps.extend({ id: identifier, component: z.literal("Metric") }),
-  tableProps.extend({ id: identifier, component: z.literal("Table") }),
-  chartProps.extend({ id: identifier, component: z.literal("BarChart") }),
-  chartProps.extend({ id: identifier, component: z.literal("LineChart") }),
-  pieChartProps.extend({ id: identifier, component: z.literal("PieChart") }),
+  chartProps.extend({
+    id: z.literal("root"),
+    component: z.literal("BarChart"),
+  }),
+  chartProps.extend({
+    id: z.literal("root"),
+    component: z.literal("LineChart"),
+  }),
+  pieChartProps.extend({
+    id: z.literal("root"),
+    component: z.literal("PieChart"),
+  }),
 ]);
 
-const components = z
-  .array(componentSchema)
-  .min(1)
-  .max(100)
-  .superRefine((nodes, context) => {
-    const byId = new Map(nodes.map((node) => [node.id, node]));
-    const pending: [string, number][] = [["root", 1]];
-    const visited = new Set<string>();
-    if (byId.size !== nodes.length)
-      context.addIssue({ code: "custom", message: "Duplicate component IDs" });
-    while (pending.length) {
-      const [id, depth] = pending.pop()!;
-      const node = byId.get(id);
-      if (!node || visited.has(id) || depth > 16) {
-        context.addIssue({ code: "custom", message: "Invalid component tree" });
-        return;
-      }
-      visited.add(id);
-      if ("children" in node)
-        pending.push(
-          ...node.children.map((child): [string, number] => [child, depth + 1]),
-        );
-      if (
-        node.component === "Table" &&
-        node.rows.some((row) => row.length !== node.columns.length)
-      )
-        context.addIssue({
-          code: "custom",
-          message: "Invalid table row width",
-        });
-    }
-    if (visited.size !== nodes.length)
-      context.addIssue({ code: "custom", message: "Unreachable components" });
-  });
+const components = z.array(componentSchema).length(1);
 
 export const a2uiMessageSchema = z.union([
   z

@@ -112,7 +112,7 @@ def test_browser_reports_model_failure_without_executing(browser_api, model_for,
 def test_python_widgets_stream_replay_and_reset(browser_api, model_for, remote_shell):
     client, _ = browser_api
     client.app.state.workspace.agent = server.Agent(
-        model_for(["ui.table(['Product', 'Sales'], [['Apples', 42]], surface_id='sales')\nprint('Sales ready')\ndone()"]),
+        model_for(["ui.chart.bar([{'label': 'Apples', 'value': 42}], surface_id='sales')\nprint('Sales ready')\ndone()"]),
         shell=remote_shell,
     )
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
@@ -120,7 +120,7 @@ def test_python_widgets_stream_replay_and_reset(browser_api, model_for, remote_s
         socket.send_json({"type": "run", "instruction": "show sales"})
         events = receive_until_idle(socket)
         ui = next(event for event in events if event["type"] == "a2ui")
-        assert ui["messages"][1]["updateComponents"]["components"][0]["rows"] == [["Apples", 42]]
+        assert ui["messages"][1]["updateComponents"]["components"][0]["points"] == [{"label": "Apples", "value": 42}]
         assert any(event["type"] == "result" and event["stdout"] == "Sales ready\n" for event in events)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert ui in socket.receive_json()["events"]
@@ -175,7 +175,7 @@ def test_control_order_is_preserved_when_a_named_widget_is_replaced(browser_api,
     client.app.state.workspace.agent = server.Agent(
         model_for(
             [
-                "first = ui.text('First', surface_id='notice')\nfirst.pin()\nfirst.remove()\nui.text('Replacement', surface_id='notice')\ndone()"
+                "first = ui.chart.bar([{'label': 'A', 'value': 1}], surface_id='notice')\nfirst.pin()\nfirst.remove()\nui.chart.line([{'label': 'A', 'value': 2}], surface_id='notice')\ndone()"
             ]
         ),
         shell=remote_shell,
@@ -205,7 +205,7 @@ def test_focusing_another_widget_and_unfocusing_the_old_one_preserves_new_focus(
     client.app.state.workspace.agent = server.Agent(
         model_for(
             [
-                "first = ui.text('First', surface_id='first')\nsecond = ui.text('Second', surface_id='second')\nfirst.focus()\nsecond.focus()\nfirst.unfocus()\ndone()"
+                "first = ui.chart.bar([{'label': 'A', 'value': 1}], surface_id='first')\nsecond = ui.chart.line([{'label': 'A', 'value': 2}], surface_id='second')\nfirst.focus()\nsecond.focus()\nfirst.unfocus()\ndone()"
             ]
         ),
         shell=remote_shell,
@@ -220,7 +220,7 @@ def test_focusing_another_widget_and_unfocusing_the_old_one_preserves_new_focus(
 
 def test_browser_controls_remain_available_during_agent_work(browser_api, model_for, remote_shell, monkeypatch):
     client, _ = browser_api
-    agent = server.Agent(model_for(["ui.text('Existing result', surface_id='notice')\ndone()"]), shell=remote_shell)
+    agent = server.Agent(model_for(["ui.chart.bar([{'label': 'A', 'value': 1}], surface_id='notice')\ndone()"]), shell=remote_shell)
     client.app.state.workspace.agent = agent
     started = threading.Event()
     release = threading.Event()
