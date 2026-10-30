@@ -8,118 +8,139 @@ import { Results } from "@/components/results";
 import { ErrorBoundary } from "react-error-boundary";
 
 export default function App() {
-  const { connected, busy, uiMessages, placements, error, send } =
-    useWorkspace();
-  const [instruction, setInstruction] = useState("");
-  const [open, setOpen] = useState(false);
+    const { connected, busy, uiMessages, placements, error, send } =
+        useWorkspace();
+    const [instruction, setInstruction] = useState("");
+    const [open, setOpen] = useState(false);
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (
-      instruction.trim() &&
-      send({ type: "run", instruction: instruction.trim() })
-    ) {
-      setInstruction("");
-      setOpen(false);
+    function submit(event: FormEvent) {
+        event.preventDefault();
+        if (
+            instruction.trim() &&
+            send({ type: "run", instruction: instruction.trim() })
+        ) {
+            setInstruction("");
+            setOpen(false);
+        }
     }
-  }
 
-  return (
-    <div className="flex h-dvh flex-col">
-      <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[1600px] space-y-6 px-5 pt-8 pb-24">
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {!uiMessages.length && (
-            <p className="py-16 text-center text-sm text-muted-foreground">
-              Your generated widgets will appear here. Use the chat button to
-              describe what you want.
-            </p>
-          )}
-          <ErrorBoundary
-            resetKeys={[uiMessages]}
-            fallback={
-              <p role="alert" className="text-sm text-destructive">
-                Unable to render these widgets. Check the server console for
-                execution details.
-              </p>
-            }
-          >
-            <Results messages={uiMessages} placements={placements} />
-          </ErrorBoundary>
+    return (
+        <div className="flex h-dvh flex-col">
+            <main className="min-h-0 flex-1 overflow-y-auto">
+                <div className="mx-auto max-w-[1600px] space-y-6 px-5 pt-8 pb-24">
+                    {error && (
+                        <p role="alert" className="text-sm text-destructive">
+                            {error}
+                        </p>
+                    )}
+                    {!uiMessages.length && (
+                        <p className="py-16 text-center text-sm text-muted-foreground">
+                            Your generated widgets will appear here. Use the
+                            chat button to describe what you want.
+                        </p>
+                    )}
+                    <ErrorBoundary
+                        resetKeys={[uiMessages]}
+                        fallback={
+                            <p
+                                role="alert"
+                                className="text-sm text-destructive"
+                            >
+                                Unable to render these widgets. Check the server
+                                console for execution details.
+                            </p>
+                        }
+                    >
+                        <Results
+                            messages={uiMessages}
+                            placements={placements}
+                        />
+                    </ErrorBoundary>
+                </div>
+            </main>
+            <Popover.Root open={open} onOpenChange={setOpen}>
+                <Popover.Trigger asChild>
+                    <Button
+                        className="fixed right-5 bottom-5 size-12 rounded-full shadow-lg"
+                        size="icon"
+                        aria-label="Open chat"
+                    >
+                        <MessageCircle />
+                    </Button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                    <Popover.Content
+                        aria-label="Chat"
+                        side="top"
+                        align="end"
+                        sideOffset={12}
+                        collisionPadding={20}
+                        className="z-50 w-[calc(100vw-2.5rem)] max-w-sm rounded-xl border bg-background p-4 shadow-lg"
+                    >
+                        <div className="mb-3 flex items-center justify-between">
+                            <h2 className="text-sm font-medium">
+                                Ask the agent
+                            </h2>
+                            <Popover.Close asChild>
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    aria-label="Close chat"
+                                >
+                                    <X />
+                                </Button>
+                            </Popover.Close>
+                        </div>
+                        {(!connected || busy) && (
+                            <p
+                                role="status"
+                                className="mb-3 text-sm text-muted-foreground"
+                            >
+                                {!connected ? "Connecting…" : "Working…"}
+                            </p>
+                        )}
+                        <form className="space-y-3" onSubmit={submit}>
+                            <label htmlFor="instruction" className="sr-only">
+                                Instruction
+                            </label>
+                            <div className="flex items-end gap-3">
+                                <Textarea
+                                    id="instruction"
+                                    value={instruction}
+                                    onChange={(event) =>
+                                        setInstruction(event.target.value)
+                                    }
+                                    maxLength={8000}
+                                    placeholder="Describe what you want to create or change…"
+                                    disabled={!connected || busy}
+                                    onKeyDown={(event) => {
+                                        if (
+                                            event.key === "Enter" &&
+                                            !event.shiftKey &&
+                                            !event.nativeEvent.isComposing
+                                        ) {
+                                            event.preventDefault();
+                                            event.currentTarget.form?.requestSubmit();
+                                        }
+                                    }}
+                                />
+                                <Button
+                                    type="submit"
+                                    size="icon"
+                                    aria-label="Send instruction"
+                                    disabled={
+                                        !connected ||
+                                        busy ||
+                                        !instruction.trim()
+                                    }
+                                >
+                                    <ArrowUp />
+                                </Button>
+                            </div>
+                        </form>
+                    </Popover.Content>
+                </Popover.Portal>
+            </Popover.Root>
         </div>
-      </main>
-      <Popover.Root open={open} onOpenChange={setOpen}>
-        <Popover.Trigger asChild>
-          <Button
-            className="fixed right-5 bottom-5 size-12 rounded-full shadow-lg"
-            size="icon"
-            aria-label="Open chat"
-          >
-            <MessageCircle />
-          </Button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content
-            aria-label="Chat"
-            side="top"
-            align="end"
-            sideOffset={12}
-            collisionPadding={20}
-            className="z-50 w-[calc(100vw-2.5rem)] max-w-sm rounded-xl border bg-background p-4 shadow-lg"
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-medium">Ask the agent</h2>
-              <Popover.Close asChild>
-                <Button variant="outline" size="icon" aria-label="Close chat">
-                  <X />
-                </Button>
-              </Popover.Close>
-            </div>
-            {(!connected || busy) && (
-              <p role="status" className="mb-3 text-sm text-muted-foreground">
-                {!connected ? "Connecting…" : "Working…"}
-              </p>
-            )}
-            <form className="space-y-3" onSubmit={submit}>
-              <label htmlFor="instruction" className="sr-only">
-                Instruction
-              </label>
-              <div className="flex items-end gap-3">
-                <Textarea
-                  id="instruction"
-                  value={instruction}
-                  onChange={(event) => setInstruction(event.target.value)}
-                  maxLength={8000}
-                  placeholder="Describe what you want to create or change…"
-                  disabled={!connected || busy}
-                  onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing
-                    ) {
-                      event.preventDefault();
-                      event.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                />
-                <Button
-                  type="submit"
-                  size="icon"
-                  aria-label="Send instruction"
-                  disabled={!connected || busy || !instruction.trim()}
-                >
-                  <ArrowUp />
-                </Button>
-              </div>
-            </form>
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
-    </div>
-  );
+    );
 }

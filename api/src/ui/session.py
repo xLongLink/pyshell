@@ -3,15 +3,13 @@ from typing import Generic, TypeVar
 from pydantic import TypeAdapter
 from src.ui.types import Action, Identifier
 from src.ui.widget import Widget
-from src.ui.chart.bar import BarChart
-from src.ui.chart.pie import PieChart
 from a2ui.core.catalog import Catalog, ModelComponentApi
-from src.ui.chart.line import LineChart
+from src.ui.plot.figure import Figure
 from a2ui.core.processing import MessageProcessor
 from a2ui.core.schema.v0_9 import server_to_client
 
-CATALOG = "urn:pyshell:catalog:v2"
-MODELS = [BarChart, LineChart, PieChart]
+CATALOG = "urn:pyshell:catalog:v3"
+MODELS = [Figure]
 CATALOG_MODEL = Catalog(CATALOG, "v0.9", [ModelComponentApi(model) for model in MODELS])
 T = TypeVar("T", bound=Widget)
 
@@ -37,16 +35,6 @@ class Factory(Generic[T]):
         return widget
 
 
-class Charts:
-    """Expose chart-specific constructors without a kind argument."""
-
-    def __init__(self, owner: "UI") -> None:
-        """Share the widget publishing path across chart models."""
-        self.bar = Factory(BarChart, owner)
-        self.line = Factory(LineChart, owner)
-        self.pie = Factory(PieChart, owner)
-
-
 class UI:
     """Own widget handles and publish A2UI messages from persistent Python."""
 
@@ -57,7 +45,7 @@ class UI:
         self._sequence = 0
         self._closed = False
         self._processor = MessageProcessor([CATALOG_MODEL])
-        self.chart = Charts(self)
+        self.plot = Factory(Figure, self)
 
     @property
     def surfaces(self) -> set[str]:
@@ -108,14 +96,14 @@ class UI:
         self.messages.extend(messages)
 
     def show(self, component: Widget | list[dict[str, object]], *, surface_id: str | None = None) -> Widget:
-        """Publish a single chart as the root of its own surface."""
+        """Publish a single figure as the root of its own surface."""
         if isinstance(component, Widget):
             if component._owner is not None:
                 raise RuntimeError("Use update() to change an already published widget")
             widget = component
         else:
             if not isinstance(component, list) or len(component) != 1:
-                raise ValueError("A surface requires exactly one chart")
+                raise ValueError("A surface requires exactly one figure")
             if len(json.dumps(component, allow_nan=False).encode()) > 262144:
                 raise ValueError("A surface must not exceed 256 KiB")
             attributes = component[0]
@@ -124,7 +112,7 @@ class UI:
             model = CATALOG_MODEL.components[attributes["component"]]
             widget = model.type_adapter.validate_python(attributes)
         if widget.id != "root":
-            raise ValueError("A chart requires the component ID 'root'")
+            raise ValueError("A figure requires the component ID 'root'")
         if surface_id is None:
             self._sequence += 1
             surface_id = f"surface_{self._sequence}"

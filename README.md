@@ -20,7 +20,7 @@ Give instructions in your browser. Watch the agent write and run Python inside D
 - 🧠 **Persistent sessions:** Variables, imports, and conversation context carry over between instructions.
 - 🔄 **Execution feedback:** Output and errors go back to the model so it can continue or correct mistakes.
 - 📦 **Custom environment:** Install Python libraries at container startup.
-- 📊 **Rich results:** A2UI renders bar, line, and pie charts alongside code and printed output.
+- 📊 **Rich results:** A2UI renders Plotly-style figures with lines, markers, bars, and pies alongside code and printed output.
 
 
 <br />
@@ -104,10 +104,17 @@ Try asking:
 Python has a provided `ui` object; no import or extra package is required:
 
 ```python
-chart = ui.chart.line([{"label": "Jan", "value": 420}], title="Synthetic revenue", surface_id="chart")
+chart = ui.plot(
+    data=[
+        {"type": "scatter", "name": "Predicted", "mode": "lines", "x": [0, 5, 10], "y": [400, 450, 500]},
+        {"type": "scatter", "name": "Observed", "mode": "markers", "x": [2, 7], "y": [420, 470]},
+    ],
+    layout={"title": {"text": "Synthetic revenue"}, "xaxis": {"title": {"text": "Day"}}},
+    surface_id="chart",
+)
 chart.pin()
 chart.focus()
-print("Synthetic sales: $420 total revenue")
+print("Synthetic data: predicted and observed revenue")
 done()
 ```
 
@@ -115,7 +122,10 @@ Creation methods return widget objects. Keep them in Python variables and use
 their shared methods:
 
 ```python
-chart.update(points=[{"label": "Jan", "value": 450}], title="Updated revenue")
+chart.update(
+    data=[{"type": "scatter", "mode": "lines+markers", "x": [0, 5, 10], "y": [410, 460, 510]}],
+    layout={"title": {"text": "Updated revenue"}, "showlegend": False},
+)
 chart.unfocus()
 chart.unpin()
 chart.remove()
@@ -127,6 +137,9 @@ When a fifth arrives, the oldest centered widget moves to the sidebar.
 move it to the sidebar. Placement is controlled only by Python or the agent;
 the browser has no placement controls. `update()` validates attributes and preserves widget identity and
 placement. Use it instead of assigning widget attributes directly.
+Updates are explicit and atomic: supply `data` and `layout` together to batch changes.
+Supplied top-level fields replace their previous contents, without deep merging;
+omitted fields remain unchanged. Invalid updates leave the current figure intact.
 
 `widget.surface_id` is its stable identifier. Reuse a `surface_id` to replace
 a result, or call `ui.remove(surface_id)` to remove it by name. Removed, replaced,
@@ -135,15 +148,31 @@ Widgets survive follow-up instructions and browser reconnection;
 Reset clears them with the conversation and Python namespace. Python errors
 preserve widgets already published before the error.
 
-The restricted A2UI v0.9 catalog supports only `BarChart`, `LineChart`, and
-`PieChart`. Create charts with
-`ui.chart.line(points, ...)`, `ui.chart.bar(points, ...)`, or
-`ui.chart.pie(points, ...)`. There is no `kind` argument or generic `ui.chart()` call.
-Each point has a `label` and numeric `value`, or `None` for missing data. Lines
-preserve gaps. Pie charts require nonnegative values and omit missing slices;
-all chart types retain missing values in their accessible data tables.
-Each surface contains one chart with component ID `root`. The low-level
-`ui.show(...)` also accepts one typed chart or a one-item list containing its
+The restricted A2UI v0.9 catalog (`urn:pyshell:catalog:v3`) supports one `Figure`
+component, with Plotly-style `data` traces and `layout`. It is a small supported
+subset, rendered with Recharts—not the Plotly Python package or arbitrary Plotly JSON.
+
+- Scatter: `{"type": "scatter", "x": [0, 5], "y": [1, 4], "mode": "lines"}`.
+  Modes are `lines` (default), `markers`, and `lines+markers`.
+- Bar: `{"type": "bar", "x": ["A", "B"], "y": [42, 50]}`.
+- Pie: `{"type": "pie", "labels": ["A", "B"], "values": [42, 50]}`.
+- Each trace can have a `name`. Scatter and bar traces may share a figure;
+  a pie figure contains exactly one pie trace.
+- Paired arrays have equal, nonzero lengths. A figure accepts at most 20 traces
+  and 200 total points. X coordinates must be all numbers or all category strings
+  across the figure; numbers receive numeric spacing. Trace order is preserved.
+- Use `None` for missing Y/pie values. Lines preserve gaps; pie values must be
+  nonnegative and missing slices are omitted. All-missing figures show an empty state.
+- Layout supports `title`, `xaxis.title`, `yaxis.title` (each title is
+  `{"text": "..."}`), and `showlegend` (default `True`). There are no subplots,
+  secondary axes, date axes, or arbitrary Plotly configuration options.
+
+This replaces `ui.chart.line/bar/pie`: use `ui.plot` with `scatter`, `bar`, or `pie`
+traces, and put the title in `layout.title.text`. Rebuild both services together;
+the previous catalog and component names are no longer supported.
+
+Each surface contains one figure with component ID `root`. The low-level
+`ui.show(...)` also accepts one typed figure or a one-item list containing its
 wire definition. Text, metric, table, and layout widgets are not available;
 use `print()` for summaries and tabular results. Arbitrary HTML, JavaScript,
 remote catalogs, inputs, and custom executable actions are not supported.

@@ -7,96 +7,99 @@ import type { Placements } from "@/lib/workspace";
 import { cn } from "@/lib/utils";
 
 export function Results({
-  messages,
-  placements = {},
+    messages,
+    placements = {},
 }: {
-  messages: A2uiMessage[];
-  placements?: Placements;
+    messages: A2uiMessage[];
+    placements?: Placements;
 }) {
-  const [surfaces, setSurfaces] = useState<
-    SurfaceModel<ReactCatalogComponent>[]
-  >([]);
-  const [error, setError] = useState("");
+    const [surfaces, setSurfaces] = useState<
+        SurfaceModel<ReactCatalogComponent>[]
+    >([]);
+    const [error, setError] = useState("");
 
-  useEffect(() => {
-    const processor = new MessageProcessor<ReactCatalogComponent>([
-      resultCatalog,
-    ]);
-    try {
-      const active = new Set<string>();
-      for (const message of messages) {
-        if ("createSurface" in message) {
-          if (active.has(message.createSurface.surfaceId) || active.size >= 20)
-            throw new Error("Invalid surface creation");
-          active.add(message.createSurface.surfaceId);
-        } else if ("deleteSurface" in message) {
-          if (!active.delete(message.deleteSurface.surfaceId))
-            throw new Error("Unknown surface");
-        } else if (!active.has(message.updateComponents.surfaceId))
-          throw new Error("Unknown surface");
-        processor.processMessages(message);
-      }
-      setSurfaces(Array.from(processor.getSurfaces().values()));
-      setError("");
-    } catch {
-      setSurfaces([]);
-      setError(
-        "The generated interface could not be rendered. Check the server console for execution details.",
-      );
+    useEffect(() => {
+        const processor = new MessageProcessor<ReactCatalogComponent>([
+            resultCatalog,
+        ]);
+        try {
+            const active = new Set<string>();
+            for (const message of messages) {
+                if ("createSurface" in message) {
+                    if (
+                        active.has(message.createSurface.surfaceId) ||
+                        active.size >= 20
+                    )
+                        throw new Error("Invalid surface creation");
+                    active.add(message.createSurface.surfaceId);
+                } else if ("deleteSurface" in message) {
+                    if (!active.delete(message.deleteSurface.surfaceId))
+                        throw new Error("Unknown surface");
+                } else if (!active.has(message.updateComponents.surfaceId))
+                    throw new Error("Unknown surface");
+                processor.processMessages(message);
+            }
+            setSurfaces(Array.from(processor.getSurfaces().values()));
+            setError("");
+        } catch {
+            setSurfaces([]);
+            setError(
+                "The generated interface could not be rendered. Check the server console for execution details.",
+            );
+        }
+        return () => processor.dispose();
+    }, [messages]);
+
+    if (!surfaces.length && !error) return null;
+    const centered = surfaces
+        .filter((surface) => !placements[surface.id]?.pinned)
+        .slice(-4);
+    const centerIds = new Set(centered.map((surface) => surface.id));
+    const sidebar = surfaces.filter((surface) => !centerIds.has(surface.id));
+
+    function widget(surface: SurfaceModel<ReactCatalogComponent>) {
+        return (
+            <article
+                key={surface.id}
+                aria-label={`Widget ${surface.id}`}
+                className="min-w-0"
+            >
+                <A2uiSurface surface={surface} />
+            </article>
+        );
     }
-    return () => processor.dispose();
-  }, [messages]);
 
-  if (!surfaces.length && !error) return null;
-  const centered = surfaces
-    .filter((surface) => !placements[surface.id]?.pinned)
-    .slice(-4);
-  const centerIds = new Set(centered.map((surface) => surface.id));
-  const sidebar = surfaces.filter((surface) => !centerIds.has(surface.id));
-
-  function widget(surface: SurfaceModel<ReactCatalogComponent>) {
     return (
-      <article
-        key={surface.id}
-        aria-label={`Widget ${surface.id}`}
-        className="min-w-0"
-      >
-        <A2uiSurface surface={surface} />
-      </article>
-    );
-  }
-
-  return (
-    <section aria-label="Results" className="space-y-4">
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      <div
-        className={cn(
-          "grid gap-6",
-          sidebar.length > 0 && "lg:grid-cols-[minmax(0,1fr)_20rem]",
-        )}
-      >
-        <section
-          aria-label="Center widgets"
-          className={cn(
-            "grid min-w-0 content-start gap-4",
-            centered.length > 1 && "md:grid-cols-2",
-          )}
-        >
-          {centered.map(widget)}
+        <section aria-label="Results" className="space-y-4">
+            {error && (
+                <p role="alert" className="text-sm text-destructive">
+                    {error}
+                </p>
+            )}
+            <div
+                className={cn(
+                    "grid gap-6",
+                    sidebar.length > 0 && "lg:grid-cols-[minmax(0,1fr)_20rem]",
+                )}
+            >
+                <section
+                    aria-label="Center widgets"
+                    className={cn(
+                        "grid min-w-0 content-start gap-4",
+                        centered.length > 1 && "md:grid-cols-2",
+                    )}
+                >
+                    {centered.map(widget)}
+                </section>
+                {sidebar.length > 0 && (
+                    <aside
+                        aria-label="Side widgets"
+                        className="min-w-0 space-y-4 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto"
+                    >
+                        {sidebar.map(widget)}
+                    </aside>
+                )}
+            </div>
         </section>
-        {sidebar.length > 0 && (
-          <aside
-            aria-label="Side widgets"
-            className="min-w-0 space-y-4 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto"
-          >
-            {sidebar.map(widget)}
-          </aside>
-        )}
-      </div>
-    </section>
-  );
+    );
 }

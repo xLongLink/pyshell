@@ -1,0 +1,179 @@
+import {
+    Bar,
+    CartesianGrid,
+    ComposedChart,
+    Line,
+    XAxis,
+    YAxis,
+} from "recharts";
+import {
+    ChartContainer,
+    ChartLegend,
+    ChartLegendContent,
+    ChartTooltip,
+    ChartTooltipContent,
+    type ChartConfig,
+} from "@/components/ui/chart";
+import {
+    plotClassName,
+    traceColor,
+    type FigureProps,
+    type Trace,
+} from "./common";
+
+type CartesianTrace = Exclude<Trace, { type: "pie" }>;
+
+export function Cartesian({
+    data,
+    layout,
+}: {
+    data: CartesianTrace[];
+    layout: FigureProps["layout"];
+}) {
+    const config: ChartConfig = Object.fromEntries(
+        data.map((trace, index) => [
+            `trace_${index}`,
+            {
+                label: trace.name || `Series ${index + 1}`,
+                color: traceColor(index),
+            },
+        ]),
+    );
+    const numeric = typeof data[0].x[0] === "number";
+    const categories = [
+        ...new Set(
+            data
+                .flatMap((trace) => trace.x)
+                .filter((x): x is string => typeof x === "string"),
+        ),
+    ];
+    const coordinate = (x: string | number) =>
+        typeof x === "number" ? x : categories.indexOf(x);
+    const xs = [
+        ...new Set(data.flatMap((trace) => trace.x.map(coordinate))),
+    ].sort((a, b) => a - b);
+    const hasBars = data.some((trace) => trace.type === "bar");
+    const padding =
+        xs.length === 1
+            ? 0.5
+            : hasBars
+              ? Math.min(...xs.slice(1).map((x, index) => x - xs[index])) / 2
+              : 0;
+    const ys = data.flatMap((trace) =>
+        trace.y.filter((y): y is number => y !== null),
+    );
+    const bars: Record<string, string | number | null>[] = [];
+    const rows = new Map<
+        string | number,
+        Record<string, string | number | null>[]
+    >();
+    data.forEach((trace, index) => {
+        if (trace.type !== "bar") return;
+        const occurrences = new Map<string | number, number>();
+        trace.x.forEach((x, point) => {
+            const occurrence = occurrences.get(x) ?? 0;
+            occurrences.set(x, occurrence + 1);
+            const group = rows.get(x) ?? [];
+            if (!group[occurrence]) {
+                group[occurrence] = { x: coordinate(x) };
+                bars.push(group[occurrence]);
+            }
+            group[occurrence][`trace_${index}`] = trace.y[point];
+            rows.set(x, group);
+        });
+    });
+    return (
+        <ChartContainer config={config} className={plotClassName}>
+            <ComposedChart
+                data={bars}
+                accessibilityLayer
+                margin={{ bottom: 20, left: 10 }}
+            >
+                <CartesianGrid vertical={false} />
+                <XAxis
+                    dataKey="x"
+                    type="number"
+                    domain={[xs[0] - padding, xs[xs.length - 1] + padding]}
+                    ticks={
+                        numeric
+                            ? undefined
+                            : categories.map((_, index) => index)
+                    }
+                    tickFormatter={
+                        numeric ? undefined : (value) => categories[value] ?? ""
+                    }
+                    allowDataOverflow
+                    tickLine={false}
+                    axisLine={false}
+                    label={{
+                        value: layout.xaxis.title.text,
+                        position: "bottom",
+                    }}
+                />
+                <YAxis
+                    domain={[Math.min(0, ...ys), Math.max(0, ...ys)]}
+                    tickLine={false}
+                    axisLine={false}
+                    label={{
+                        value: layout.yaxis.title.text,
+                        angle: -90,
+                        position: "insideLeft",
+                    }}
+                />
+                <ChartTooltip
+                    content={
+                        <ChartTooltipContent
+                            labelFormatter={(_, payload) =>
+                                numeric
+                                    ? String(payload[0]?.payload?.x ?? "")
+                                    : (categories[payload[0]?.payload?.x] ?? "")
+                            }
+                        />
+                    }
+                />
+                {layout.showlegend && (
+                    <ChartLegend
+                        content={<ChartLegendContent className="flex-wrap" />}
+                    />
+                )}
+                {data.map((trace, index) => {
+                    const key = `trace_${index}`;
+                    const color = `var(--color-${key})`;
+                    return trace.type === "bar" ? (
+                        <Bar
+                            key={key}
+                            dataKey={key}
+                            name={key}
+                            fill={color}
+                            isAnimationActive={false}
+                        />
+                    ) : (
+                        <Line
+                            key={key}
+                            data={trace.x.map((x, point) => ({
+                                x: coordinate(x),
+                                [key]: trace.y[point],
+                            }))}
+                            dataKey={key}
+                            name={key}
+                            type="linear"
+                            stroke={color}
+                            strokeWidth={trace.mode === "markers" ? 0 : 1}
+                            dot={
+                                trace.mode === "lines"
+                                    ? false
+                                    : { r: 4, fill: color, stroke: color }
+                            }
+                            activeDot={{ r: 5, fill: color, stroke: color }}
+                            legendType={
+                                trace.mode === "markers" ? "circle" : "line"
+                            }
+                            connectNulls={false}
+                            isAnimationActive={false}
+                        />
+                    );
+                })}
+            </ComposedChart>
+        </ChartContainer>
+    );
+}
