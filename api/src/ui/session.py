@@ -1,5 +1,4 @@
 import json
-from typing import Generic, TypeVar
 from pydantic import TypeAdapter
 from src.ui.types import Action, Identifier
 from src.ui.widget import Widget
@@ -11,32 +10,6 @@ from a2ui.core.schema.v0_9 import server_to_client
 
 CATALOG = "urn:pyshell:catalog:v3"
 CATALOG_MODEL = Catalog(CATALOG, "v0.9", [ModelComponentApi(Figure)])
-T = TypeVar("T", bound=Widget)
-
-
-class Factory(Generic[T]):
-    """Create and publish a widget using its own model's attributes."""
-
-    def __init__(self, model: type[T], owner: "UI") -> None:
-        """Bind a component model to a Python UI session."""
-        self.model = model
-        self.owner = owner
-
-    def __call__(self, *values: object, surface_id: str | None = None, **attributes: object) -> T:
-        """Validate constructor arguments without repeating component schemas."""
-        if len(values) > len(self.model.arguments):
-            raise TypeError(f"{self.model.__name__} accepts at most {len(self.model.arguments)} positional arguments")
-
-        # Merge positional arguments before validating the component model.
-        for name, value in zip(self.model.arguments, values):
-            if name in attributes:
-                raise TypeError(f"Multiple values for '{name}'")
-            attributes[name] = value
-
-        # Publish only after all constructor arguments have been validated.
-        widget = self.model.model_validate(attributes)
-        self.owner.show(widget, surface_id=surface_id)
-        return widget
 
 
 class UI:
@@ -50,7 +23,18 @@ class UI:
         self._sequence = 0
         self._closed = False
         self._processor = MessageProcessor([CATALOG_MODEL])
-        self.plot = Factory(Figure, self)
+
+    def plot(self, *values: object, surface_id: str | None = None, **attributes: object) -> Figure:
+        """Validate and publish a figure, accepting positional or keyword data."""
+        if len(values) > 1:
+            raise TypeError("Figure accepts at most 1 positional arguments")
+        if values:
+            if "data" in attributes:
+                raise TypeError("Multiple values for 'data'")
+            attributes["data"] = values[0]
+        widget = Figure.model_validate(attributes)
+        self.show(widget, surface_id=surface_id)
+        return widget
 
     @property
     def surfaces(self) -> set[str]:
@@ -141,12 +125,10 @@ class UI:
             if len(json.dumps(component, allow_nan=False).encode()) > 262144:
                 raise ValueError("A surface must not exceed 256 KiB")
 
-            # Resolve the catalog adapter only after checking the discriminator.
             attributes = component[0]
-            if not isinstance(attributes, dict) or attributes.get("component") not in CATALOG_MODEL.components:
+            if not isinstance(attributes, dict) or attributes.get("component") != "Figure":
                 raise ValueError("Unknown UI component")
-            model = CATALOG_MODEL.components[attributes["component"]]
-            widget = model.type_adapter.validate_python(attributes)
+            widget = Figure.model_validate(attributes)
         if widget.id != "root":
             raise ValueError("A figure requires the component ID 'root'")
 

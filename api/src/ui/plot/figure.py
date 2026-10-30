@@ -1,4 +1,4 @@
-from typing import Literal, ClassVar, Annotated
+from typing import Literal, Annotated
 from pydantic import Field, model_validator
 from src.ui.widget import Widget
 from src.ui.plot.bar import Bar
@@ -12,7 +12,6 @@ Trace = Annotated[Scatter | Bar | Pie, Field(discriminator="type")]
 class Figure(Widget):
     """Publish a bounded Plotly-style figure on one surface."""
 
-    arguments: ClassVar[tuple[str, ...]] = ("data",)
     component: Literal["Figure"] = "Figure"
     data: Annotated[list[Trace], Field(min_length=1, max_length=20)]
     layout: Layout = Field(default_factory=Layout)

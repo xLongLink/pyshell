@@ -1,4 +1,4 @@
-from typing import ClassVar, Protocol
+from typing import Protocol
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 from src.ui.types import Action, Identifier
 
@@ -23,7 +23,6 @@ class Widget(BaseModel):
     """A typed result with shared content and placement operations."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    arguments: ClassVar[tuple[str, ...]] = ()
     id: Identifier = "root"
 
     # Publication metadata is private and excluded from the wire model.

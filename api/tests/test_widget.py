@@ -5,21 +5,18 @@ from src.ui.session import UI
 
 
 @pytest.mark.parametrize(
-    ("path", "attributes", "component"),
+    "data",
     [
-        ("plot", {"data": [{"type": "bar", "x": ["A"], "y": [1]}]}, "Figure"),
-        ("plot", {"data": [{"type": "scatter", "x": ["A"], "y": [1]}]}, "Figure"),
-        ("plot", {"data": [{"type": "pie", "labels": ["A"], "values": [1]}]}, "Figure"),
+        [{"type": "bar", "x": ["A"], "y": [1]}],
+        [{"type": "scatter", "x": ["A"], "y": [1]}],
+        [{"type": "pie", "labels": ["A"], "values": [1]}],
     ],
 )
-def test_factories_return_typed_widgets_with_common_methods(path, attributes, component):
+def test_plot_returns_typed_widgets_with_common_methods(data):
     ui = UI()
-    factory = ui
-    for name in path.split("."):
-        factory = getattr(factory, name)
-    widget = factory(**attributes)
+    widget = ui.plot(data=data)
     assert isinstance(widget, Widget)
-    assert widget.component == component
+    assert widget.component == "Figure"
     assert widget.surface_id == "surface_1"
 
     # All typed widgets use the same ordered placement commands.
@@ -31,6 +28,26 @@ def test_factories_return_typed_widgets_with_common_methods(path, attributes, co
     assert [message["action"] for message in ui.messages] == ["focus", "unfocus", "pin", "unpin"]
     widget.remove()
     assert ui.messages[-1] == {"version": "v0.9", "deleteSurface": {"surfaceId": "surface_1"}}
+
+
+def test_plot_rejects_duplicate_or_excess_positional_data_before_publication():
+    ui = UI()
+    data = [{"type": "bar", "x": ["A"], "y": [1]}]
+    with pytest.raises(TypeError, match="Multiple values for 'data'"):
+        ui.plot(data, data=data)
+    with pytest.raises(TypeError, match="at most 1 positional"):
+        ui.plot(data, data)
+    assert ui.messages == []
+    assert ui.surfaces == set()
+
+
+@pytest.mark.parametrize("attributes", [{}, {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True}])
+def test_invalid_plot_arguments_do_not_publish(attributes):
+    ui = UI()
+    with pytest.raises(ValidationError):
+        ui.plot(**attributes)
+    assert ui.messages == []
+    assert ui.surfaces == set()
 
 
 def test_update_keeps_the_handle_and_surface_identity():
@@ -110,12 +127,24 @@ def test_removed_replaced_and_reset_handles_cannot_mutate_new_widgets(invalidate
     assert ui.messages == previous
 
 
-def test_invalid_replacement_does_not_destroy_the_existing_surface():
+@pytest.mark.parametrize(
+    ("component", "message"),
+    [
+        ([], "exactly one figure"),
+        ([None], "Unknown UI component"),
+        ([{"id": "root", "component": "Unknown"}], "Unknown UI component"),
+        ([{"id": "root", "component": "Figure", "data": [{"type": "pie", "labels": ["A"], "values": [-1]}]}], "greater than or equal to 0"),
+        ([{"id": "other", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}], "component ID 'root'"),
+        ([{"id": "root", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}], "extra": True}], "Extra inputs"),
+        ([{"id": "root", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}] * 2, "exactly one figure"),
+    ],
+)
+def test_invalid_replacement_does_not_destroy_the_existing_surface(component, message):
     ui = UI()
     original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}}, surface_id="notice")
     ui.messages = []
-    with pytest.raises(ValidationError):
-        ui.show([{"id": "root", "component": "Figure", "data": [{"type": "pie", "labels": ["A"], "values": [-1]}]}], surface_id="notice")
+    with pytest.raises(ValueError, match=message):
+        ui.show(component, surface_id="notice")
     assert ui.messages == []
     original.update(layout={"title": {"text": "Still usable"}})
     assert original.layout.title.text == "Still usable"

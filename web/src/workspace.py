@@ -31,7 +31,6 @@ class Workspace:
         self.run_id: str | None = None
 
         # Track bounded replay separately from the current widget state.
-        self.sequence = 0
         self.history_bytes = 0
         self.compacted = False
         self.closing = False
@@ -86,7 +85,6 @@ class Workspace:
             "busy": self.busy,
             "model": self.agent.model,
             "placements": self._copy_placements(),
-            "sequence": self.sequence,
             "run_id": self.run_id,
         }
 
@@ -124,8 +122,7 @@ class Workspace:
                     placement_changed = True
 
         # Stamp events before retaining or broadcasting them.
-        self.sequence += 1
-        event = {**event, "sequence": self.sequence, "run_id": self.run_id}
+        event = {**event, "run_id": self.run_id}
         if event["type"] not in {"state", "placement"}:
             self.events.append(event)
             self.history_bytes += len(json.dumps(event).encode())

@@ -34,6 +34,24 @@ class Realtime:
             self.delivered.set()
 
 
+def install_agent(monkeypatch, realtime, tools):
+    settings = {}
+
+    class Agent:
+        def __init__(self, **kwargs):
+            settings.update(kwargs)
+
+        def tool_plain(self, function):
+            tools[function.__name__] = function
+            return function
+
+        def realtime(self, *args, **kwargs):
+            return realtime
+
+    monkeypatch.setattr(voice, "Agent", Agent)
+    return settings
+
+
 def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(monkeypatch):
     async def run():
         release = asyncio.Event()
@@ -41,18 +59,7 @@ def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(mon
         realtime = Realtime()
         tools = {}
 
-        class Agent:
-            def __init__(self, **kwargs):
-                pass
-
-            def tool_plain(self, function):
-                tools[function.__name__] = function
-                return function
-
-            def realtime(self, *args, **kwargs):
-                return realtime
-
-        monkeypatch.setattr(voice, "Agent", Agent)
+        install_agent(monkeypatch, realtime, tools)
 
         async def execute(instruction, emit):
             started.set()
@@ -103,18 +110,7 @@ def test_voice_rejects_a_task_while_text_work_is_running(monkeypatch):
         tools = {}
         realtime = Realtime()
 
-        class Agent:
-            def __init__(self, **kwargs):
-                pass
-
-            def tool_plain(self, function):
-                tools[function.__name__] = function
-                return function
-
-            def realtime(self, *args, **kwargs):
-                return realtime
-
-        monkeypatch.setattr(voice, "Agent", Agent)
+        install_agent(monkeypatch, realtime, tools)
 
         async def execute(instruction, emit):
             await release.wait()
@@ -146,18 +142,7 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         release = asyncio.Event()
         closed = asyncio.Event()
 
-        class Agent:
-            def __init__(self, **kwargs):
-                assert "persistent Python workspace" in kwargs["instructions"]
-
-            def tool_plain(self, function):
-                tools[function.__name__] = function
-                return function
-
-            def realtime(self, *args, **kwargs):
-                return realtime
-
-        monkeypatch.setattr(voice, "Agent", Agent)
+        settings = install_agent(monkeypatch, realtime, tools)
 
         async def execute(instruction, emit):
             if instruction == "slow":
@@ -177,6 +162,7 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
         await asyncio.sleep(0)
         assert "Calculate answer" in realtime.messages[0]
+        assert "persistent Python workspace" in settings["instructions"]
         assert "Confirmed answer: 42" in realtime.messages[0]
         context = json.loads(await tools["workspace_context"]())
         assert context["recent_tasks"][0]["instruction"] == "Calculate answer"
