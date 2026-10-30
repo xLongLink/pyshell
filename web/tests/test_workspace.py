@@ -141,11 +141,13 @@ def test_instructions_are_normalized_for_acceptance_execution_and_history():
         assert workspace.events == []
         assert workspace.busy is False
         task = workspace.start(Command(type="run", instruction=" \t Plot sales \n"))
+        assert workspace.busy is True
         assert workspace.current_instruction == "Plot sales"
         assert [event["text"] for event in workspace.events if event["type"] == "instruction"] == ["Plot sales"]
         await task
-        await workspace.execute(Command(type="run", instruction=" \t Direct call \n"))
-        assert received == ["Plot sales", "Direct call"]
+        assert workspace.busy is False
+        await workspace.start(Command(type="run", instruction=" \t Next call \n"))
+        assert received == ["Plot sales", "Next call"]
         assert [record["instruction"] for record in workspace.recent_tasks] == received
 
     asyncio.run(run())

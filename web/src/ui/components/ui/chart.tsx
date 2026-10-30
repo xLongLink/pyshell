@@ -31,39 +31,36 @@ function useChart() {
 }
 
 function ChartContainer({
-    id,
     className,
     children,
     config,
-    initialDimension = INITIAL_DIMENSION,
+    style,
     ...props
 }: React.ComponentProps<"div"> & {
     config: ChartConfig;
     children: React.ComponentProps<
         typeof RechartsPrimitive.ResponsiveContainer
     >["children"];
-    initialDimension?: {
-        width: number;
-        height: number;
-    };
 }) {
-    const uniqueId = React.useId();
-    const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`;
+    const colors = Object.fromEntries(
+        Object.entries(config)
+            .filter(([, item]) => item.color)
+            .map(([key, item]) => [`--color-${key}`, item.color]),
+    );
 
     return (
         <ChartContext.Provider value={{ config }}>
             <div
                 data-slot="chart"
-                data-chart={chartId}
                 className={cn(
                     "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
                     className,
                 )}
                 {...props}
+                style={{ ...colors, ...style } as React.CSSProperties}
             >
-                <ChartStyle id={chartId} config={config} />
                 <RechartsPrimitive.ResponsiveContainer
-                    initialDimension={initialDimension}
+                    initialDimension={INITIAL_DIMENSION}
                 >
                     {children}
                 </RechartsPrimitive.ResponsiveContainer>
@@ -71,30 +68,6 @@ function ChartContainer({
         </ChartContext.Provider>
     );
 }
-
-const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-    const colorConfig = Object.entries(config).filter(
-        ([, config]) => config.color,
-    );
-
-    if (!colorConfig.length) {
-        return null;
-    }
-
-    return (
-        <style
-            dangerouslySetInnerHTML={{
-                __html: `
-[data-chart=${id}] {
-${colorConfig
-    .map(([key, itemConfig]) => `  --color-${key}: ${itemConfig.color};`)
-    .join("\n")}
-}
-`,
-            }}
-        />
-    );
-};
 
 const ChartTooltip = RechartsPrimitive.Tooltip;
 
@@ -106,11 +79,12 @@ function ChartTooltipContent({
     hideLabel = false,
     label,
     labelFormatter,
-    labelClassName,
-    color,
     nameKey,
-}: Omit<React.ComponentProps<typeof RechartsPrimitive.Tooltip>, "formatter"> &
-    React.ComponentProps<"div"> & {
+}: Omit<
+    React.ComponentProps<typeof RechartsPrimitive.Tooltip>,
+    "formatter" | "color" | "labelClassName"
+> &
+    Omit<React.ComponentProps<"div">, "color"> & {
         hideLabel?: boolean;
         indicator?: "line" | "dot";
         nameKey?: string;
@@ -119,7 +93,7 @@ function ChartTooltipContent({
             TooltipValueType,
             TooltipNameType
         >,
-        "accessibilityLayer" | "formatter"
+        "accessibilityLayer" | "formatter" | "color" | "labelClassName"
     >) {
     const { config } = useChart();
 
@@ -138,7 +112,7 @@ function ChartTooltipContent({
 
         if (labelFormatter) {
             return (
-                <div className={cn("font-medium", labelClassName)}>
+                <div className="font-medium">
                     {labelFormatter(value, payload)}
                 </div>
             );
@@ -148,8 +122,8 @@ function ChartTooltipContent({
             return null;
         }
 
-        return <div className={cn("font-medium", labelClassName)}>{value}</div>;
-    }, [label, labelFormatter, payload, hideLabel, labelClassName, config]);
+        return <div className="font-medium">{value}</div>;
+    }, [label, labelFormatter, payload, hideLabel, config]);
 
     if (!active || !payload?.length) {
         return null;
@@ -175,8 +149,7 @@ function ChartTooltipContent({
                             item,
                             key,
                         );
-                        const indicatorColor =
-                            color ?? item.payload?.fill ?? item.color;
+                        const indicatorColor = item.payload?.fill ?? item.color;
 
                         return (
                             <div
@@ -236,11 +209,10 @@ const ChartLegend = RechartsPrimitive.Legend;
 function ChartLegendContent({
     className,
     payload,
-    verticalAlign = "bottom",
     nameKey,
 }: React.ComponentProps<"div"> & {
     nameKey?: string;
-} & RechartsPrimitive.DefaultLegendContentProps) {
+} & Omit<RechartsPrimitive.DefaultLegendContentProps, "verticalAlign">) {
     const { config } = useChart();
 
     if (!payload?.length) {
@@ -251,7 +223,7 @@ function ChartLegendContent({
         <div
             className={cn(
                 "flex max-h-16 flex-wrap items-center justify-center gap-x-4 gap-y-2 overflow-hidden",
-                verticalAlign === "top" ? "pb-3" : "pt-3",
+                "pt-3",
                 className,
             )}
         >
@@ -331,5 +303,4 @@ export {
     ChartTooltipContent,
     ChartLegend,
     ChartLegendContent,
-    ChartStyle,
 };

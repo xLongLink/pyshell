@@ -7,6 +7,7 @@ import {
     waitFor,
 } from "@testing-library/react";
 import { Results } from "../components/results";
+import { ChartContainer } from "../components/ui/chart";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui";
 
 function mockChartWidth(width: number) {
@@ -289,11 +290,42 @@ test("pie labels are rendered as text, never as generated CSS keys", async () =>
     );
     await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
     expect(container.querySelector("img")).toBeNull();
-    const style = container.querySelector(
-        '[data-slot="chart"] style',
-    )?.textContent;
-    expect(style).toContain("--color-slice_0");
-    expect(style).not.toContain(label);
+    const chart = container.querySelector<HTMLElement>('[data-slot="chart"]')!;
+    expect(chart.style.getPropertyValue("--color-slice_0")).not.toBe("");
+    expect(chart.getAttribute("style")).not.toContain(label);
+    expect(chart.querySelector("style")).toBeNull();
+});
+
+test("chart colors stay scoped to their containers and preserve supplied styles", () => {
+    const { container, rerender } = render(
+        <>
+            <ChartContainer
+                config={{ series: { color: "red" } }}
+                style={{ opacity: 0.5 }}
+            >
+                <svg />
+            </ChartContainer>
+            <ChartContainer config={{ series: { color: "blue" } }}>
+                <svg />
+            </ChartContainer>
+        </>,
+    );
+    const charts = container.querySelectorAll<HTMLElement>(
+        '[data-slot="chart"]',
+    );
+    expect(charts[0].style.getPropertyValue("--color-series")).toBe("red");
+    expect(charts[1].style.getPropertyValue("--color-series")).toBe("blue");
+    expect(charts[0].style.opacity).toBe("0.5");
+    rerender(
+        <ChartContainer config={{}}>
+            <svg />
+        </ChartContainer>,
+    );
+    expect(
+        container
+            .querySelector<HTMLElement>('[data-slot="chart"]')!
+            .style.getPropertyValue("--color-series"),
+    ).toBe("");
 });
 
 test("a pie with zero or missing values reports an empty plot", async () => {
@@ -402,6 +434,11 @@ test("independent lines and markers share numeric axes without adding gaps", asy
     expect(
         container.querySelector(".recharts-tooltip-wrapper")?.textContent,
     ).toBe("2Observed3");
+    expect(
+        container
+            .querySelector<HTMLElement>(".recharts-tooltip-wrapper [style]")
+            ?.style.getPropertyValue("--color-bg"),
+    ).toBe("var(--color-trace_1)");
 });
 
 test("lines+markers preserves input order, repeated x values, and missing gaps", async () => {

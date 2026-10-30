@@ -34,6 +34,20 @@ Use ui.plot(data, layout={}, surface_id=None), a restricted Plotly-style figure:
 - {"type": "bar", "name": "Sales", "x": ["A", "B"], "y": [42, 50]} compares values.
 - {"type": "pie", "labels": ["A", "B"], "values": [42, 50]} shows nonnegative shares.
   A pie figure must contain exactly one trace. Scatter and bar traces can mix.
+- {"type": "choropleth", "geography": "world", "locations": ["FRA", "DEU"],
+  "values": [42, 65]} colors countries using ISO alpha-3 codes and level "country" (default).
+  For first-level divisions worldwide, use the country's ISO alpha-3 code as
+  geography and level "region", e.g. geography "USA" with locations ["US-CA", "US-NY"],
+  "CHE" with ["CH-ZH", "CH-BE"], or "DEU" with ["DE-BY", "DE-BE"].
+  Import geography_info from src.ui.plot.geography and call geography_info("CHE")
+  for a map's name, level, and "locations" code-to-name mapping, derived from the provider.
+  Use those identifiers: ISO codes where available, source identifiers otherwise.
+  Boundaries and attribution download on first use and are cached by the backend.
+  Inspecting codes or validating a plot needs internet on first use, but works offline once cached.
+  Dataset coverage and reference years vary by country; some territories lack ADM1 data.
+  World boundaries use a coarse scale; small countries may be unsupported.
+  A map figure requires exactly one choropleth trace. Locations must be unique,
+  paired with values; unsupported codes are rejected. Use None for missing data.
 - Paired arrays must have equal lengths. All x values in a figure must be numeric
   or all strings (categories); numeric x values are spaced numerically.
   Coordinates remain in input order. Use None for missing y/pie values; lines

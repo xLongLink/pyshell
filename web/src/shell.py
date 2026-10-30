@@ -42,6 +42,14 @@ class RemoteShell:
         response.raise_for_status()
         return response.json()
 
+    async def geography(self, geography: str) -> httpx.Response:
+        """Fetch map boundaries without executing Python or changing session state."""
+        if self.client is None:
+            raise RuntimeError("Execution transport is closed")
+        response = await self.client.get(f"/geographies/{geography}")
+        response.raise_for_status()
+        return response
+
     async def stream(self, code: str, emit: Callable[[dict[str, object]], None]) -> ExecutionResult:
         """Submit once and consume ordered output until completion is confirmed."""
         if self.client is None:

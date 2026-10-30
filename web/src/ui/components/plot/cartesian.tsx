@@ -21,7 +21,7 @@ import {
     type Trace,
 } from "./common";
 
-type CartesianTrace = Exclude<Trace, { type: "pie" }>;
+type CartesianTrace = Extract<Trace, { type: "bar" | "scatter" }>;
 
 export function Cartesian({
     data,

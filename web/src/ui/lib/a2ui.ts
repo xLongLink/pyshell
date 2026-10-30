@@ -31,6 +31,19 @@ export const traceSchema = z.discriminatedUnion("type", [
             values: z.array(number.nonnegative().nullable()).min(1).max(200),
         })
         .strict(),
+    z
+        .object({
+            type: z.literal("choropleth"),
+            name: text.default(""),
+            geography: z
+                .string()
+                .regex(/^(world|[A-Z]{3})$/)
+                .default("world"),
+            level: z.enum(["country", "region"]).default("country"),
+            locations: z.array(text).min(1).max(200),
+            values: z.array(number.nullable()).min(1).max(200),
+        })
+        .strict(),
 ]);
 const title = z.object({ text: text.default("") }).strict();
 const axis = z.object({ title: title.default({}) }).strict();
@@ -61,6 +74,19 @@ function validateFigure(
                 fail("A pie figure requires exactly one pie trace");
             if (trace.labels.length !== trace.values.length)
                 fail("labels and values must have equal lengths");
+            count += trace.values.length;
+        } else if (trace.type === "choropleth") {
+            if (figure.data.length !== 1)
+                fail("A map figure requires exactly one choropleth trace");
+            if (
+                trace.level !==
+                (trace.geography === "world" ? "country" : "region")
+            )
+                fail("Unsupported level for this geography");
+            if (trace.locations.length !== trace.values.length)
+                fail("locations and values must have equal lengths");
+            if (new Set(trace.locations).size !== trace.locations.length)
+                fail("locations must be unique");
             count += trace.values.length;
         } else {
             if (trace.x.length !== trace.y.length)

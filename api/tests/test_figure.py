@@ -8,7 +8,7 @@ CASES = json.loads((Path(__file__).parent / "fixtures" / "figures.json").read_te
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["name"] for case in CASES])
-def test_figure_contract(case):
+def test_figure_contract(case, geography_provider):
     ui = UI()
     if case["valid"]:
         plot = ui.plot(**case["figure"])

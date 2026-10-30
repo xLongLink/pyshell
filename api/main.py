@@ -1,13 +1,14 @@
 import json
 import asyncio
 from queue import Full, Queue
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import Field, BaseModel, JsonValue
 from src.shell import PythonShell
 from threading import Lock
 from collections.abc import Iterator
 from importlib.metadata import distributions
-from starlette.responses import StreamingResponse
+from starlette.responses import FileResponse, StreamingResponse
+from src.ui.plot.geography import UnsupportedGeographyError, geography_path
 
 
 class Library(BaseModel):
@@ -51,6 +52,17 @@ def create_app() -> FastAPI:
     @app.get("/health", response_model=dict[str, str])
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/geographies/{geography}")
+    def geography(geography: str) -> FileResponse:
+        """Fetch or reuse one cached geography without executing Python."""
+        try:
+            path = geography_path(geography)
+        except UnsupportedGeographyError as error:
+            raise HTTPException(status_code=404, detail="Unsupported geography") from error
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=503, detail="Map data is unavailable") from error
+        return FileResponse(path, media_type="application/geo+json", headers={"Cache-Control": "public, max-age=3600"})
 
     @app.post("/", response_model=ExecutionResult)
     def execute(request: ExecutionRequest) -> dict[str, object]:

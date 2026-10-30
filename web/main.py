@@ -1,5 +1,7 @@
+import re
+import httpx
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, HTTPException, WebSocketDisconnect
 from pathlib import Path
 from pydantic import TypeAdapter, ValidationError
 from contextlib import suppress, asynccontextmanager
@@ -7,6 +9,7 @@ from web.src.shell import RemoteShell
 from collections.abc import AsyncGenerator
 from web.src.settings import settings
 from web.src.workspace import Command, Workspace
+from starlette.responses import Response
 from web.src.agents.voice import VoiceCommand, VoiceSession
 from starlette.staticfiles import StaticFiles
 from web.src.agents.script import Agent
@@ -42,6 +45,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # Browser commands are accepted only through local hostnames and origins.
 app = FastAPI(title="PyShell agent API", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
+
+
+@app.get("/geographies/{geography}")
+async def geography(request: Request, geography: str) -> Response:
+    """Forward selected map data from the execution backend."""
+    if not re.fullmatch(r"world|[A-Z]{3}", geography):
+        raise HTTPException(status_code=404, detail="Unsupported geography")
+    try:
+        response = await request.app.state.workspace.agent.shell.geography(geography)
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Unsupported geography") from error
+        raise HTTPException(status_code=502, detail="Map data is unavailable") from error
+    except (httpx.RequestError, RuntimeError) as error:
+        raise HTTPException(status_code=502, detail="Map data is unavailable") from error
+    headers = {name: response.headers[name] for name in ("cache-control", "etag", "last-modified") if name in response.headers}
+    return Response(response.content, media_type="application/geo+json", headers=headers)
 
 
 @app.websocket("/ws")

@@ -5,8 +5,9 @@ from src.ui.plot.bar import Bar
 from src.ui.plot.pie import Pie
 from src.ui.plot.layout import Layout
 from src.ui.plot.scatter import Scatter
+from src.ui.plot.choropleth import Choropleth
 
-Trace = Annotated[Scatter | Bar | Pie, Field(discriminator="type")]
+Trace = Annotated[Scatter | Bar | Pie | Choropleth, Field(discriminator="type")]
 
 
 class Figure(Widget):
@@ -19,7 +20,11 @@ class Figure(Widget):
     @model_validator(mode="after")
     def traces(self) -> "Figure":
         """Require compatible traces on one coordinate system."""
-        if any(isinstance(trace, Pie) for trace in self.data):
+        if any(isinstance(trace, Choropleth) for trace in self.data):
+            if len(self.data) != 1:
+                raise ValueError("A map figure requires exactly one choropleth trace")
+            count = len(self.data[0].values)
+        elif any(isinstance(trace, Pie) for trace in self.data):
             if len(self.data) != 1:
                 raise ValueError("A pie figure requires exactly one pie trace")
             count = len(self.data[0].values)

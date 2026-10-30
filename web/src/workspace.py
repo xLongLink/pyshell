@@ -34,11 +34,15 @@ class Workspace:
         self.history_bytes = 0
         self.compacted = False
         self.closing = False
-        self.busy = False
         self.results: set[Callable[[str], None]] = set()
         self.current_instruction: str | None = None
         self.phase = "idle"
         self.recent_tasks: list[dict[str, object]] = []
+
+    @property
+    def busy(self) -> bool:
+        """Whether an accepted instruction is still running."""
+        return self.current_instruction is not None
 
     def status(self) -> dict[str, object]:
         """Describe current work without submitting Python or changing state."""
@@ -194,20 +198,18 @@ class Workspace:
         if self.agent.shell.uncertain:
             raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
         self.run_id = str(uuid4())
-        self.busy = True
         self.current_instruction = instruction
         self.phase = "starting"
 
         # Publish acceptance before scheduling work independently of its caller.
         self.publish({"type": "state", "busy": True})
         self.publish({"type": "instruction", "text": instruction})
-        self.task = asyncio.create_task(self.execute(command))
+        self.task = asyncio.create_task(self._execute(instruction))
         return self.task
 
-    async def execute(self, command: Command) -> str:
+    async def _execute(self, instruction: str) -> str:
         """Return confirmed execution feedback to voice and publish shared status."""
         outcome = "completed"
-        instruction = command.instruction.strip()
         before = dict(self.surfaces)
         placements = self._copy_placements()
         try:
@@ -219,7 +221,6 @@ class Workspace:
             # A failed task may still have changed the persistent session.
             result = f"Task failed: {error}. Earlier changes may have applied; do not automatically resubmit."
         finally:
-            self.busy = False
             self.phase = "idle"
             self.current_instruction = None
             self.publish({"type": "state", "busy": False})

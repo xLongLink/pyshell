@@ -7,6 +7,9 @@ export default defineConfig({
     plugins: [react(), tailwindcss()],
     resolve: { alias: { "@": fileURLToPath(new URL(".", import.meta.url)) } },
     server: {
-        proxy: { "/ws": { target: "ws://127.0.0.1:8010", ws: true } },
+        proxy: {
+            "/ws": { target: "ws://127.0.0.1:8010", ws: true },
+            "/geographies": { target: "http://127.0.0.1:8010" },
+        },
     },
 });

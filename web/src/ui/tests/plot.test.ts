@@ -16,19 +16,21 @@ const cases = JSON.parse(
 ) as {
     name: string;
     valid: boolean;
+    browserValid?: boolean;
     figure: unknown;
 }[];
 
 for (const entry of cases) {
     test(`figure contract: ${entry.name}`, () => {
-        assert.equal(figureProps.safeParse(entry.figure).success, entry.valid);
+        const valid = entry.browserValid ?? entry.valid;
+        assert.equal(figureProps.safeParse(entry.figure).success, valid);
         assert.equal(
             componentSchema.safeParse({
                 id: "root",
                 component: "Figure",
                 ...(entry.figure as object),
             }).success,
-            entry.valid,
+            valid,
         );
     });
 }
@@ -67,6 +69,23 @@ test("nonfinite coordinates are rejected", () => {
                 false,
             );
         }
+    }
+});
+
+test("map defaults and nonfinite values match Python", () => {
+    const trace = { type: "choropleth", locations: ["FRA"], values: [0] };
+    assert.deepEqual(figureProps.parse({ data: [trace] }).data[0], {
+        ...trace,
+        name: "",
+        geography: "world",
+        level: "country",
+    });
+    for (const value of [NaN, Infinity, -Infinity]) {
+        assert.equal(
+            figureProps.safeParse({ data: [{ ...trace, values: [value] }] })
+                .success,
+            false,
+        );
     }
 });
 

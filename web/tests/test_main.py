@@ -1,3 +1,4 @@
+import httpx
 import pytest
 import asyncio
 import threading
@@ -41,6 +42,47 @@ def test_web_server_serves_website_and_assets(browser_api, monkeypatch, tmp_path
     assert "PyShell" in response.text
     assert client.get("/app.js").text == "console.log('pyshell')"
     assert client.get("/missing.js").status_code == 404
+
+
+def test_geography_proxy_serves_backend_data_and_cache_headers_without_execution(browser_api, api_client):
+    client, requests = browser_api
+    workspace = client.app.state.workspace
+    workspace.agent.shell.uncertain = True
+    response = client.get("/geographies/CHE")
+    upstream = api_client.get("/geographies/CHE")
+    assert response.status_code == 200
+    assert response.content == upstream.content
+    assert response.headers["content-type"] == "application/geo+json"
+    for name in ("cache-control", "etag", "last-modified"):
+        assert response.headers[name] == upstream.headers[name]
+    assert requests == []
+    assert workspace.surfaces == {}
+    assert workspace.events == []
+    assert workspace.agent.shell.uncertain is True
+
+
+@pytest.mark.parametrize("geography", ["ZZZ", "sources", "USA.json", "__proto__"])
+def test_geography_proxy_rejects_unknown_assets(browser_api, geography):
+    client, _ = browser_api
+    response = client.get(f"/geographies/{geography}")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Unsupported geography"}
+
+
+@pytest.mark.parametrize("status", [None, 500])
+def test_geography_proxy_reports_backend_failure_without_leaking_details(browser_api, monkeypatch, status):
+    client, _ = browser_api
+
+    async def fail(geography):
+        request = httpx.Request("GET", "http://execution-private/geographies/CHE")
+        if status is None:
+            raise httpx.ConnectError("private backend address", request=request)
+        httpx.Response(status, request=request).raise_for_status()
+
+    monkeypatch.setattr(client.app.state.workspace.agent.shell, "geography", fail)
+    response = client.get("/geographies/CHE")
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Map data is unavailable"}
 
 
 def test_web_server_origin_can_connect_to_agent(browser_api):

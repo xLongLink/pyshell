@@ -85,31 +85,13 @@ class UI:
                 pending.extend((value, depth + 1) for value in item)
 
         # Placement commands are workspace events, not A2UI protocol messages.
-        protocol = [message for message in messages if message.get("type") != "widget"]
-        if protocol:
-            self._processor.process_messages(protocol)
+        placement = messages[0].get("type") == "widget"
+        if not placement:
+            self._processor.process_messages(messages)
         self.messages.extend(messages)
 
-        # Keep content batches on their original side of placement commands.
-        if self.on_publish is None:
-            return
-        batch = []
-
-        # Flush content before forwarding the placement command.
-        for message in messages:
-            if message.get("type") == "widget":
-                if batch:
-                    self.on_publish({"type": "a2ui", "messages": batch})
-
-                    # The placement command begins a new content batch.
-                    batch = []
-                self.on_publish(message)
-            else:
-                batch.append(message)
-
-        # A trailing content batch has no placement boundary to flush it.
-        if batch:
-            self.on_publish({"type": "a2ui", "messages": batch})
+        if self.on_publish is not None:
+            self.on_publish(messages[0] if placement else {"type": "a2ui", "messages": messages})
 
     def show(self, component: Widget, *, surface_id: str | None = None) -> Widget:
         """Publish a single figure as the root of its own surface."""
