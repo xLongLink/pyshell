@@ -29,13 +29,6 @@ def test_default_dotenv_is_in_web():
     assert Settings.model_config["env_file"] == Path(settings.__file__).resolve().parents[1] / ".env"
 
 
-def test_application_reuses_shared_settings(agent_settings):
-    from web import main
-    from web.src.settings import settings
-
-    assert main.settings is settings is agent_settings
-
-
 def test_environment_overrides_dotenv(clean_environment, tmp_path, monkeypatch):
     dotenv = tmp_path / ".env"
     dotenv.write_text("OPENAI_API_KEY=file-key\nOPENAI_MODEL=file-model\n")

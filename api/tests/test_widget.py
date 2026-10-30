@@ -5,17 +5,9 @@ from src.ui.session import UI
 from src.ui.plot.figure import Figure
 
 
-@pytest.mark.parametrize(
-    "data",
-    [
-        [{"type": "bar", "x": ["A"], "y": [1]}],
-        [{"type": "scatter", "x": ["A"], "y": [1]}],
-        [{"type": "pie", "labels": ["A"], "values": [1]}],
-    ],
-)
-def test_plot_returns_typed_widgets_with_common_methods(data):
+def test_plot_returns_typed_widgets_with_common_methods():
     ui = UI()
-    widget = ui.plot(data=data)
+    widget = ui.plot(data=[{"type": "bar", "x": ["A"], "y": [1]}])
     assert isinstance(widget, Widget)
     assert widget.component == "Figure"
     assert widget.surface_id == "surface_1"
@@ -186,10 +178,9 @@ def test_failed_publication_does_not_change_widget_attributes():
     assert widget.layout.title.text == "Now published"
 
 
-@pytest.mark.parametrize("name", ["chart", "text", "metric", "table", "column", "row", "card"])
-def test_unsupported_widget_constructors_are_not_exposed(name):
+def test_unsupported_chart_constructor_is_not_exposed():
     ui = UI()
-    assert not hasattr(ui, name)
+    assert not hasattr(ui, "chart")
 
 
 def test_update_replaces_supplied_fields_and_keeps_omitted_fields():

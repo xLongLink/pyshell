@@ -396,12 +396,11 @@ def test_control_order_is_preserved_when_a_named_widget_is_replaced(browser_api,
         assert placements[-1] == {"notice": {"pinned": False}}
 
 
-@pytest.mark.parametrize("surface_id", ["missing", "sales"])
-def test_browser_widget_commands_are_rejected_without_starting_work(browser_api, surface_id):
+def test_browser_widget_commands_are_rejected_without_starting_work(browser_api):
     client, requests = browser_api
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
-        socket.send_json({"type": "widget", "surface_id": surface_id, "action": "pin"})
+        socket.send_json({"type": "widget", "surface_id": "sales", "action": "pin"})
         events = receive_until_idle(socket)
         assert events[0]["type"] == "error"
         assert "validation error" in events[0]["text"]

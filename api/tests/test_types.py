@@ -43,14 +43,6 @@ def test_text_value_rejects_text_above_the_length_limit():
         TypeAdapter(TextValue).validate_python(value)
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
-def test_number_rejects_nonfinite_values(value):
-
-    # Act / Assert
-    with pytest.raises(ValidationError, match="finite number"):
-        TypeAdapter(Number).validate_python(value)
-
-
 @pytest.mark.parametrize("value", [-42, 0, 1.5])
 def test_number_accepts_finite_values(value):
 

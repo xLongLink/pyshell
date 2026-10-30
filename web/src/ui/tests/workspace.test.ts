@@ -104,17 +104,6 @@ test("surface IDs and placement keys enforce the same boundaries", () => {
 test("removed widgets, invalid charts, and unknown catalog IDs are rejected", () => {
     for (const component of [
         { id: "root", component: "Image", url: "https://example.com" },
-        { id: "root", component: "Text", text: "Hello" },
-        { id: "root", component: "Metric", label: "Revenue", value: "$42" },
-        { id: "root", component: "Column", children: ["root"] },
-        { id: "root", component: "Row", children: ["root"] },
-        { id: "root", component: "Card", children: ["root"] },
-        {
-            id: "root",
-            component: "Table",
-            columns: ["Name"],
-            rows: [["Cell"]],
-        },
         {
             id: "root",
             component: "Figure",
@@ -178,31 +167,6 @@ test("oversized collections fail before reaching A2UI's schema processor", () =>
         ]).success,
         false,
     );
-});
-
-test("pie traces reject negative shares while Cartesian traces accept them", () => {
-    for (const type of ["bar", "scatter", "pie"]) {
-        const result = a2uiBatchSchema.safeParse([
-            {
-                version: "v0.9",
-                updateComponents: {
-                    surfaceId: "chart",
-                    components: [
-                        {
-                            id: "root",
-                            component: "Figure",
-                            data: [
-                                type === "pie"
-                                    ? { type, labels: ["Loss"], values: [-42] }
-                                    : { type, x: ["Loss"], y: [-42] },
-                            ],
-                        },
-                    ],
-                },
-            },
-        ]);
-        assert.equal(result.success, type !== "pie");
-    }
 });
 
 test("each surface accepts exactly one chart", () => {

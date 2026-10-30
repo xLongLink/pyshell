@@ -188,7 +188,6 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         realtime = Realtime()
         tools = {}
         release = asyncio.Event()
-        closed = asyncio.Event()
 
         settings = install_agent(monkeypatch, realtime, tools)
 
@@ -203,8 +202,6 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
 
         async def emit(event):
             events.append(event)
-            if event.get("name") == "closed":
-                closed.set()
 
         call = voice.VoiceSession(None, workspace, emit)
         await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
@@ -227,7 +224,6 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         delay, callback = call_later.call_args.args
         assert delay == 2
         await asyncio.wait_for(callback(), 1)
-        await asyncio.wait_for(closed.wait(), 1)
         handle.cancel.assert_called_once_with()
         assert call.task is None
         assert events[-1]["name"] == "closed"

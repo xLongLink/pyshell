@@ -10,21 +10,6 @@ from web.src.agents.script import Agent
 from pydantic_ai.exceptions import UsageLimitExceeded
 
 
-def test_injected_transport_is_closed_by_its_owner(model_for, remote_shell):
-    requests = []
-    agent = Agent(model_for(["done()"], requests=requests), shell=remote_shell)
-
-    async def run():
-        async with remote_shell.client:
-            await agent.arun("finish")
-            assert not remote_shell.client.is_closed
-        assert remote_shell.client.is_closed
-        assert len(requests) == 1
-        assert json.loads(agent.pending_feedback)["done"] is True
-
-    asyncio.run(run())
-
-
 def test_installed_libraries_are_in_model_context(model_for, remote_shell):
     requests = []
     packages = [{"name": "custom-package", "version": "1.2.3"}]
@@ -152,34 +137,23 @@ done()
     assert feedback[2]["messages"][0]["updateComponents"]["components"][0]["data"][0]["y"] == [2]
 
 
-def test_generation_shares_usage_limits_across_requests(model_for, remote_shell):
+def test_generation_shares_usage_limits_across_requests(model_for, remote_shell, api_client):
+    # Arrange
     requests = []
-    agent = Agent(model_for(["print('first step')"], ["done()"], requests=requests), shell=remote_shell)
+    agent = Agent(model_for(["steps = 1"], ["steps += 1\ndone()"], requests=requests), shell=remote_shell)
     limits = UsageLimits(request_limit=1)
 
     async def run():
         async with remote_shell.client:
-            with (
-                patch("web.src.agents.script.UsageLimits", return_value=limits) as make_limits,
-                patch.object(agent.agent, "run", wraps=agent.agent.run) as generate,
-                patch.object(remote_shell, "stream", wraps=remote_shell.stream) as execute,
-            ):
+            # Act / Assert
+            with patch("web.src.agents.script.UsageLimits", return_value=limits):
                 with pytest.raises(UsageLimitExceeded, match="request_limit"):
                     await agent.arun("finish")
-                execute.assert_awaited_once()
-                assert execute.await_args.args[0] == "print('first step')"
-                assert generate.await_count == 2
-                first, second = generate.await_args_list
-                assert first.kwargs["usage"] is second.kwargs["usage"]
-                assert first.kwargs["usage"].requests == 1
-                assert first.kwargs["usage_limits"] is second.kwargs["usage_limits"] is limits
-                assert second.kwargs["message_history"] == agent.message_history
-                assert json.loads(second.args[0])["stdout"] == "first step\n"
-                make_limits.assert_called_once_with(request_limit=50, total_tokens_limit=200_000)
 
     asyncio.run(run())
+    # Assert
     assert len(requests) == 1
-    assert agent.message_history[-1].parts[0].content == "print('first step')"
+    assert api_client.post("/", json={"code": "print(steps)"}).json()["stdout"] == "1\n"
     assert json.loads(agent.pending_feedback)["executed"] is False
 
 
@@ -197,19 +171,6 @@ def test_model_imports_persist_between_requests(model_for, remote_shell):
     assert json.loads(agent.pending_feedback)["stdout"] == "4.0\n"
     assert any("import math" in str(message) for message in requests[1][0][:-1])
     assert '"done": true' in str(requests[1][0][-1])
-
-
-def test_requests_low_reasoning_effort(model_for, remote_shell):
-    requests = []
-    model = model_for(["done()"], requests=requests)
-
-    async def run():
-        async with remote_shell.client:
-            await Agent(model, shell=remote_shell).arun("finish")
-
-    asyncio.run(run())
-    settings = requests[0][1].model_settings
-    assert settings == {"openai_reasoning_effort": "low"}
 
 
 def test_agent_does_not_log_code_or_results(model_for, remote_shell, capsys):

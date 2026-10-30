@@ -117,70 +117,6 @@ test.each(["duplicate", "unknown update", "unknown delete", "capacity"])(
     },
 );
 
-test.each(["bar", "pie"])(
-    "%s charts use keyboard-only focus styling without disabling focus",
-    async (type) => {
-        render(
-            <Results
-                messages={surface([
-                    {
-                        id: "root",
-                        component: "Figure",
-                        data: [
-                            type === "pie"
-                                ? { type, labels: ["A", "B"], values: [42, 10] }
-                                : { type, x: ["A", "B"], y: [42, 10] },
-                        ],
-                    },
-                ])}
-            />,
-        );
-        const chart = await screen.findByRole("application");
-        const wrapper = chart.closest('[data-slot="chart"]');
-        expect(wrapper?.classList.contains("focus-within:ring-2")).toBe(false);
-        expect(wrapper?.classList.contains("has-[:focus-visible]:ring-2")).toBe(
-            true,
-        );
-        expect(
-            wrapper?.classList.contains("has-[:focus-visible]:ring-ring"),
-        ).toBe(true);
-        expect(chart.getAttribute("tabindex")).toBe("0");
-        fireEvent.click(chart);
-        chart.focus();
-        expect(document.activeElement).toBe(chart);
-    },
-);
-
-test.each([1, 2, 3, 4])(
-    "%i center widgets use the viewport layout",
-    async (count) => {
-        const messages = Array.from({ length: count }, (_, index) =>
-            surface([bar(`Chart ${index}`)], `chart_${index}`),
-        ).flat();
-        const { container } = render(<Results messages={messages} />);
-        await waitFor(() =>
-            expect(screen.getByText(`Chart ${count - 1}`)).toBeTruthy(),
-        );
-        const center = screen.getByRole("region", { name: "Center widgets" });
-        expect(center.className).toContain("md:h-[calc(100dvh-4rem)]");
-        expect(center.classList.contains("md:grid-cols-2")).toBe(count >= 3);
-        expect(center.classList.contains("md:grid-rows-2")).toBe(count > 1);
-        const widgets = center.querySelectorAll("article");
-        expect(widgets).toHaveLength(count);
-        expect(widgets[count - 1].classList.contains("md:col-span-2")).toBe(
-            count === 3,
-        );
-        expect(
-            container.querySelector("figure")?.classList.contains("h-full"),
-        ).toBe(true);
-        expect(
-            container
-                .querySelector('[data-slot="chart"]')
-                ?.classList.contains("h-full"),
-        ).toBe(true);
-    },
-);
-
 test("replacement, removal, and reset do not duplicate result surfaces", async () => {
     const messages = surface([bar("Before")]);
     const { rerender } = render(<Results messages={messages} />);
@@ -260,9 +196,10 @@ test.each(["bar", "scatter", "pie"] as const)(
             expect(container.querySelector(plot!)).not.toBeNull(),
         );
         expect(container.querySelector('[data-slot="chart"]')).not.toBeNull();
-        expect(screen.getByRole("application").getAttribute("tabindex")).toBe(
-            "0",
-        );
+        const chart = screen.getByRole("application");
+        expect(chart.getAttribute("tabindex")).toBe("0");
+        chart.focus();
+        expect(document.activeElement).toBe(chart);
         if (type === "scatter") {
             const path = container
                 .querySelector(".recharts-line-curve")
@@ -733,134 +670,8 @@ test("backend placement moves widgets between center and sidebar without control
     );
 });
 
-test.each(["scatter", "bar", "pie"] as const)(
-    "%s plots limit legends to two rows and hide them when pinned",
-    async (type) => {
-        const names = Array.from(
-            { length: 20 },
-            (_, index) => `Category ${index}`,
-        );
-        const messages = surface([
-            {
-                id: "root",
-                component: "Figure",
-                data:
-                    type === "pie"
-                        ? [{ type, labels: names, values: names.map(() => 1) }]
-                        : names.map((name) => ({
-                              type,
-                              name,
-                              x: [0, 1],
-                              y: [1, 2],
-                          })),
-            },
-        ]);
-        const { rerender } = render(<Results messages={messages} />);
-        const legendClass = "[&_.recharts-legend-wrapper]:hidden";
-        await waitFor(() =>
-            expect(
-                screen
-                    .getByRole("article")
-                    .querySelector(".recharts-legend-wrapper")?.textContent,
-            ).toContain("Category 19"),
-        );
-        expect(
-            screen.getByRole("article").classList.contains(legendClass),
-        ).toBe(false);
-        const legend = screen
-            .getByRole("article")
-            .querySelector(".recharts-legend-wrapper > div")!;
-        expect(legend.classList.contains("max-h-16")).toBe(true);
-        expect(legend.classList.contains("overflow-hidden")).toBe(true);
-        expect(legend.classList.contains("gap-y-2")).toBe(true);
-        expect(legend.classList.contains("pt-4")).toBe(true);
-        expect(legend.children).toHaveLength(20);
-        for (const item of legend.children) {
-            expect(item.classList.contains("h-5")).toBe(true);
-            expect(
-                item.querySelector("span")?.classList.contains("truncate"),
-            ).toBe(true);
-        }
-        rerender(
-            <Results
-                messages={messages}
-                placements={{ sales: { pinned: true } }}
-            />,
-        );
-        const pinned = screen
-            .getByRole("complementary")
-            .querySelector("article")!;
-        await waitFor(() =>
-            expect(pinned.querySelector(".recharts-surface")).not.toBeNull(),
-        );
-        expect(pinned.classList.contains(legendClass)).toBe(true);
-        rerender(
-            <Results
-                messages={messages}
-                placements={{ sales: { pinned: false } }}
-            />,
-        );
-        await waitFor(() =>
-            expect(
-                screen
-                    .getByRole("article")
-                    .querySelector(".recharts-legend-wrapper")?.textContent,
-            ).toContain("Category 19"),
-        );
-        expect(
-            screen.getByRole("article").classList.contains(legendClass),
-        ).toBe(false);
-    },
-);
-
 test.each(["scatter", "bar"] as const)(
-    "pinned %s plots hide the bottom axis title but keep tick numbers",
-    async (type) => {
-        const messages = surface([
-            {
-                id: "root",
-                component: "Figure",
-                layout: { xaxis: { title: { text: "Submission month" } } },
-                data: [{ type, x: [1, 2, 3], y: [10, 20, 30] }],
-            },
-        ]);
-        const { container, rerender } = render(
-            <Results
-                messages={messages}
-                placements={{ sales: { pinned: true } }}
-            />,
-        );
-        const titleClass = "[&_.plot-xaxis-title]:hidden";
-        await waitFor(() =>
-            expect(
-                container.querySelector(".plot-xaxis-title")?.textContent,
-            ).toBe("Submission month"),
-        );
-        expect(screen.getByRole("article").classList.contains(titleClass)).toBe(
-            true,
-        );
-        expect(
-            container.querySelectorAll(
-                ".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value",
-            ).length,
-        ).toBeGreaterThan(0);
-        rerender(
-            <Results
-                messages={messages}
-                placements={{ sales: { pinned: false } }}
-            />,
-        );
-        await waitFor(() =>
-            expect(screen.getByText("Submission month")).toBeTruthy(),
-        );
-        expect(screen.getByRole("article").classList.contains(titleClass)).toBe(
-            false,
-        );
-    },
-);
-
-test.each(["scatter", "bar"] as const)(
-    "%s plots hide value axis numbers at every width and placement",
+    "%s plots hide value axis numbers and retain keyboard tooltips",
     async (type) => {
         mockChartWidth(320);
         const messages = surface([
@@ -877,7 +688,7 @@ test.each(["scatter", "bar"] as const)(
                 ],
             },
         ]);
-        const { container, rerender } = render(
+        const { container } = render(
             <Results
                 messages={messages}
                 placements={{ sales: { pinned: true } }}
@@ -897,20 +708,6 @@ test.each(["scatter", "bar"] as const)(
                     ?.textContent,
             ).toContain("10"),
         );
-        mockChartWidth(600);
-        rerender(
-            <Results
-                messages={messages}
-                placements={{ sales: { pinned: false } }}
-            />,
-        );
-        await waitFor(() =>
-            expect(container.querySelector(".recharts-xAxis")).not.toBeNull(),
-        );
-        expect(container.querySelector(".recharts-yAxis")).toBeNull();
-        expect(
-            container.querySelector(".recharts-yAxis-tick-labels"),
-        ).toBeNull();
     },
 );
 

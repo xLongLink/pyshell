@@ -43,7 +43,7 @@ def test_map_publication_and_updates_preserve_validated_state(api_client):
 
 
 @pytest.mark.parametrize("geography", ["world", "CHE", "FRA", "USA", "DEU", "GBR"])
-def test_provider_locations_can_be_inspected_and_published(api_client, geography):
+def test_provider_locations_can_be_inspected_and_published(geography_provider, geography):
     dataset = geography_info(geography)
     locations = list(dataset["locations"])
     figure = UI().plot(

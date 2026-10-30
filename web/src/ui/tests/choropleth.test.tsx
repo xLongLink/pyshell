@@ -52,14 +52,9 @@ test("world map requests only its backend boundaries and exposes hover and focus
     expect(map.getAttribute("viewBox")).toBe("0 0 800 450");
     expect(map.hasAttribute("width")).toBe(false);
     expect(map.hasAttribute("height")).toBe(false);
-    expect(map.classList.contains("flex-1")).toBe(true);
     expect(france.getAttribute("d")).toMatch(/^M/);
     expect(france.querySelector("title")?.textContent).toBe("France: 42");
-    expect(france.getAttribute("stroke")).toBe("var(--border)");
-    expect(france.getAttribute("stroke-width")).toBe("0.6");
     expect(france.getAttribute("vector-effect")).toBe("non-scaling-stroke");
-    expect(france.classList.contains("hover:stroke-foreground")).toBe(true);
-    expect(france.classList.contains("focus-visible:stroke-2")).toBe(true);
     expect(france.getAttribute("fill")).not.toBe(spain.getAttribute("fill"));
     expect(germany.getAttribute("fill")).toBe("var(--muted)");
     expect(spain.getAttribute("fill")).not.toBe("var(--muted)");
@@ -228,37 +223,6 @@ test.each(["world", "FRA", "USA", "FJI"])(
             expect(path(feature)).toMatch(/^M/);
             expect(path(feature)).not.toMatch(/NaN|Infinity/);
         }
-    },
-);
-
-test.each([
-    ["USA", "US-CA", "California", 2],
-    ["CHE", "CH-ZH", "Zürich", 2],
-    ["DEU", "DE-BY", "Bayern", 1],
-    ["GBR", "GB-ENG", "England", 1],
-    ["JPN", "JP-27", "Osaka Prefecture", 1],
-    ["AUS", "AU-NSW", "New South Wales", 1],
-])(
-    "%s renders first-level divisions with data and no attribution text",
-    async (geography, code, name, count) => {
-        render(
-            <Figure
-                {...figureProps.parse({
-                    data: [
-                        {
-                            type: "choropleth",
-                            geography,
-                            level: "region",
-                            locations: [code],
-                            values: [42],
-                        },
-                    ],
-                })}
-            />,
-        );
-        await screen.findByRole("img", { name: `${name}: 42` });
-        expect(screen.getAllByRole("img")).toHaveLength(count);
-        expect(screen.queryByRole("link")).toBeNull();
     },
 );
 

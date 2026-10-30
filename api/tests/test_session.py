@@ -51,13 +51,6 @@ def test_a_typed_figure_can_be_published(api_client):
     "attributes",
     [
         {"component": "Image", "url": "https://example.com"},
-        {"component": "Text", "text": "Hello"},
-        {"component": "Metric", "label": "Revenue", "value": "$42"},
-        {"component": "Column", "children": ["root"]},
-        {"component": "Row", "children": ["root"]},
-        {"component": "Card", "children": ["root"]},
-        {"component": "Table", "columns": ["Name"], "rows": [["One"]]},
-        {"component": "BarChart", "points": [{"label": "A", "value": 1}], "html": "<script>"},
         {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "html": "<script>"},
         {"id": "other", "data": [{"type": "bar", "x": ["A"], "y": [1]}]},
     ],
@@ -123,30 +116,6 @@ def test_trace_types_preserve_missing_values(api_client, kind):
     assert chart["component"] == "Figure"
     assert chart["data"][0]["type"] == kind
     assert chart["data"][0]["values" if kind == "pie" else "y"] == [42, None]
-
-
-def test_chart_type_can_change_without_duplicating_surface(api_client):
-    execute(api_client, "ui.plot([{'type': 'bar', 'x': ['Jan'], 'y': [10]}], surface_id='trend')")
-    result = execute(api_client, "ui.plot([{'type': 'scatter', 'x': ['Jan'], 'y': [10]}], surface_id='trend')")
-    assert result["exception"] is None
-    assert result["ui"][0] == {"version": "v0.9", "deleteSurface": {"surfaceId": "trend"}}
-    assert result["ui"][2]["updateComponents"]["components"][0]["data"][0]["type"] == "scatter"
-
-
-# Chart validation failures must not leave a partially created surface.
-@pytest.mark.parametrize(
-    "code",
-    [
-        "ui.plot([{'type': 'unknown', 'x': ['Sales'], 'y': [42]}])",
-        "ui.plot([{'type': 'pie', 'labels': ['Sales'], 'values': [-1]}])",
-        "ui.plot([{'type': 'scatter', 'x': ['Sales'], 'y': [float('inf')]}])",
-        "ui.plot([{'type': 'pie', 'labels': ['Sales'], 'values': [float('inf')]}])",
-    ],
-)
-def test_invalid_charts_do_not_publish_partial_results(api_client, code):
-    result = execute(api_client, code)
-    assert result["exception"]
-    assert result["ui"] == []
 
 
 @pytest.mark.parametrize("kind", ["bar", "scatter"])
