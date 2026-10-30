@@ -103,29 +103,6 @@ test("all-missing maps retain neutral boundaries and can hide the legend", async
     expect(screen.queryByLabelText("Map legend")).toBeNull();
 });
 
-test("regional map renders returned boundaries without attribution text", async () => {
-    render(
-        <Figure
-            {...figureProps.parse({
-                data: [
-                    {
-                        type: "choropleth",
-                        geography: "FRA",
-                        level: "region",
-                        locations: ["FR-IDF", "FR-BRE"],
-                        values: [75, 48],
-                    },
-                ],
-            })}
-        />,
-    );
-    await screen.findByRole("img", { name: "Île-de-France: 75" });
-    expect(screen.getAllByRole("img")).toHaveLength(3);
-    expect(screen.getByRole("img", { name: "Bretagne: 48" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Corse: No data" })).toBeTruthy();
-    expect(screen.queryByRole("link")).toBeNull();
-});
-
 test("published map surfaces accept updates and geography changes without stale values", async () => {
     const initial = a2uiBatchSchema.parse([
         { version: "v0.9", createSurface: { surfaceId: "map", catalogId } },
@@ -269,6 +246,7 @@ test("a slow boundary load cannot replace a newly selected geography", async () 
         expect(screen.queryByRole("img", { name: "France: 42" })).toBeNull(),
     );
     expect(screen.getAllByRole("img")).toHaveLength(3);
+    expect(screen.getByRole("img", { name: "Corse: No data" })).toBeTruthy();
 });
 
 test("location membership is checked against the backend dataset before rendering", async () => {

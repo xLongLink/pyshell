@@ -35,6 +35,7 @@ def test_widgets_publish_a2ui_messages_and_preserve_python_state(api_client):
     replacement = execute(api_client, "ui.plot([{'type': 'scatter', 'x': ['Revenue'], 'y': [50]}], surface_id='revenue')")["ui"]
     assert replacement[0] == {"version": "v0.9", "deleteSurface": {"surfaceId": "revenue"}}
     assert replacement[1]["createSurface"]["surfaceId"] == "revenue"
+    assert replacement[2]["updateComponents"]["components"][0]["data"][0]["mode"] == "lines"
     assert execute(api_client, "ui.remove('revenue')")["ui"] == [replacement[0]]
 
 

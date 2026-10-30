@@ -124,20 +124,12 @@ test("reconnect snapshots replace widget history and stale sockets cannot change
         expect(result.current.sendVoice("start", "offer")).toBe(false);
     });
     expect(reconnected.send).not.toHaveBeenCalled();
+    act(() => reconnected.onclose?.());
     unmount();
     reconnected.receive({ type: "state", busy: true });
     expect(reconnected.close).toHaveBeenCalledOnce();
-});
-
-test("unmount cancels a pending reconnect", () => {
-    vi.useFakeTimers();
-    const { unmount } = renderHook(useWorkspace);
-    const socket = sockets[0];
-    act(() => socket.onclose?.());
-    unmount();
     act(() => vi.advanceTimersByTime(1500));
-    expect(sockets).toHaveLength(1);
-    expect(socket.close).toHaveBeenCalledOnce();
+    expect(sockets).toHaveLength(2);
 });
 
 test("workspace becoming busy does not block voice controls", () => {
