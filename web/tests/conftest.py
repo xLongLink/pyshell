@@ -2,12 +2,12 @@ import os
 import httpx
 import pytest
 from main import create_app
-from src.ui.plot import geography
 from unittest.mock import patch
 from web.src.shell import RemoteShell
 from fastapi.testclient import TestClient
 from pydantic_ai.messages import TextPart, ModelResponse
 from pydantic_ai.models.function import FunctionModel
+from api.tests.geography_provider import install_geography_provider
 
 with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
     from web.src import settings as settings_module
@@ -20,39 +20,7 @@ def agent_settings():
 
 @pytest.fixture
 def api_client(monkeypatch, tmp_path):
-    monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path / "geographies"))
-
-    def download(url):
-        data_url = "https://raw.githubusercontent.com/wmgeolab/geoBoundaries/tests/CHE.geojson"
-        if url == geography.METADATA_URL.format(geography="ZZZ"):
-            return []
-        if url == geography.METADATA_URL.format(geography="CHE"):
-            return {
-                "boundaryISO": "CHE",
-                "boundaryType": "ADM1",
-                "boundaryName": "Switzerland",
-                "boundaryID": "CHE-ADM1-test",
-                "boundarySource": "Test provider",
-                "boundaryLicense": "Public domain",
-                "licenseSource": "example.com/license",
-                "boundaryYearRepresented": "2025",
-                "admUnitCount": "2",
-                "simplifiedGeometryGeoJSON": data_url,
-            }
-        assert url == data_url
-        return {
-            "type": "FeatureCollection",
-            "features": [
-                {
-                    "type": "Feature",
-                    "properties": {"shapeGroup": "CHE", "shapeType": "ADM1", "shapeISO": code, "shapeName": name},
-                    "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]},
-                }
-                for code, name in {"CH-ZH": "Zürich", "CH-BE": "Bern"}.items()
-            ],
-        }
-
-    monkeypatch.setattr(geography, "download", download)
+    install_geography_provider(monkeypatch, tmp_path)
     with TestClient(create_app()) as client:
         yield client
 

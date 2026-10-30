@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { test } from "node:test";
+import { resolve } from "node:path";
+import { test } from "vitest";
 import {
     componentSchema,
     figureProps,
@@ -10,7 +11,10 @@ import {
 
 const cases = JSON.parse(
     readFileSync(
-        new URL("../../../../api/tests/fixtures/figures.json", import.meta.url),
+        resolve(
+            import.meta.dirname,
+            "../../../../api/tests/fixtures/figures.json",
+        ),
         "utf8",
     ),
 ) as {
@@ -19,6 +23,16 @@ const cases = JSON.parse(
     browserValid?: boolean;
     figure: unknown;
 }[];
+
+const limitCases = JSON.parse(
+    readFileSync(
+        resolve(
+            import.meta.dirname,
+            "../../../../api/tests/fixtures/figure_limits.json",
+        ),
+        "utf8",
+    ),
+) as { traces: number; points: number; valid: boolean }[];
 
 for (const entry of cases) {
     test(`figure contract: ${entry.name}`, () => {
@@ -89,23 +103,17 @@ test("map defaults and nonfinite values match Python", () => {
     }
 });
 
-test("figure point and trace limits match Python", () => {
-    for (const [traces, points, valid] of [
-        [1, 200, true],
-        [2, 100, true],
-        [2, 101, false],
-        [20, 1, true],
-        [21, 1, false],
-        [1, 201, false],
-    ] as const) {
+test.each(limitCases)(
+    "figure limits: $traces traces with $points points (valid: $valid)",
+    ({ traces, points, valid }) => {
         const data = Array.from({ length: traces }, () => ({
             type: "scatter",
             x: Array.from({ length: points }, (_, i) => i),
             y: Array(points).fill(1),
         }));
         assert.equal(figureProps.safeParse({ data }).success, valid);
-    }
-});
+    },
+);
 
 test("only the new catalog and figure component are accepted", () => {
     assert.equal(catalogId, "urn:pyshell:catalog:v3");

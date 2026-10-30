@@ -1,32 +1,19 @@
-from typing import Protocol
-from pydantic import BaseModel, ConfigDict, PrivateAttr
-from src.ui.types import Action, Identifier
+from typing import TYPE_CHECKING
+from pydantic import PrivateAttr
+from src.ui.model import UIModel
+from src.ui.types import Identifier
+
+if TYPE_CHECKING:
+    from src.ui.session import UI
 
 
-class Publisher(Protocol):
-    """Publish widget mutations through their owning UI session."""
-
-    def update(self, widget: "Widget", attributes: dict[str, object]) -> None:
-        """Validate and publish attributes before changing the widget."""
-        ...
-
-    def action(self, widget: "Widget", action: Action) -> None:
-        """Publish a workspace placement action."""
-        ...
-
-    def remove_widget(self, widget: "Widget") -> None:
-        """Remove the widget's surface."""
-        ...
-
-
-class Widget(BaseModel):
+class Widget(UIModel):
     """A typed result with shared content and placement operations."""
 
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     id: Identifier = "root"
 
     # Publication metadata is private and excluded from the wire model.
-    _owner: Publisher | None = PrivateAttr(default=None)
+    _owner: "UI | None" = PrivateAttr(default=None)
     _surface_id: str | None = PrivateAttr(default=None)
 
     @property
@@ -36,7 +23,7 @@ class Widget(BaseModel):
             raise RuntimeError("Publish the widget before using its handle")
         return self._surface_id
 
-    def _publisher(self) -> Publisher:
+    def _publisher(self) -> "UI":
         if self._owner is None:
             raise RuntimeError("Publish the widget before using its handle")
         return self._owner

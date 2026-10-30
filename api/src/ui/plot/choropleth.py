@@ -1,11 +1,11 @@
 from typing import Literal, Annotated
 from pydantic import Field, model_validator
+from src.ui.model import UIModel
 from src.ui.types import Number, TextValue
-from src.ui.plot.common import PlotModel
 from src.ui.plot.geography import geography_info
 
 
-class Choropleth(PlotModel):
+class Choropleth(UIModel):
     """Color provider-backed geographic boundaries by statistical value."""
 
     type: Literal["choropleth"] = "choropleth"

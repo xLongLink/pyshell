@@ -1,10 +1,10 @@
 from typing import Literal, Annotated
 from pydantic import Field, model_validator
+from src.ui.model import UIModel
 from src.ui.types import Number, TextValue
-from src.ui.plot.common import PlotModel
 
 
-class Pie(PlotModel):
+class Pie(UIModel):
     """Show nonnegative shares, omitting missing values from slices."""
 
     type: Literal["pie"] = "pie"

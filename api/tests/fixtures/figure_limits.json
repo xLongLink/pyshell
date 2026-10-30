@@ -1,0 +1,8 @@
+[
+  { "traces": 1, "points": 200, "valid": true },
+  { "traces": 2, "points": 100, "valid": true },
+  { "traces": 2, "points": 101, "valid": false },
+  { "traces": 20, "points": 1, "valid": true },
+  { "traces": 21, "points": 1, "valid": false },
+  { "traces": 1, "points": 201, "valid": false }
+]

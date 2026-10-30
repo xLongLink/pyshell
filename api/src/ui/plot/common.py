@@ -1,15 +1,10 @@
 from typing import Annotated
-from pydantic import Field, BaseModel, ConfigDict, model_validator
+from pydantic import Field, model_validator
+from src.ui.model import UIModel
 from src.ui.types import Number, TextValue
 
 
-class PlotModel(BaseModel):
-    """Validate the supported figure specification."""
-
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-
-
-class CartesianTrace(PlotModel):
+class CartesianTrace(UIModel):
     """Keep each trace's coordinates paired and ordered."""
 
     name: TextValue = ""

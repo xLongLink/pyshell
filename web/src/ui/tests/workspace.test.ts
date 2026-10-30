@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { messageSchema } from "../lib/workspace.ts";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui.ts";
 

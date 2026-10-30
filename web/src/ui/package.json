@@ -7,7 +7,7 @@
         "dev": "vite --host 127.0.0.1 --port 5180 --strictPort",
         "build": "tsc --noEmit && vite build",
         "typecheck": "tsc --noEmit",
-        "test": "node --test tests/*.test.ts && vitest run tests/*.test.tsx --environment jsdom",
+        "test": "vitest run tests/*.test.ts tests/*.test.tsx --environment jsdom",
         "format": "prettier --write *.tsx index.css components lib tests/*.{test.ts,test.tsx} index.html package.json tsconfig.json vite.config.ts components.json"
     },
     "dependencies": {
