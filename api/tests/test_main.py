@@ -84,6 +84,8 @@ def test_stream_preserves_output_widget_and_placement_order(api_client):
         },
     )
     events = [json.loads(line) for line in response.text.splitlines()]
+
+    # Content and placement must stay interleaved with Python output.
     assert response.headers["content-type"].startswith("application/x-ndjson")
     assert [event["type"] for event in events] == [
         "stdout_delta",

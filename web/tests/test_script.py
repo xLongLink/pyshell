@@ -129,6 +129,7 @@ def test_agent_does_not_log_code_or_results(model_for, capsys):
 
     agent.run("work")
 
+    # Execution output belongs to the result, not the web server's logs.
     shell.execute.assert_called_once_with("print('result')\ndone()")
     output = capsys.readouterr()
     assert output.out == ""
@@ -174,6 +175,8 @@ def test_incomplete_response_never_executes(model_for, remote_shell):
     with patch.object(agent.agent, "run_stream") as run:
         run.return_value.__aenter__ = AsyncMock(return_value=stream)
         run.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        # A length-limited response must leave the Python namespace untouched.
         with pytest.raises(RuntimeError, match="Model response length"):
             agent.run("set value")
     assert "NameError" in remote_shell.execute("print(value)")["exception"]

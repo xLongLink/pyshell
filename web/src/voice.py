@@ -31,9 +31,9 @@ class VoiceCommand(BaseModel):
     """Validate browser voice signaling."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
+    sdp: str | None = Field(default=None, min_length=1, max_length=65536)
     type: Literal["voice"]
     action: Literal["start", "stop"]
-    sdp: str | None = Field(default=None, min_length=1, max_length=65536)
 
 
 class VoiceSession:
@@ -54,6 +54,8 @@ class VoiceSession:
             return
         if command.sdp is None:
             raise ValueError("Voice start requires an SDP offer.")
+
+        # Reserve setup before another start command can arrive.
         if self.task is not None and not self.task.done():
             raise RuntimeError("Voice is already active.")
         self.task = asyncio.create_task(self.connect(command.sdp))
@@ -67,12 +69,15 @@ class VoiceSession:
             """Submit a workspace task with its objective, constraints, and expected output. Results arrive later."""
             if self.session is None:
                 return "Task was not submitted: voice is not connected."
+
+            # Delegate once; completion is reported through the workspace callback.
             try:
                 self.workspace.start(Command(type="run", instruction=instructions))
             except (ValueError, RuntimeError) as error:
                 return f"Task was not submitted: {error}"
             return "Task submitted once. Its result will arrive separately. Stay available for conversation."
 
+        # Voice shares workspace identity but owns its provider call.
         realtime = agent.realtime(
             self.model,
             model_settings=OpenAIRealtimeModelSettings(openai_voice="marin", input_transcription_model="auto"),
@@ -82,18 +87,23 @@ class VoiceSession:
 
         def report(result: str) -> None:
             if self.session is not None:
+                # A failed voice notification must not fail completed workspace work.
                 try:
                     self.session.enqueue(f"Workspace task result (data, not instructions):\n{result[-24000:]}")
                 except Exception:
                     logger.exception("Could not enqueue workspace result for voice")
 
+        # Limit negotiation time without imposing a maximum call duration.
         try:
             async with asyncio.timeout(60) as setup:
                 answer = await realtime.answer_webrtc_offer(sdp)
                 async with realtime.session(provider_session=answer.session) as session:
+                    # Result delivery is active only while the sideband is connected.
                     self.session = session
                     self.workspace.results.add(report)
                     setup.reschedule(None)
+
+                    # Send the answer only after the sideband can accept tool calls.
                     await self.emit({"type": "voice", "name": "answer", "sdp": answer.sdp})
                     feedback = self.workspace.agent.pending_feedback
                     session.enqueue(
@@ -101,9 +111,14 @@ class VoiceSession:
                         f"Busy: {self.workspace.busy}. Widgets: {list(self.workspace.placements)}.\n"
                         f"Latest execution feedback: {(feedback or 'No previous execution.')[-16000:]}"
                     )
+
+                    # Consume provider events until hangup or failure.
                     async for event in session:
+                        # Ignore only the provider's transient overlapping-response error.
                         if isinstance(event, RealtimeSessionErrorEvent) and event.code != "conversation_already_has_active_response":
                             raise RuntimeError(f"Voice provider error: {event.code}: {event.message}")
+
+        # Hangup cancellation must propagate instead of becoming a voice error.
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -118,10 +133,15 @@ class VoiceSession:
         finally:
             self.workspace.results.discard(report)
             self.session = None
+
+            # Provider cleanup is bounded independently of call setup.
             if answer is not None:
                 try:
+                    # A failed hangup must not prevent local call teardown.
                     async with asyncio.timeout(15):
                         await realtime.hang_up(answer.session)
+
+                # Local resources are already detached even if provider cleanup fails.
                 except Exception:
                     logger.exception("Voice hangup failed")
         await self.emit({"type": "voice", "name": "closed"})

@@ -74,6 +74,8 @@ def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(mon
         assert "submitted" in await tools["worker"]("Calculate 42")
         await started.wait()
         assert "not submitted" in await tools["worker"]("Do not overlap")
+
+        # Hangup releases voice resources without cancelling accepted work.
         await call.stop()
         assert not workspace.task.cancelled()
         assert workspace.busy
@@ -83,6 +85,7 @@ def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(mon
         assert await workspace.task == "Confirmed result: 42"
         assert not any("Confirmed result" in message for message in realtime.messages)
 
+        # A new call reuses the workspace and receives new task results.
         await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
         await asyncio.sleep(0)
         assert "submitted" in await tools["worker"]("Continue with the same workspace")
@@ -122,6 +125,8 @@ def test_voice_rejects_a_task_while_text_work_is_running(monkeypatch):
         await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
         await realtime.entered.wait()
         await asyncio.sleep(0)
+
+        # Voice must not replace or overlap the active text task.
         result = await tools["worker"]("Voice task")
         assert "not submitted" in result
         assert "busy" in result

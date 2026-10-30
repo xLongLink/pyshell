@@ -27,6 +27,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     workspace = Workspace(Agent(model, settings.openai_service_tier, shell=shell))
     app.state.workspace = workspace
     app.state.realtime_model = OpenAIRealtimeModel(settings.openai_realtime_model, provider=provider)
+
+    # Finish accepted work before closing the provider transport.
     try:
         yield
     finally:
@@ -36,6 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await provider.client.close()
 
 
+# Browser commands are accepted only through local hostnames and origins.
 app = FastAPI(title="PyShell agent API", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
@@ -54,6 +57,8 @@ async def workspace_socket(socket: WebSocket) -> None:
     await socket.accept()
     workspace: Workspace = socket.app.state.workspace
     queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=256)
+
+    # Subscribe before taking the initial snapshot so no updates are missed.
     workspace.listeners.add(queue)
     queue.put_nowait(workspace.snapshot())
 
@@ -69,10 +74,14 @@ async def workspace_socket(socket: WebSocket) -> None:
     async def receive() -> None:
         while True:
             text = await socket.receive_text()
+
+            # Reject invalid commands without interrupting the subscription.
             try:
                 command = command_adapter.validate_json(text)
                 if isinstance(command, VoiceCommand):
                     await voice.handle(command)
+
+                # Text tasks belong to the workspace, not this connection.
                 else:
                     workspace.start(command)
             except (ValidationError, ValueError, RuntimeError) as error:
@@ -81,21 +90,30 @@ async def workspace_socket(socket: WebSocket) -> None:
 
     sender = asyncio.create_task(send())
     receiver = asyncio.create_task(receive())
+
+    # Either socket direction ending must release both tasks and the voice call.
     try:
         done, _ = await asyncio.wait({sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             task.result()
+
+    # Browser disconnects are normal; other task failures remain visible.
     except WebSocketDisconnect:
         pass
     finally:
         workspace.listeners.discard(queue)
+
+        # Cancel both directions before awaiting either one.
         for task in (sender, receiver):
             task.cancel()
+
+        # Await cancellation before releasing the socket's voice resources.
         for task in (sender, receiver):
             with suppress(asyncio.CancelledError, WebSocketDisconnect):
                 await task
         await voice.stop(notify=False)
 
 
+# Serve the built UI after registering the WebSocket route.
 frontend = StaticFiles(directory=Path(__file__).parent / "src" / "ui" / "dist", html=True, check_dir=False)
 app.mount("/", frontend, name="website")

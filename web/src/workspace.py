@@ -29,6 +29,8 @@ class Workspace:
         self.placements: dict[str, dict[str, bool]] = {}
         self.surfaces: dict[str, list[dict[str, object]]] = {}
         self.run_id: str | None = None
+
+        # Track bounded replay separately from the current widget state.
         self.sequence = 0
         self.history_bytes = 0
         self.compacted = False
@@ -48,6 +50,8 @@ class Workspace:
             events = [event for event in events if event["type"] != "a2ui"]
             for messages in self.surfaces.values():
                 events.append({"type": "a2ui", "messages": messages})
+
+        # Reconnecting tabs receive state without resubmitting work.
         return {
             "type": "snapshot",
             "events": events,
@@ -64,42 +68,65 @@ class Workspace:
             self.place(WidgetCommand.model_validate(event))
             return
         placement_changed = False
+
+        # Maintain current surfaces even after their historical events are evicted.
         if event["type"] == "a2ui":
             for message in event["messages"]:
                 if "createSurface" in message:
                     identifier = message["createSurface"]["surfaceId"]
+
+                    # New surfaces start centered and may evict an older widget.
                     self.surfaces[identifier] = [message]
                     self.placements[identifier] = {"pinned": False}
                     self._focus(identifier)
                     placement_changed = True
+
+                # Component updates replace content but retain surface creation.
                 elif "updateComponents" in message:
                     identifier = message["updateComponents"]["surfaceId"]
                     self.surfaces[identifier] = [self.surfaces[identifier][0], message]
+
+                # Removed surfaces must disappear from reconnect snapshots too.
                 elif "deleteSurface" in message:
                     identifier = message["deleteSurface"]["surfaceId"]
                     self.surfaces.pop(identifier, None)
                     self.placements.pop(identifier, None)
                     placement_changed = True
+
+        # Stamp events before retaining or broadcasting them.
         self.sequence += 1
         event = {**event, "sequence": self.sequence, "run_id": self.run_id}
         if event["type"] not in {"state", "placement"}:
             self.events.append(event)
             self.history_bytes += len(json.dumps(event).encode())
+
+            # Bound replay by both event count and serialized size.
             while self.events and (len(self.events) > 2000 or self.history_bytes > 2_097_152):
                 self.history_bytes -= len(json.dumps(self.events.pop(0)).encode())
                 self.compacted = True
+
+        # Slow tabs resynchronize from state rather than blocking execution.
         for listener in self.listeners:
             if listener.full():
                 controls = []
+
+                # Preserve voice signaling while discarding stale replay events.
                 while not listener.empty():
                     queued = listener.get_nowait()
+
+                    # Voice answers cannot be reconstructed from workspace state.
                     if queued["type"] == "voice":
                         controls.append(queued)
+
+                # Reserve queue capacity for the replacement snapshot first.
                 listener.put_nowait(self.snapshot())
                 for control in controls[-max(1, listener.maxsize - 1) :]:
+                    # A snapshot can consume the subscriber's entire queue.
                     if listener.full():
                         break
                     listener.put_nowait(control)
+
+            # Healthy subscribers receive each ordered event directly.
             else:
                 listener.put_nowait(event)
         if placement_changed:
@@ -121,6 +148,8 @@ class Workspace:
         placement = self.placements.get(command.surface_id)
         if placement is None:
             raise ValueError("Unknown or removed widget")
+
+        # Focusing can evict the oldest centered widget to the sidebar.
         if command.action in {"focus", "unpin"}:
             self._focus(command.surface_id)
         else:
@@ -133,12 +162,16 @@ class Workspace:
             raise RuntimeError("The workspace is shutting down.")
         if self.busy:
             raise RuntimeError("The shared workspace is busy. Wait for the current operation to finish.")
+
+        # Reject unsafe submissions before changing shared run state.
         if not command.instruction.strip():
             raise ValueError("Enter an instruction.")
         if self.agent.shell.uncertain:
             raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
         self.run_id = str(uuid4())
         self.running = True
+
+        # Publish acceptance before scheduling work independently of its caller.
         self.publish({"type": "state", "busy": True})
         self.publish({"type": "instruction", "text": command.instruction.strip()})
         self.task = asyncio.create_task(self.execute(command))
@@ -151,6 +184,8 @@ class Workspace:
             self.publish({"type": "done"})
         except Exception as error:
             self.publish({"type": "error", "text": str(error)})
+
+            # A failed task may still have changed the persistent session.
             result = f"Task failed: {error}. Earlier changes may have applied; do not automatically resubmit."
         finally:
             self.running = False

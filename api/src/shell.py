@@ -25,6 +25,8 @@ class ExecutionOutput(io.StringIO):
         count = super().write(text)
         self.stream.write(text)
         self.stream.flush()
+
+        # Empty writes need no browser event.
         if text and self.emit is not None:
             self.emit(text)
         return count
@@ -64,6 +66,8 @@ class PythonShell:
                 error = traceback.format_exc()
             finally:
                 self.ui.on_publish = None
+
+        # Log failures outside the redirected output streams.
         if error:
             print(error, end="", file=sys.stderr, flush=True)
         return {"stdout": stdout.getvalue(), "stderr": stderr.getvalue(), "exception": error, "done": self.finished, "ui": self.ui.messages}

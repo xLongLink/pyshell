@@ -19,6 +19,8 @@ class Content(Event):
     """Carry validated UI protocol messages."""
 
     type: Literal["a2ui"]
+
+    # Protocol messages retain their nested JSON structure.
     messages: list[dict[str, JsonValue]]
 
 
@@ -33,6 +35,7 @@ class WidgetCommand(Event):
 class Result(Event):
     """Confirm a completed Python execution."""
 
+    # A result includes failures as data, alongside captured output.
     type: Literal["result"]
     stdout: str
     stderr: str

@@ -383,6 +383,8 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
         return "Finished"
 
     monkeypatch.setattr(client.app.state.workspace.agent, "arun", run)
+
+    # Submit work from the tab that will disconnect.
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "work"})

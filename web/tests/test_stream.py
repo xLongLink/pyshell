@@ -30,6 +30,8 @@ def test_unconfirmed_stream_is_not_replayed_and_blocks_more_work(events):
             with pytest.raises(RuntimeError, match="may already have run"):
                 await shell.stream("value = 42", lambda _event: None)
             assert shell.uncertain is True
+
+            # Further submissions must fail locally instead of replaying code.
             with pytest.raises(RuntimeError, match="uncertain"):
                 await shell.stream("value = 42", lambda _event: None)
             assert len(requests) == 1
@@ -47,12 +49,16 @@ def test_compacted_snapshot_retains_current_widgets_and_slow_clients_resynchroni
     queue = asyncio.Queue(maxsize=3)
     queue.put_nowait({"type": "voice", "name": "answer", "sdp": "answer"})
     workspace.listeners.add(queue)
+
+    # Overflow both replay history and the subscriber's tiny queue.
     for _ in range(2100):
         workspace.publish({"type": "stdout_delta", "text": "x"})
     assert len(workspace.events) <= 2000
     snapshot = workspace.snapshot()
     assert snapshot["placements"] == {"sales": {"pinned": False}}
     assert [event for event in snapshot["events"] if event["type"] == "a2ui"] == [{"type": "a2ui", "messages": [create, update]}]
+
+    # Resynchronization must preserve the pending voice answer.
     queued = []
     while not queue.empty():
         queued.append(queue.get_nowait())

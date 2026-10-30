@@ -112,38 +112,59 @@ class RemoteShell:
             raise RuntimeError("Execution transport is closed")
         if self.uncertain:
             raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
+
+        # Require both a result and the terminal marker before confirming success.
         result = None
         finished = False
         received = 0
+
+        # Once submitted, a broken stream leaves execution state uncertain.
         try:
             async with asyncio.timeout(180), self.client.stream("POST", "/execute/stream", json={"code": code}) as response:
                 response.raise_for_status()
+
                 async for line in response.aiter_lines():
+                    # Bound the aggregate stream, not only individual output events.
                     received += len(line.encode())
                     if received > 16_777_216:
                         raise RuntimeError("Execution stream exceeded 16 MiB")
+
+                    # Validate each event before applying completion transitions.
                     event = execution_event.validate_json(line).model_dump()
                     if finished or (result is not None and event["type"] != "execution_finished"):
                         raise RuntimeError("Execution events arrived after the final result")
+
+                    # A finish marker confirms a result, never substitutes for it.
                     if event["type"] == "execution_finished":
+                        # EOF without a result cannot establish the execution outcome.
                         if result is None:
                             raise RuntimeError("Execution finished without a result")
                         finished = True
+
+                    # Forward the result without its wire discriminator.
                     elif event["type"] == "result":
                         result = {**event, "ui": []}
                         result.pop("type")
                         emit(event)
+
+                    # Output and UI updates are delivered before the final result.
                     else:
                         emit(event)
+
+            # EOF alone does not confirm that execution finished.
             if not finished or result is None:
                 raise RuntimeError("Execution stream ended without a confirmed result")
+
+        # Cancellation is just as ambiguous as a transport or validation failure.
         except BaseException as error:
             self.uncertain = True
             if not isinstance(error, Exception):
                 raise
+
+            # Tell callers not to retry code whose effects cannot be confirmed.
             raise RuntimeError(
                 "Execution was not confirmed; code may already have run. Restart the execution container and web server before submitting more work."
-            ) from error
+            )
         return result
 
     def execute(self, code: str) -> ExecutionResult:
@@ -153,10 +174,8 @@ class RemoteShell:
             response.raise_for_status()
 
         # Transport failure does not mean the server skipped execution.
-        except httpx.HTTPError as error:
-            raise RuntimeError(
-                "Execution request failed; code may already have run. Inspect the session or use /reset before retrying."
-            ) from error
+        except httpx.HTTPError:
+            raise RuntimeError("Execution request failed; code may already have run. Inspect the session or use /reset before retrying.")
         return response.json()
 
     def reset(self) -> None:
@@ -182,10 +201,14 @@ async def stream_response(
     usage_limits: UsageLimits | None = None,
 ) -> tuple[str, list[ModelMessage]]:
     """Stream generated code to the UI and return only a completed response."""
+
+    # Display deltas immediately, but return code only after a clean model finish.
     async with agent.run_stream(message, message_history=message_history, usage=usage, usage_limits=usage_limits) as stream:
         async for text in stream.stream_text(delta=True, debounce_by=None):
             if on_code is not None:
                 on_code(text)
+
+        # Truncated responses are displayed but must never reach execution.
         code = await stream.get_output()
         if stream.response.finish_reason != "stop":
             raise RuntimeError(f"Model response {stream.response.finish_reason}; code was not executed.")
@@ -242,6 +265,8 @@ class Agent:
         emit = on_event if on_event is not None else lambda _event: None
         usage = RunUsage()
         limits = UsageLimits(request_limit=50, total_tokens_limit=200_000)
+
+        # Share usage limits across every execution step in this task.
         outputs = []
         message = instruction
         for _ in range(10):
@@ -282,10 +307,13 @@ class Agent:
             if on_event is not None:
                 on_event({"type": "execution_start"})
             try:
+                # Use the persistent async transport when the workspace owns one.
                 if self.shell.client is not None:
                     result = await self.shell.stream(code, emit)
                 else:
                     result = await asyncio.to_thread(self.shell.execute, code)
+
+            # Preserve history without allowing an ambiguous execution to replay.
             except BaseException:
                 self.message_history = history
                 self.pending_feedback = json.dumps(

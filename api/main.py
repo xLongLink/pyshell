@@ -67,6 +67,8 @@ def create_app() -> FastAPI:
             nonlocal disconnected
             if disconnected:
                 return
+
+            # Stop buffering if the HTTP reader falls behind execution.
             try:
                 queue.put(event, timeout=1)
             except Full:
@@ -77,6 +79,8 @@ def create_app() -> FastAPI:
                 with lock:
                     result = shell.execute(request.code, on_event=emit)
                 emit({"type": "result", **{key: value for key, value in result.items() if key != "ui"}})
+
+            # Terminate connected readers even when execution fails.
             finally:
                 emit({"type": "execution_finished"})
                 if not disconnected:
@@ -89,11 +93,14 @@ def create_app() -> FastAPI:
         def events() -> Iterator[str]:
             nonlocal disconnected
             try:
+                # The sentinel ends the stream after all queued events.
                 while True:
                     event = queue.get(timeout=180)
                     if event is None:
                         return
                     yield json.dumps(event, allow_nan=False) + "\n"
+
+                    # A saturated queue has no sentinel; drain it before exiting.
                     if disconnected and queue.empty():
                         return
             finally:
