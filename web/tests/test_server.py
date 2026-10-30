@@ -1,18 +1,17 @@
 import pytest
 import asyncio
 import threading
-from web.src import server
+from web import main as server
 from web.main import app
-from web.src.script import Settings
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 
 @pytest.fixture
-def browser_api(monkeypatch, model_for, remote_shell):
+def browser_api(monkeypatch, model_for, remote_shell, agent_settings):
     requests = []
     model = model_for(["print('browser result')\ndone()"], ["print('next result')\ndone()"], requests=requests)
-    monkeypatch.setattr(server, "Settings", lambda: Settings(_env_file=None, openai_api_key="test-key"))
+    monkeypatch.setattr(server, "settings", agent_settings)
     monkeypatch.setattr(server, "OpenAIResponsesModel", lambda *args, **kwargs: model)
     monkeypatch.setattr(server, "RemoteShell", lambda url: remote_shell)
     with TestClient(app) as client:
@@ -64,14 +63,16 @@ def test_browser_executes_and_reconnects_without_replaying(browser_api):
         assert len(requests) == 1
 
 
-def test_browser_reset_clears_shared_state(browser_api, remote_shell):
+def test_browser_rejects_reset_without_changing_shared_state(browser_api, remote_shell):
     client, _ = browser_api
     remote_shell.execute("value = 42")
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "reset"})
-        assert {"type": "reset"} in receive_until_idle(socket)
-        assert "NameError" in remote_shell.execute("print(value)")["exception"]
+        events = receive_until_idle(socket)
+        assert events[0]["type"] == "error"
+        assert not any(event["type"] == "reset" for event in events)
+        assert remote_shell.execute("print(value)")["stdout"] == "42\n"
         assert client.app.state.workspace.agent.message_history == []
 
 
@@ -109,7 +110,7 @@ def test_browser_reports_model_failure_without_executing(browser_api, model_for,
     assert "NameError" in remote_shell.execute("print(value)")["exception"]
 
 
-def test_python_widgets_stream_replay_and_reset(browser_api, model_for, remote_shell):
+def test_python_widgets_stream_and_replay(browser_api, model_for, remote_shell):
     client, _ = browser_api
     client.app.state.workspace.agent = server.Agent(
         model_for(["ui.plot([{'type': 'bar', 'x': ['Apples'], 'y': [42]}], surface_id='sales')\nprint('Sales ready')\ndone()"]),
@@ -124,10 +125,6 @@ def test_python_widgets_stream_replay_and_reset(browser_api, model_for, remote_s
         assert any(event["type"] == "result" and event["stdout"] == "Sales ready\n" for event in events)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert ui in socket.receive_json()["events"]
-        socket.send_json({"type": "reset"})
-        assert {"type": "reset"} in receive_until_idle(socket)
-    with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
-        assert not any(event["type"] == "a2ui" for event in socket.receive_json()["events"])
 
 
 def test_browser_rejects_untrusted_origin(browser_api):
@@ -163,10 +160,6 @@ def test_python_placement_snapshot_survives_updates(browser_api, model_for, remo
         assert updates[0]["updateComponents"]["components"][0]["layout"]["title"]["text"] == "Updated revenue"
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert socket.receive_json()["placements"] == {"sales": {"pinned": False}}
-        socket.send_json({"type": "reset"})
-        receive_until_idle(socket)
-    with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
-        assert socket.receive_json()["placements"] == {}
 
 
 def test_placement_history_is_not_retained_but_reconnect_and_live_events_are_current(browser_api, model_for, remote_shell):
@@ -354,7 +347,7 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
     try:
         with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
             assert socket.receive_json()["busy"] is True
-            socket.send_json({"type": "reset"})
+            socket.send_json({"type": "run", "instruction": "overlapping work"})
             assert socket.receive_json()["type"] == "error"
             assert socket.receive_json() == {"type": "state", "busy": True}
             release.set()

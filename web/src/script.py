@@ -1,19 +1,13 @@
-"""A terminal agent that executes Python through the container API."""
+"""An agent that executes Python through the container API for the web interface."""
 
 import sys
 import json
 import httpx
-import argparse
 from typing import Literal, TypedDict
-from pathlib import Path
-from pydantic import Field, SecretStr, ValidationError
 from pydantic_ai import Agent as PydanticAgent
 from collections.abc import Callable
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_ai.models import Model
 from pydantic_ai.messages import ModelMessage
-from pydantic_ai.models.openai import OpenAIResponsesModel
-from pydantic_ai.providers.openai import OpenAIProvider
 
 INSTRUCTIONS = """You are an agent working in a persistent Python session inside a container.
 Respond with ONLY executable Python code, without Markdown fences or prose.
@@ -28,7 +22,7 @@ After each response you receive stdout, stderr, and any exception as JSON.
 Use the results to continue or correct errors. Never invent execution results.
 When the user's task is complete, print any useful final result and call done().
 done() is a provided function, not something you should define or overwrite.
-Do not call input(): the user supplies instructions through the outer shell.
+Do not call input(): the user supplies instructions through the web interface.
 Do not perform destructive operations unless the user requested them.
 Import the modules you need before using them. No modules are pre-imported;
 imports persist until the session is reset.
@@ -74,20 +68,6 @@ Convert pandas/numpy objects to plain Python values.
 """
 
 
-class Settings(BaseSettings):
-    """Load terminal client configuration from the environment."""
-
-    model_config = SettingsConfigDict(
-        env_file=Path(__file__).resolve().parents[1] / ".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True
-    )
-
-    # Environment variables override the client-local dotenv file.
-    openai_api_key: SecretStr = Field(min_length=1)
-    openai_model: str = Field(default="gpt-6.1-sol", min_length=1)
-    openai_service_tier: Literal["auto", "default", "flex", "priority"] = "auto"
-    pyshell_api_url: str = "http://127.0.0.1:8000"
-
-
 class ExecutionResult(TypedDict):
     """Output returned by the execution API."""
 
@@ -113,10 +93,10 @@ class RemoteShell:
             response.raise_for_status()
 
         # Transport failure does not mean the server skipped execution.
-        except httpx.HTTPError as exc:
+        except httpx.HTTPError as error:
             raise RuntimeError(
                 "Execution request failed; code may already have run. Inspect the session or use /reset before retrying."
-            ) from exc
+            ) from error
         return response.json()
 
     def reset(self) -> None:
@@ -205,8 +185,8 @@ class Agent:
                     on_code=(lambda text: on_event({"type": "code_delta", "text": text})) if on_event is not None else None,
                 )
 
-            except (Exception, KeyboardInterrupt) as exc:
-                feedback = json.dumps({"stream_error": f"{type(exc).__name__}: {exc}", "executed": False})
+            except (Exception, KeyboardInterrupt) as error:
+                feedback = json.dumps({"stream_error": f"{type(error).__name__}: {error}", "executed": False})
 
                 # Keep prior execution feedback alongside this unexecuted request.
                 if self.pending_feedback is not None:
@@ -248,83 +228,3 @@ class Agent:
             if result["done"]:
                 self.pending_feedback = message
                 return
-
-
-def main() -> int:
-    """Load configuration and start the terminal client."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args()
-    try:
-        settings = Settings()
-
-    # Report field errors without exposing secret configuration values.
-    except ValidationError as exc:
-        details = "; ".join(
-            f"{'.'.join(str(part) for part in error['loc']).upper()}: {error['msg']}" for error in exc.errors(include_input=False)
-        )
-        parser.error(f"Invalid configuration: {details}. Set values in web/.env or the environment.")
-
-    # Construct the model only after configuration has been validated.
-    try:
-        agent = Agent(
-            OpenAIResponsesModel(settings.openai_model, provider=OpenAIProvider(api_key=settings.openai_api_key.get_secret_value())),
-            settings.openai_service_tier,
-            shell=RemoteShell(settings.pyshell_api_url),
-        )
-
-    # Initialization failure must not enter the interactive loop.
-    except (Exception, KeyboardInterrupt) as exc:
-        print(f"Error: {exc or 'interrupted'}", file=sys.stderr)
-        return 1
-    return _run_interactive(agent)
-
-
-def _run_interactive(agent: Agent) -> int:
-    print(f"Python agent shell ({agent.model}, tier={agent.service_tier}) — Ctrl-C to quit, /reset for fresh state")
-    print("Warning: generated Python runs without approval in the execution API's container.")
-
-    while True:
-        try:
-            instruction = input("\npyshell> ").strip()
-
-        # Local interruption exits the client, not the remote execution.
-        except (EOFError, KeyboardInterrupt):
-            print()
-            break
-
-        # Keep the conversation if resetting the remote session fails.
-        if instruction == "/reset":
-            try:
-                agent.reset()
-
-            # Reset may still be running remotely after local interruption.
-            except KeyboardInterrupt:
-                print("\nExiting client; the server may still be processing the reset.")
-                break
-
-            # Only a successful reset clears local conversation state.
-            except Exception as exc:
-                print(f"Reset failed; previous session kept: {exc or 'interrupted'}", file=sys.stderr)
-            else:
-                print("Python namespace and conversation reset (filesystem changes remain).")
-            continue
-
-        # Blank input must not issue a model request.
-        if not instruction:
-            continue
-        try:
-            agent.run(instruction)
-
-        # Submitted code can outlive the client connection.
-        except KeyboardInterrupt:
-            print("\nInterrupted locally; any submitted Python may still be running on the server.")
-            break
-
-        # Non-interrupt errors leave the client available for another instruction.
-        except Exception as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

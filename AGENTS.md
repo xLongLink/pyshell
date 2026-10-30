@@ -18,10 +18,10 @@
 │   ├── uv.lock
 │   └── compose.yaml   # Execution environment configuration
 ├── web/
-│   ├── main.py        # Browser-facing application entry point
+│   ├── main.py        # Browser-facing FastAPI app and shared workspace
 │   ├── src/
-│   │   ├── script.py  # Agent loop and terminal client
-│   │   ├── server.py  # Agent API and shared workspace
+│   │   ├── script.py  # Agent loop
+│   │   ├── settings.py # Shared application settings
 │   │   └── ui/        # Self-contained React frontend, npm configuration, and tests
 │   ├── tests/         # Agent and server tests
 │   ├── pyproject.toml # Client dependencies

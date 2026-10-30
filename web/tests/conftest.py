@@ -1,9 +1,20 @@
+import os
 import pytest
+from unittest.mock import patch
 from main import create_app
 from contextlib import asynccontextmanager
 from web.src.script import RemoteShell
 from fastapi.testclient import TestClient
 from pydantic_ai.models.function import FunctionModel
+
+
+with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
+    from web.src import settings as settings_module
+
+
+@pytest.fixture
+def agent_settings():
+    return settings_module.settings
 
 
 @pytest.fixture

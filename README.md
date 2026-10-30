@@ -72,7 +72,8 @@ Code and execution feedback stream to the website. There is no voice agent.
 All tabs share one conversation, Python namespace, and transcript. Reconnecting
 restores the transcript without resubmitting instructions. Closing a tab does
 not stop submitted work. Restarting the agent API loses its conversation and
-transcript; use Reset before starting fresh against an existing container.
+transcript but leaves the container's Python namespace intact. Restart both
+services for a fresh session; reset is not available in the web interface.
 
 `POST /` accepts Python source, not natural-language instructions:
 
@@ -91,7 +92,7 @@ Names are distribution names, which can differ from Python import names.
 The agent includes this inventory in the model's instructions and refreshes it after reset.
 
 Use `print()` for results. `GET /health` reports health; `POST /reset` clears the Python
-namespace. The website's Reset button also clears the conversation and transcript.
+namespace. This execution API endpoint is not exposed by the web interface.
 
 All requests share one session, and execution is serialized. Run only one server
 worker for each API. Reset does not undo file writes or other side effects. Keep
@@ -149,8 +150,7 @@ omitted fields remain unchanged. Invalid updates leave the current figure intact
 `widget.surface_id` is its stable identifier. Reuse a `surface_id` to replace
 a result, or call `ui.remove(surface_id)` to remove it by name. Removed, replaced,
 and reset widget handles cannot publish further changes.
-Widgets survive follow-up instructions and browser reconnection;
-Reset clears them with the conversation and Python namespace. Python errors
+Widgets survive follow-up instructions and browser reconnection. Python errors
 preserve widgets already published before the error.
 
 The restricted A2UI v0.9 catalog (`urn:pyshell:catalog:v3`) supports one `Figure`
@@ -219,9 +219,6 @@ workspace access, and release instructions.
 `make up` builds the website and starts the web server and execution container.
 For frontend development, run `npm --prefix web/src/ui run dev` separately and
 open `http://127.0.0.1:5180`.
-The original terminal client
-remains available with `uv run --locked --project web python -m web.src.script`;
-do not use it concurrently with the browser agent, since the namespace is shared.
 
 ---
 

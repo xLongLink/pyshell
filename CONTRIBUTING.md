@@ -2,9 +2,10 @@
 
 pyshell runs model-generated Python in a persistent execution API. `api/main.py` owns
 FastAPI endpoints; `api/src/` owns Python execution. Docker configuration lives in `api/`.
-`web/main.py` exposes the browser-facing app from `web/src/server.py`, which owns
-the agent API and one shared workspace. `web/src/script.py` contains the reusable
-agent loop and original terminal client. `web/src/ui/` is the self-contained React/shadcn
+`web/main.py` owns the browser-facing FastAPI app, the agent API, and one shared
+workspace. `web/src/script.py` contains the agent loop used by the web interface.
+`web/src/settings.py` loads configuration once and exposes the shared settings instance.
+`web/src/ui/` is the self-contained React/shadcn
 frontend project, including npm dependencies, build configuration, and frontend tests.
 Vite proxies `/ws` to the agent API.
 `api/src/ui/widget.py` defines the shared widget methods. The figure model
@@ -41,7 +42,7 @@ and agent API. For frontend development, run `npm --prefix web/src/ui run dev`
 in another terminal and open
 `http://127.0.0.1:5180`. The execution endpoint is hardcoded to
 `http://127.0.0.1:8000`. Browser tabs share one conversation and namespace.
-Use Reset for a fresh session. Closing a tab does not cancel submitted work.
+Restart both services for a fresh session. Closing a tab does not cancel submitted work.
 Press Ctrl-C to stop the agent API; the container runs until `make down`.
 
 Run `npm --prefix web/src/ui run typecheck` and `npm --prefix web/src/ui run build` to check the frontend.
@@ -63,9 +64,9 @@ records contain only `pinned`; unpinned widgets occupy the center, with at most
 four centered at once. Placement events are broadcast live but not retained in
 history: reconnect snapshots carry the current placements separately. Deploy
 the frontend and backend together when changing this contract. Content updates
-preserve placement, while reset and surface deletion clear it.
+preserve placement, while surface deletion clears it.
 The browser processes appended A2UI messages incrementally and rebuilds its
-processor when a reconnect snapshot replaces the history or the workspace resets.
+processor when a reconnect snapshot replaces the history.
 
 Cleanup:
 
@@ -95,8 +96,8 @@ provides 512 MiB of executable temporary storage so native extensions can load.
 Larger environments need more temporary storage and memory.
 
 The agent imports modules as needed. Imports and variables persist between
-instructions; `/reset` clears the execution namespace and conversation. Reset
-does not undo file writes, imported-module state, network activity, or subprocesses.
+instructions. Restart both services to clear the execution namespace and conversation.
+This does not undo file writes or other persistent side effects.
 Use trusted packages: installation can execute code with access to the container's
 environment, network, and workspace. Avoid secrets in dependency URLs.
 

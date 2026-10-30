@@ -23,7 +23,6 @@ export const eventSchema = z.discriminatedUnion("type", [
     }),
     z.object({ type: z.literal("done") }),
     z.object({ type: z.literal("error"), text: z.string() }),
-    z.object({ type: z.literal("reset") }),
     z.object({ type: z.literal("state"), busy: z.boolean() }),
 ]);
 

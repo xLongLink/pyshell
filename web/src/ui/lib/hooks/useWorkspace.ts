@@ -36,15 +36,7 @@ export function useWorkspace() {
                         setBusy(event.busy);
                     } else {
                         if (event.type === "error") setError(event.text);
-                        if (
-                            event.type === "instruction" ||
-                            event.type === "reset"
-                        )
-                            setError("");
-                        if (event.type === "reset") {
-                            setUiMessages([]);
-                            setPlacements({});
-                        }
+                        if (event.type === "instruction") setError("");
                         if (event.type === "placement")
                             setPlacements(event.widgets);
                         if (event.type === "a2ui")
@@ -76,7 +68,7 @@ export function useWorkspace() {
     }, []);
 
     const send = useCallback(
-        (command: { type: "run"; instruction: string } | { type: "reset" }) => {
+        (command: { type: "run"; instruction: string }) => {
             if (
                 socket.current?.readyState !== WebSocket.OPEN ||
                 !connected ||

@@ -50,7 +50,7 @@ const messages = [
     },
 ];
 
-test("workspace restores widgets, ignores transcript fragments, and handles live placement and reset", () => {
+test("workspace restores widgets, ignores transcript fragments, and handles live placement", () => {
     const { result } = renderHook(useWorkspace);
     const socket = sockets[0];
     socket.receive({
@@ -80,7 +80,13 @@ test("workspace restores widgets, ignores transcript fragments, and handles live
         messages: [{ version: "v0.9", deleteSurface: { surfaceId: "sales" } }],
     });
     expect(result.current.uiMessages).toHaveLength(3);
-    socket.receive({ type: "reset" });
+    socket.receive({
+        type: "snapshot",
+        events: [],
+        busy: false,
+        model: "test",
+        placements: {},
+    });
     expect(result.current.uiMessages).toEqual([]);
     expect(result.current.placements).toEqual({});
 });
@@ -121,6 +127,6 @@ test("reconnect snapshots replace widget history and keep commands blocked until
     expect(result.current.error).toBe("");
     expect(result.current.uiMessages).toHaveLength(2);
     unmount();
-    reconnected.receive({ type: "reset" });
+    reconnected.receive({ type: "state", busy: true });
     expect(reconnected.close).toHaveBeenCalledOnce();
 });

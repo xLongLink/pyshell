@@ -2,7 +2,7 @@ import os
 import pytest
 from pathlib import Path
 from pydantic import ValidationError
-from web.src.script import Settings
+from web.src.settings import Settings
 
 
 @pytest.fixture
@@ -24,9 +24,16 @@ def test_loads_dotenv_from_configured_path(clean_environment, tmp_path, monkeypa
 
 
 def test_default_dotenv_is_in_web():
-    from web.src import script
+    from web.src import settings
 
-    assert Settings.model_config["env_file"] == Path(script.__file__).resolve().parents[1] / ".env"
+    assert Settings.model_config["env_file"] == Path(settings.__file__).resolve().parents[1] / ".env"
+
+
+def test_application_reuses_shared_settings(agent_settings):
+    from web import main
+    from web.src.settings import settings
+
+    assert main.settings is settings is agent_settings
 
 
 def test_environment_overrides_dotenv(clean_environment, tmp_path, monkeypatch):
