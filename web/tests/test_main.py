@@ -4,7 +4,10 @@ import pytest
 import asyncio
 import threading
 from web import main as server
+from types import SimpleNamespace
 from web.main import app
+from unittest.mock import AsyncMock
+from web.src.workspace import Command
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -15,7 +18,8 @@ def browser_api(monkeypatch, model_for, remote_shell, agent_settings):
     model = model_for(["print('browser result')\ndone()"], ["print('next result')\ndone()"], requests=requests)
     monkeypatch.setattr(server, "settings", agent_settings)
     monkeypatch.setattr(server, "OpenAIResponsesModel", lambda *args, **kwargs: model)
-    monkeypatch.setattr(server, "RemoteShell", lambda url: remote_shell)
+    monkeypatch.setattr(server, "AsyncClient", lambda **kwargs: remote_shell.client)
+    monkeypatch.setattr(server, "RemoteShell", lambda client: remote_shell)
     with TestClient(app) as client:
         yield client, requests
 
@@ -27,6 +31,91 @@ def receive_until_idle(socket):
         events.append(event)
         if event["type"] == "state" and not event["busy"]:
             return events
+
+
+@pytest.fixture
+def lifespan_resources(monkeypatch, model_for, remote_shell, agent_settings):
+    provider = SimpleNamespace(client=SimpleNamespace(close=AsyncMock()))
+    monkeypatch.setattr(server, "settings", agent_settings)
+    monkeypatch.setattr(server, "OpenAIProvider", lambda **kwargs: provider)
+    monkeypatch.setattr(server, "AsyncClient", lambda **kwargs: remote_shell.client)
+    monkeypatch.setattr(server, "OpenAIResponsesModel", lambda *args, **kwargs: model_for(["done()"]))
+    monkeypatch.setattr(server, "OpenAIRealtimeModel", lambda *args, **kwargs: object())
+    return remote_shell.client, provider.client
+
+
+def test_lifespan_drains_accepted_work_before_closing_transports(lifespan_resources):
+    client, provider = lifespan_resources
+
+    async def run():
+        started = asyncio.Event()
+        exiting = asyncio.Event()
+        release = asyncio.Event()
+
+        async def execute(instruction, emit):
+            started.set()
+            await release.wait()
+            assert not client.is_closed
+            provider.close.assert_not_awaited()
+            return "Confirmed before shutdown"
+
+        async def application():
+            async with server.lifespan(app):
+                workspace = app.state.workspace
+                workspace.agent.arun = execute
+                workspace.start(Command(type="run", instruction="Finish accepted work"))
+                await started.wait()
+                exiting.set()
+
+        owner = asyncio.create_task(application())
+        try:
+            await asyncio.wait_for(exiting.wait(), 1)
+            workspace = app.state.workspace
+            assert workspace.closing
+            assert not owner.done()
+            assert not client.is_closed
+            with pytest.raises(RuntimeError, match="shutting down"):
+                workspace.start(Command(type="run", instruction="Do not accept"))
+        finally:
+            release.set()
+            await asyncio.wait_for(owner, 1)
+        assert client.is_closed
+        provider.close.assert_awaited_once_with()
+        assert workspace.status()["latest_outcome"]["result"] == "Confirmed before shutdown"
+        assert workspace.task.result() is None
+
+    asyncio.run(run())
+
+
+def test_lifespan_releases_transports_when_workspace_shutdown_fails(lifespan_resources, monkeypatch):
+    client, provider = lifespan_resources
+
+    async def run():
+        with pytest.raises(RuntimeError, match="Shutdown failed"):
+            async with server.lifespan(app):
+                monkeypatch.setattr(app.state.workspace, "close", AsyncMock(side_effect=RuntimeError("Shutdown failed")))
+        assert client.is_closed
+        provider.close.assert_awaited_once_with()
+
+    asyncio.run(run())
+
+
+def test_lifespan_releases_transports_when_initialization_fails(lifespan_resources, monkeypatch):
+    client, provider = lifespan_resources
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("Initialization failed")
+
+    monkeypatch.setattr(server, "OpenAIRealtimeModel", fail)
+
+    async def run():
+        with pytest.raises(RuntimeError, match="Initialization failed"):
+            async with server.lifespan(app):
+                pytest.fail("Failed initialization must not enter the application")
+        assert client.is_closed
+        provider.close.assert_awaited_once_with()
+
+    asyncio.run(run())
 
 
 def test_web_server_serves_website_and_assets(browser_api, monkeypatch, tmp_path):

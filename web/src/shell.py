@@ -14,46 +14,28 @@ class ExecutionResult(TypedDict):
     done: bool
 
 
-# Requests bypass proxy settings for the local execution server.
 class RemoteShell:
     """Access the container's persistent Python session."""
 
-    def __init__(self, url: str = "http://127.0.0.1:8000") -> None:
-        """Select the execution API endpoint."""
-        self.url = url.rstrip("/")
-        self.client: httpx.AsyncClient | None = None
+    def __init__(self, client: httpx.AsyncClient) -> None:
+        """Use the application-owned execution transport."""
+        self.client = client
         self.uncertain = False
-
-    async def open(self) -> None:
-        """Open the workspace-owned execution transport."""
-        self.client = httpx.AsyncClient(base_url=self.url, timeout=httpx.Timeout(180, connect=10), trust_env=False)
-
-    async def close(self) -> None:
-        """Release the execution transport."""
-        if self.client is not None:
-            await self.client.aclose()
-            self.client = None
 
     async def inventory(self) -> list[dict[str, str]]:
         """Read installed packages through the asynchronous transport."""
-        if self.client is None:
-            raise RuntimeError("Execution transport is closed")
         response = await self.client.get("/libraries")
         response.raise_for_status()
         return response.json()
 
     async def geography(self, geography: str) -> httpx.Response:
         """Fetch map boundaries without executing Python or changing session state."""
-        if self.client is None:
-            raise RuntimeError("Execution transport is closed")
         response = await self.client.get(f"/geographies/{geography}")
         response.raise_for_status()
         return response
 
     async def stream(self, code: str, emit: Callable[[dict[str, object]], None]) -> ExecutionResult:
         """Submit once and consume ordered output until completion is confirmed."""
-        if self.client is None:
-            raise RuntimeError("Execution transport is closed")
         if self.uncertain:
             raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
 

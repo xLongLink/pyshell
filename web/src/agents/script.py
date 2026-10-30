@@ -125,8 +125,6 @@ class Agent:
 
     async def arun(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> str:
         """Generate complete code and consume live execution feedback."""
-        if self.shell.client is None:
-            raise RuntimeError("Execution transport is closed")
         if self._libraries is None:
             self._libraries = await self.shell.inventory()
         emit = on_event if on_event is not None else lambda _event: None

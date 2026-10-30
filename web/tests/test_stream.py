@@ -24,9 +24,8 @@ def test_unconfirmed_stream_is_not_replayed_and_blocks_more_work(events):
         return httpx.Response(200, text="\n".join(json.dumps(event) for event in events))
 
     async def run():
-        shell = RemoteShell()
-        shell.client = httpx.AsyncClient(transport=httpx.MockTransport(handle), base_url=shell.url)
-        try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle), base_url="http://testserver") as client:
+            shell = RemoteShell(client)
             with pytest.raises(RuntimeError, match="may already have run"):
                 await shell.stream("value = 42", lambda _event: None)
             assert shell.uncertain is True
@@ -35,8 +34,6 @@ def test_unconfirmed_stream_is_not_replayed_and_blocks_more_work(events):
             with pytest.raises(RuntimeError, match="uncertain"):
                 await shell.stream("value = 42", lambda _event: None)
             assert len(requests) == 1
-        finally:
-            await shell.close()
 
     asyncio.run(run())
 
@@ -50,17 +47,14 @@ def test_confirmed_stream_forwards_events_in_order_without_terminal_marker():
     ]
 
     async def run():
-        shell = RemoteShell()
         transport = httpx.MockTransport(lambda request: httpx.Response(200, text="\n".join(json.dumps(event) for event in events)))
-        shell.client = httpx.AsyncClient(transport=transport, base_url=shell.url)
         received = []
-        try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            shell = RemoteShell(client)
             result = await shell.stream("print('output')", received.append)
             assert received == events[:-1]
             assert result == {"stdout": "output\n", "stderr": "warning\n", "exception": None, "done": True}
             assert shell.uncertain is False
-        finally:
-            await shell.close()
 
     asyncio.run(run())
 

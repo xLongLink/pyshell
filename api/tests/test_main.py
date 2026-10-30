@@ -1,6 +1,13 @@
+import json
+import pytest
+import asyncio
+from main import ExecutionRequest, create_app
+from queue import Queue
 from types import SimpleNamespace
+from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import version
+from starlette.requests import ClientDisconnect
 
 
 def test_health_without_model_credentials(api_client):
@@ -113,4 +120,188 @@ def test_stream_reports_partial_output_and_python_failure(api_client):
     assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "42\n"
 
 
-import json
+@pytest.fixture
+def stream_app(monkeypatch):
+    queues = []
+
+    class BoundedWaitQueue(Queue):
+        def put(self, item, block=True, timeout=None):
+            return super().put(item, block=block, timeout=0.05)
+
+        def get(self, block=True, timeout=None):
+            return super().get(block=block, timeout=0.2)
+
+    def queue_factory(maxsize):
+        queue = BoundedWaitQueue(maxsize=maxsize)
+        queues.append(queue)
+        return queue
+
+    monkeypatch.setattr("main.Queue", queue_factory)
+    return create_app(), queues
+
+
+async def open_stream(app, code="pass"):
+    tasks = asyncio.all_tasks()
+    endpoint = next(route.endpoint for route in app.routes if route.path == "/execute/stream")
+    response = await endpoint(ExecutionRequest(code=code))
+    workers = asyncio.all_tasks() - tasks
+    assert len(workers) == 1
+    return response, workers
+
+
+def test_stream_terminal_event_fits_at_queue_capacity(stream_app, monkeypatch):
+    app, queues = stream_app
+    calls = []
+
+    def execute(_shell, code, on_event):
+        calls.append(code)
+        for index in range(254):
+            on_event({"type": "stdout_delta", "text": str(index)})
+        return {"stdout": "complete", "ui": []}
+
+    monkeypatch.setattr("main.PythonShell.execute", execute)
+
+    async def check():
+        response, workers = await open_stream(app)
+        await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
+        assert queues[0].qsize() == queues[0].maxsize == 256
+        events = [json.loads(line) async for line in response.body_iterator]
+        assert [event["text"] for event in events[:-2]] == [str(index) for index in range(254)]
+        assert events[-2:] == [{"type": "result", "stdout": "complete"}, {"type": "execution_finished"}]
+        assert queues[0].empty()
+
+    asyncio.run(check())
+    assert calls == ["pass"]
+
+
+def test_stream_saturated_queue_drains_without_resubmitting(stream_app, monkeypatch):
+    app, queues = stream_app
+    calls = []
+
+    def execute(_shell, code, on_event):
+        calls.append(code)
+        for index in range(300):
+            on_event({"type": "stdout_delta", "text": str(index)})
+        calls.append("completed")
+        return {"stdout": "complete", "ui": []}
+
+    monkeypatch.setattr("main.PythonShell.execute", execute)
+
+    async def check():
+        response, workers = await open_stream(app)
+        await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
+        events = [json.loads(line) async for line in response.body_iterator]
+        assert events == [{"type": "stdout_delta", "text": str(index)} for index in range(256)]
+        assert queues[0].empty()
+
+    asyncio.run(check())
+    assert calls == ["pass", "completed"]
+
+
+def test_stream_worker_failure_still_emits_terminal_event(stream_app, monkeypatch):
+    app, _queues = stream_app
+
+    def execute(_shell, _code, on_event):
+        on_event({"type": "stdout_delta", "text": "before"})
+        raise RuntimeError("worker failed")
+
+    monkeypatch.setattr("main.PythonShell.execute", execute)
+
+    async def check():
+        response, workers = await open_stream(app)
+        errors = await asyncio.wait_for(asyncio.gather(*workers, return_exceptions=True), timeout=2)
+        assert len(errors) == 1
+        assert isinstance(errors[0], RuntimeError)
+        assert str(errors[0]) == "worker failed"
+        assert [json.loads(line) async for line in response.body_iterator] == [
+            {"type": "stdout_delta", "text": "before"},
+            {"type": "execution_finished"},
+        ]
+
+    asyncio.run(check())
+
+
+def test_stream_disconnect_does_not_cancel_or_resubmit_execution(stream_app, monkeypatch):
+    app, queues = stream_app
+    disconnected = Event()
+    calls = []
+
+    def execute(_shell, code, on_event):
+        calls.append(code)
+        on_event({"type": "stdout_delta", "text": "before"})
+        assert disconnected.wait(timeout=2)
+        for index in range(300):
+            on_event({"type": "stdout_delta", "text": str(index)})
+        calls.append("completed")
+        return {"stdout": "complete", "ui": []}
+
+    monkeypatch.setattr("main.PythonShell.execute", execute)
+
+    async def check():
+        response, workers = await open_stream(app)
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+            if message["type"] == "http.response.body":
+                raise OSError("connection closed")
+
+        async def receive():
+            pytest.fail("ASGI 2.4 detects disconnects through send")
+
+        try:
+            with pytest.raises(ClientDisconnect):
+                await asyncio.wait_for(response({"type": "http", "asgi": {"spec_version": "2.4"}}, receive, send), timeout=2)
+        finally:
+            disconnected.set()
+        await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
+        assert json.loads(sent[-1]["body"]) == {"type": "stdout_delta", "text": "before"}
+        assert queues[0].qsize() == 256
+        events = [json.loads(line) async for line in response.body_iterator]
+        assert events == [{"type": "stdout_delta", "text": str(index)} for index in range(256)]
+        assert queues[0].empty()
+
+    asyncio.run(check())
+    assert calls == ["pass", "completed"]
+
+
+def test_stream_and_regular_requests_share_execution_lock(stream_app, monkeypatch):
+    app, _queues = stream_app
+    entered = Event()
+    release = Event()
+    calls = []
+
+    def execute(_shell, code, on_event=None):
+        calls.append(code)
+        if code == "stream":
+            entered.set()
+            assert release.wait(timeout=2)
+        return {"stdout": code, "ui": []}
+
+    monkeypatch.setattr("main.PythonShell.execute", execute)
+
+    async def check():
+        response, workers = await open_stream(app, "stream")
+        assert await asyncio.to_thread(entered.wait, 2)
+        endpoint = next(route.endpoint for route in app.routes if route.path == "/")
+        submitted = Event()
+
+        def regular_request():
+            submitted.set()
+            return endpoint(ExecutionRequest(code="regular"))
+
+        regular = asyncio.create_task(asyncio.to_thread(regular_request))
+        try:
+            assert await asyncio.to_thread(submitted.wait, 2)
+            assert calls == ["stream"]
+            assert not regular.done()
+        finally:
+            release.set()
+        await asyncio.wait_for(asyncio.gather(*workers, regular), timeout=2)
+        assert [json.loads(line) async for line in response.body_iterator] == [
+            {"type": "result", "stdout": "stream"},
+            {"type": "execution_finished"},
+        ]
+
+    asyncio.run(check())
+    assert calls == ["stream", "regular"]

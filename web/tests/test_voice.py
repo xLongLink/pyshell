@@ -90,7 +90,8 @@ def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(mon
         assert events[-1] == {"type": "voice", "name": "closed"}
         realtime.hang_up.assert_awaited_once_with("provider")
         release.set()
-        assert await workspace.task == "Confirmed result: 42"
+        await workspace.task
+        assert workspace.status()["latest_outcome"]["result"] == "Confirmed result: 42"
         assert not any("Confirmed result" in message for message in realtime.messages)
 
         # A new call reuses the workspace and receives new task results.
@@ -170,7 +171,8 @@ def test_reconnection_after_failure_keeps_old_tools_disconnected(monkeypatch):
             assert "not connected" in await old_tools["worker"]("Stale task")
             assert workspace.events == []
             assert "submitted" in await tools["worker"]("New task")
-            assert await workspace.task == "Confirmed after reconnect"
+            await workspace.task
+            assert workspace.status()["latest_outcome"]["result"] == "Confirmed after reconnect"
             await asyncio.wait_for(realtime.delivered.wait(), 1)
             assert any("Confirmed after reconnect" in message for message in realtime.messages)
             assert not any("Confirmed after reconnect" in message for message in failed.messages)

@@ -1,7 +1,7 @@
 import os
 import httpx
 import pytest
-from main import create_app
+from api.main import create_app
 from unittest.mock import patch
 from web.src.shell import RemoteShell
 from fastapi.testclient import TestClient
@@ -19,21 +19,21 @@ def agent_settings():
 
 
 @pytest.fixture
-def api_client(monkeypatch, tmp_path):
+def execution_app(monkeypatch, tmp_path):
     install_geography_provider(monkeypatch, tmp_path)
-    with TestClient(create_app()) as client:
+    return create_app()
+
+
+@pytest.fixture
+def api_client(execution_app):
+    with TestClient(execution_app) as client:
         yield client
 
 
 @pytest.fixture
-def remote_shell(api_client, monkeypatch):
-    shell = RemoteShell("http://testserver")
-
-    async def open_transport():
-        shell.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=api_client.app), base_url=shell.url)
-
-    monkeypatch.setattr(shell, "open", open_transport)
-    return shell
+def remote_shell(execution_app):
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=execution_app), base_url="http://testserver")
+    return RemoteShell(client)
 
 
 @pytest.fixture

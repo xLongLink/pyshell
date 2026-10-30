@@ -34,15 +34,16 @@ test("workspace offers voice without chat or execution output", () => {
     expect(screen.queryByText("Ready")).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(
-        screen.getByText(/Your generated widgets will appear here/),
-    ).toBeTruthy();
+        screen.queryByText(/Your generated widgets will appear here/),
+    ).toBeNull();
     expect(container.querySelector("pre, code")).toBeNull();
     expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
     expect(screen.queryByText("Execution details")).toBeNull();
     const voice = screen.getByRole("button", { name: "Start voice" });
     expect((voice as HTMLButtonElement).disabled).toBe(false);
-    expect(voice.parentElement?.classList.contains("right-5")).toBe(true);
-    expect(voice.parentElement?.classList.contains("bottom-5")).toBe(true);
+    expect(voice.parentElement?.classList.contains("top-1/2")).toBe(true);
+    expect(voice.parentElement?.classList.contains("left-1/2")).toBe(true);
+    expect(voice.classList.contains("size-40")).toBe(true);
 });
 
 test("workspace keeps errors visible and voice available while busy", () => {

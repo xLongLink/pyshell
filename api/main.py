@@ -72,7 +72,7 @@ def create_app() -> FastAPI:
     @app.post("/execute/stream")
     async def stream(request: ExecutionRequest) -> StreamingResponse:
         """Stream a submitted execution without coupling it to the HTTP connection."""
-        queue: Queue[dict[str, object] | None] = Queue(maxsize=256)
+        queue: Queue[dict[str, object]] = Queue(maxsize=256)
         disconnected = False
 
         def emit(event: dict[str, object]) -> None:
@@ -95,8 +95,6 @@ def create_app() -> FastAPI:
             # Terminate connected readers even when execution fails.
             finally:
                 emit({"type": "execution_finished"})
-                if not disconnected:
-                    queue.put(None)
 
         task = asyncio.create_task(asyncio.to_thread(execute))
         executions.add(task)
@@ -105,20 +103,14 @@ def create_app() -> FastAPI:
         def events() -> Iterator[str]:
             nonlocal disconnected
 
-            # The sentinel ends the stream after all queued events.
             try:
                 while True:
                     event = queue.get(timeout=180)
 
-                    # A sentinel is not a protocol event.
-                    if event is None:
-                        return
-
                     # Encode one complete event per line.
                     yield json.dumps(event, allow_nan=False) + "\n"
 
-                    # A saturated queue has no sentinel; drain it before exiting.
-                    if disconnected and queue.empty():
+                    if event["type"] == "execution_finished" or (disconnected and queue.empty()):
                         return
             finally:
                 disconnected = True

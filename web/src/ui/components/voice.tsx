@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { VoiceEvent } from "@/lib/workspace";
 
 export function Voice({
+    docked = true,
     connected,
     event,
     send,
 }: {
+    docked?: boolean;
     connected: boolean;
     event: VoiceEvent | null;
     send: (action: "start" | "stop", sdp?: string) => boolean;
@@ -172,10 +174,12 @@ export function Voice({
     }
 
     return (
-        <div className="fixed right-5 bottom-5 z-20 flex max-w-xs flex-row-reverse items-center gap-3">
+        <div
+            className={`fixed z-20 flex max-w-xs items-center gap-3 ${docked ? "right-5 bottom-5 flex-row-reverse" : "top-1/2 left-1/2 -translate-1/2 flex-col"}`}
+        >
             <button
                 type="button"
-                className="voice-orb relative grid size-18 shrink-0 cursor-pointer place-items-center rounded-full border border-[#ffd45c] focus-visible:outline-3 focus-visible:outline-offset-8 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none"
+                className={`voice-orb relative grid shrink-0 cursor-pointer place-items-center rounded-full border border-[#ffd45c] focus-visible:outline-3 focus-visible:outline-offset-8 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-50 motion-reduce:transition-none ${docked ? "size-18" : "size-40"}`}
                 data-state={phase}
                 disabled={!connected || phase === "stopping"}
                 aria-label={

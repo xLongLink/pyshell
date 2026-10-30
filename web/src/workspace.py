@@ -25,7 +25,7 @@ class Workspace:
         self.agent = agent
         self.events: list[dict[str, object]] = []
         self.listeners: set[asyncio.Queue[dict[str, object]]] = set()
-        self.task: asyncio.Task[str] | None = None
+        self.task: asyncio.Task[None] | None = None
         self.placements: dict[str, dict[str, bool]] = {}
         self.surfaces: dict[str, list[dict[str, object]]] = {}
         self.run_id: str | None = None
@@ -183,7 +183,7 @@ class Workspace:
             placement["pinned"] = True
         self._placement_event()
 
-    def start(self, command: Command) -> asyncio.Task[str]:
+    def start(self, command: Command) -> asyncio.Task[None]:
         """Submit text or voice work once, outside the socket's lifetime."""
         if self.closing:
             raise RuntimeError("The workspace is shutting down.")
@@ -206,8 +206,8 @@ class Workspace:
         self.task = asyncio.create_task(self._execute(instruction))
         return self.task
 
-    async def _execute(self, instruction: str) -> str:
-        """Return confirmed execution feedback to voice and publish shared status."""
+    async def _execute(self, instruction: str) -> None:
+        """Record execution feedback for voice and publish shared status."""
         outcome = "completed"
         before = dict(self.surfaces)
         placements = self._copy_placements()
@@ -237,11 +237,9 @@ class Workspace:
         self.recent_tasks = self.recent_tasks[-8:]
         for report in self.results:
             report(json.dumps(record))
-        return result
 
     async def close(self) -> None:
-        """Finish accepted work before releasing the execution transport."""
+        """Stop submissions and finish accepted work."""
         self.closing = True
         if self.task is not None:
             await self.task
-        await self.agent.shell.close()

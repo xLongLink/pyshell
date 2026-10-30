@@ -1,6 +1,7 @@
 import re
 import httpx
 import asyncio
+from httpx import AsyncClient
 from fastapi import FastAPI, Request, WebSocket, HTTPException, WebSocketDisconnect
 from pathlib import Path
 from pydantic import TypeAdapter, ValidationError
@@ -25,21 +26,20 @@ command_adapter = TypeAdapter(Command | VoiceCommand)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Own provider and workspace resources for the application lifetime."""
     provider = OpenAIProvider(api_key=settings.openai_api_key.get_secret_value())
-    model = OpenAIResponsesModel(settings.openai_model, provider=provider)
-    shell = RemoteShell("http://127.0.0.1:8000")
-    await shell.open()
-    workspace = Workspace(Agent(model, shell=shell))
-    app.state.workspace = workspace
-    app.state.realtime_model = OpenAIRealtimeModel(settings.openai_realtime_model, provider=provider)
-
-    # Finish accepted work before closing the provider transport.
     try:
-        yield
+        async with AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx.Timeout(180, connect=10), trust_env=False) as client:
+            model = OpenAIResponsesModel(settings.openai_model, provider=provider)
+            workspace = Workspace(Agent(model, shell=RemoteShell(client)))
+            app.state.workspace = workspace
+            app.state.realtime_model = OpenAIRealtimeModel(settings.openai_realtime_model, provider=provider)
+
+            # Finish accepted work before closing either transport.
+            try:
+                yield
+            finally:
+                await workspace.close()
     finally:
-        try:
-            await workspace.close()
-        finally:
-            await provider.client.close()
+        await provider.client.close()
 
 
 # Browser commands are accepted only through local hostnames and origins.

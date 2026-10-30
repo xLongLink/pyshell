@@ -2,7 +2,6 @@ import json
 import httpx
 import pytest
 import asyncio
-from contextlib import asynccontextmanager
 from pydantic_ai import Agent as PydanticAgent
 from unittest.mock import AsyncMock, patch
 from web.src.shell import RemoteShell
@@ -12,45 +11,17 @@ from web.src.agents.script import Agent, generate_response
 from pydantic_ai.exceptions import UsageLimitExceeded
 
 
-@asynccontextmanager
-async def opened_shell(shell):
-    await shell.open()
-    try:
-        yield shell
-    finally:
-        await shell.close()
-
-
-@pytest.mark.parametrize("inventory_loaded", [False, True])
-def test_closed_transport_prevents_requests(model_for, remote_shell, inventory_loaded):
+def test_injected_transport_is_closed_by_its_owner(model_for, remote_shell):
     requests = []
     agent = Agent(model_for(["done()"], requests=requests), shell=remote_shell)
-    events = []
 
     async def run():
-        if inventory_loaded:
-            async with opened_shell(remote_shell):
-                await agent.arun("finish")
-
-        assert remote_shell.client is None
-        history = list(agent.message_history)
-        feedback = agent.pending_feedback
-        request_count = len(requests)
-        with (
-            patch.object(remote_shell, "inventory") as inventory,
-            patch.object(remote_shell, "stream") as execute,
-            patch.object(agent.agent, "run") as response,
-        ):
-            with pytest.raises(RuntimeError, match="Execution transport is closed"):
-                await agent.arun("work", events.append)
-            inventory.assert_not_called()
-            response.assert_not_called()
-            execute.assert_not_called()
-
-        assert len(requests) == request_count == int(inventory_loaded)
-        assert agent.message_history == history
-        assert agent.pending_feedback == feedback
-        assert events == []
+        async with remote_shell.client:
+            await agent.arun("finish")
+            assert not remote_shell.client.is_closed
+        assert remote_shell.client.is_closed
+        assert len(requests) == 1
+        assert json.loads(agent.pending_feedback)["done"] is True
 
     asyncio.run(run())
 
@@ -61,7 +32,7 @@ def test_installed_libraries_are_in_model_context(model_for, remote_shell):
     model = model_for(["print('working')"], ["done()"], ["done()"], requests=requests)
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             with patch.object(remote_shell, "inventory", new_callable=AsyncMock, return_value=packages) as inventory:
                 agent = Agent(model, shell=remote_shell)
                 await agent.arun("work")
@@ -79,7 +50,7 @@ def test_library_discovery_failure_prevents_model_request(model_for, remote_shel
     agent = Agent(model_for(["done()"], requests=requests), shell=remote_shell)
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             with patch.object(remote_shell, "inventory", new_callable=AsyncMock, side_effect=httpx.ConnectError("unavailable")):
                 with pytest.raises(httpx.ConnectError, match="unavailable"):
                     await agent.arun("work")
@@ -94,7 +65,7 @@ def test_library_discovery_failure_prevents_model_request(model_for, remote_shel
 
 def test_remote_libraries(remote_shell):
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             assert {"name": "fastapi", "version": version("fastapi")} in await remote_shell.inventory()
 
     asyncio.run(run())
@@ -107,6 +78,19 @@ def test_remote_execution_and_reset(api_client):
     assert "NameError" in api_client.post("/", json={"code": "print(value)"}).json()["exception"]
 
 
+def test_remote_and_sync_clients_share_the_execution_namespace(api_client, remote_shell):
+    assert api_client.post("/", json={"code": "shared_value = 42"}).json()["exception"] is None
+
+    async def run():
+        async with remote_shell.client:
+            result = await remote_shell.stream("print(shared_value)\nshared_value += 1\ndone()", lambda _event: None)
+            assert result["stdout"] == "42\n"
+            assert result["done"] is True
+
+    asyncio.run(run())
+    assert api_client.post("/", json={"code": "print(shared_value)"}).json()["stdout"] == "43\n"
+
+
 def test_execution_transport_failure_is_not_retried(model_for):
     calls = []
 
@@ -117,10 +101,9 @@ def test_execution_transport_failure_is_not_retried(model_for):
         raise httpx.ReadError("disconnected")
 
     async def run():
-        shell = RemoteShell()
-        shell.client = httpx.AsyncClient(transport=httpx.MockTransport(handle), base_url=shell.url)
-        agent = Agent(model_for(["value = 42\ndone()"]), shell=shell)
-        try:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle), base_url="http://testserver") as client:
+            shell = RemoteShell(client)
+            agent = Agent(model_for(["value = 42\ndone()"]), shell=shell)
             with pytest.raises(RuntimeError, match="may already have run"):
                 await agent.arun("set value")
             assert agent.message_history
@@ -128,8 +111,6 @@ def test_execution_transport_failure_is_not_retried(model_for):
             assert shell.uncertain is True
             with pytest.raises(RuntimeError, match="uncertain"):
                 await shell.stream("value = 42", lambda _event: None)
-        finally:
-            await shell.close()
 
     asyncio.run(run())
     assert len(calls) == 1
@@ -152,7 +133,7 @@ def test_agent_event_lifecycle_with_optional_callback(model_for, remote_shell, w
     events = []
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             result = await agent.arun("finish", events.append if with_callback else None)
             assert "confirmed" in result
 
@@ -178,7 +159,7 @@ done()
     events = []
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             await Agent(model_for([code]), shell=remote_shell).arun("plot and pin sales", events.append)
 
     asyncio.run(run())
@@ -221,7 +202,7 @@ def test_model_imports_persist_between_requests(model_for, remote_shell):
     agent = Agent(model, shell=remote_shell)
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             await agent.arun("import math")
             assert await agent.arun("square root of 16") == "4.0\n"
 
@@ -236,7 +217,7 @@ def test_requests_low_reasoning_effort(model_for, remote_shell):
     model = model_for(["done()"], requests=requests)
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             await Agent(model, shell=remote_shell).arun("finish")
 
     asyncio.run(run())
@@ -249,7 +230,7 @@ def test_agent_does_not_log_code_or_results(model_for, remote_shell, capsys):
     agent = Agent(model_for([code]), shell=remote_shell)
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             result = {"stdout": "result\n", "stderr": "warning\n", "exception": None, "done": True}
             with patch.object(remote_shell, "stream", new_callable=AsyncMock, return_value=result) as execute:
                 assert await agent.arun("work") == "result\nwarning\n"
@@ -268,7 +249,7 @@ def test_continues_until_done_and_sends_execution_feedback(model_for, remote_she
     agent = Agent(model, shell=remote_shell)
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             await agent.arun("calculate")
 
     asyncio.run(run())
@@ -285,7 +266,7 @@ def test_failed_model_request_never_executes_code(model_for, remote_shell, api_c
     agent.pending_feedback = "previous feedback"
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             with patch.object(remote_shell, "stream", wraps=remote_shell.stream) as execute:
                 with pytest.raises(error_type, match="disconnected"):
                     await agent.arun("set value")
@@ -305,7 +286,7 @@ def test_incomplete_response_never_executes(model_for, remote_shell, api_client,
     agent = Agent(model_for(["value = 42\n"], finish_reason=finish_reason, requests=requests), shell=remote_shell)
 
     async def run():
-        async with opened_shell(remote_shell):
+        async with remote_shell.client:
             with patch.object(remote_shell, "stream") as execute:
                 with pytest.raises(RuntimeError, match=f"Model response {finish_reason}"):
                     await agent.arun("set value")

@@ -22,12 +22,6 @@ export default function App() {
                             {error}
                         </p>
                     )}
-                    {!uiMessages.length && (
-                        <p className="py-16 text-center text-sm text-muted-foreground">
-                            Your generated widgets will appear here. Use the
-                            microphone to describe what you want.
-                        </p>
-                    )}
                     <ErrorBoundary
                         resetKeys={[uiMessages]}
                         fallback={
@@ -47,7 +41,12 @@ export default function App() {
                     </ErrorBoundary>
                 </div>
             </main>
-            <Voice connected={connected} event={voiceEvent} send={sendVoice} />
+            <Voice
+                docked={uiMessages.length > 0}
+                connected={connected}
+                event={voiceEvent}
+                send={sendVoice}
+            />
         </div>
     );
 }

@@ -28,18 +28,24 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        python: ['3.10', '3.12']
+        include:
+          - project: api
+            python: '3.10'
+          - project: api
+            python: '3.12'
+          - project: web
+            python: '3.11'
+          - project: web
+            python: '3.12'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: '0.13.4'
           enable-cache: true
-      - run: uv run --locked --project api --python "${PYTHON_VERSION}" pytest -c api/pyproject.toml api/tests -v
+      - run: uv run --locked --project "${PROJECT}" --python "${PYTHON_VERSION}" pytest -c "${PROJECT}/pyproject.toml" "${PROJECT}/tests" -v
         env:
-          PYTHON_VERSION: ${{ matrix.python }}
-      - run: uv run --locked --project web --python "${PYTHON_VERSION}" pytest -c web/pyproject.toml web/tests -v
-        env:
+          PROJECT: ${{ matrix.project }}
           PYTHON_VERSION: ${{ matrix.python }}
 
   container:
