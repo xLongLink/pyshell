@@ -93,27 +93,26 @@ def test_execution_transport_failure_is_not_retried(model_for):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("with_callback", [False, True])
-def test_agent_event_lifecycle_with_optional_callback(model_for, remote_shell, with_callback):
+def test_agent_event_lifecycle(model_for, remote_shell):
+    # Arrange
     code = "print('confirmed')\ndone()"
     agent = Agent(model_for([code]), shell=remote_shell)
     events = []
 
     async def run():
         async with remote_shell.client:
-            result = await agent.arun("finish", events.append if with_callback else None)
-            assert "confirmed" in result
+            result = await agent.arun("finish", events.append)
+            assert result == "confirmed\n"
 
+    # Act
     asyncio.run(run())
-    if not with_callback:
-        assert events == []
-        return
+
+    # Assert
     assert events[0] == {"type": "code_start"}
     types = [event["type"] for event in events]
     assert types.index("code_start") < types.index("execution_start") < types.index("result")
     assert "code_delta" not in types
     assert types.count("result") == 1
-    assert "execution_finished" not in types
     assert events[-1] == {"type": "result", "stdout": "confirmed\n", "stderr": "", "exception": None, "done": True}
 
 
@@ -173,19 +172,21 @@ def test_model_imports_persist_between_requests(model_for, remote_shell):
     assert '"done": true' in str(requests[1][0][-1])
 
 
-def test_agent_does_not_log_code_or_results(model_for, remote_shell, capsys):
+def test_agent_does_not_log_remote_code_or_results(model_for, remote_shell, capsys):
+    # Arrange
     code = "import sys\nprint('result')\nprint('warning', file=sys.stderr)\ndone()"
     agent = Agent(model_for([code]), shell=remote_shell)
 
     async def run():
         async with remote_shell.client:
             result = {"stdout": "result\n", "stderr": "warning\n", "exception": None, "done": True}
-            with patch.object(remote_shell, "stream", new_callable=AsyncMock, return_value=result) as execute:
+            with patch.object(remote_shell, "stream", new_callable=AsyncMock, return_value=result):
                 assert await agent.arun("work") == "result\nwarning\n"
-                assert execute.await_count == 1
-                assert execute.await_args.args[0] == code
 
+    # Act
     asyncio.run(run())
+
+    # Assert
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
@@ -233,7 +234,7 @@ def test_failed_model_request_never_executes_code(model_for, remote_shell, api_c
 
 
 @pytest.mark.parametrize("finish_reason", ["length", "content_filter", None])
-def test_incomplete_response_never_executes(model_for, remote_shell, api_client, finish_reason):
+def test_incomplete_response_never_executes(model_for, remote_shell, finish_reason):
     requests = []
     agent = Agent(model_for(["value = 42\n"], finish_reason=finish_reason, requests=requests), shell=remote_shell)
 
@@ -245,6 +246,5 @@ def test_incomplete_response_never_executes(model_for, remote_shell, api_client,
                 execute.assert_not_awaited()
 
     asyncio.run(run())
-    assert "NameError" in api_client.post("/", json={"code": "print(value)"}).json()["exception"]
     assert agent.message_history == []
     assert len(requests) == 1

@@ -45,9 +45,14 @@ def test_figure_limits(case):
 
 
 def test_scatter_modes_and_trace_order_survive_publication():
+    # Arrange
     ui = UI()
-    data = [{"type": "scatter", "mode": mode, "x": [2, 0, 1], "y": [3, None, 1]} for mode in ("lines", "markers", "lines+markers")]
+    data = [{"type": "scatter", "mode": mode, "x": [2.5, 0, 2.5], "y": [3, None, -1]} for mode in ("lines", "markers", "lines+markers")]
+
+    # Act
     ui.plot(data)
+
+    # Assert
     published = ui.messages[1]["updateComponents"]["components"][0]["data"]
     assert [trace["mode"] for trace in published] == ["lines", "markers", "lines+markers"]
-    assert all(trace["x"] == [2, 0, 1] and trace["y"] == [3, None, 1] for trace in published)
+    assert all(trace["x"] == [2.5, 0, 2.5] and trace["y"] == [3, None, -1] for trace in published)

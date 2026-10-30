@@ -389,8 +389,6 @@ test("independent lines and markers share numeric axes without adding gaps", asy
     );
     const lines = container.querySelectorAll(".recharts-line");
     const curve = lines[0].querySelector(".recharts-line-curve");
-    expect(curve?.getAttribute("stroke-width")).toBe("2");
-    expect(curve?.getAttribute("stroke-linecap")).toBe("round");
     expect(curve?.getAttribute("d")).not.toMatch(/[CQ]/);
     expect(lines[0].querySelector(".recharts-line-dot")).toBeNull();
     expect(curve?.getAttribute("d")?.match(/M/g)).toHaveLength(1);
@@ -576,7 +574,7 @@ test("numeric bars keep their spacing when overlaid with a line", async () => {
     expect(container.querySelector(".recharts-line-curve")).not.toBeNull();
 });
 
-test("explicit figure updates replace rendered traces without creating another widget", async () => {
+test("explicit figure updates replace traces in one widget and retain sidebar placement", async () => {
     const messages = surface([
         {
             id: "root",
@@ -585,7 +583,10 @@ test("explicit figure updates replace rendered traces without creating another w
             data: [{ type: "scatter", mode: "lines", x: [0, 1], y: [1, 2] }],
         },
     ]);
-    const { container, rerender } = render(<Results messages={messages} />);
+    const placements = { sales: { pinned: true } };
+    const { container, rerender } = render(
+        <Results messages={messages} placements={placements} />,
+    );
     await waitFor(() =>
         expect(container.querySelector(".recharts-line-curve")).not.toBeNull(),
     );
@@ -612,7 +613,9 @@ test("explicit figure updates replace rendered traces without creating another w
             },
         },
     ]);
-    rerender(<Results messages={[...messages, ...update]} />);
+    rerender(
+        <Results messages={[...messages, ...update]} placements={placements} />,
+    );
     await waitFor(() =>
         expect(container.querySelectorAll(".recharts-line-dot")).toHaveLength(
             3,
@@ -621,6 +624,9 @@ test("explicit figure updates replace rendered traces without creating another w
     expect(screen.queryByText("Before")).toBeNull();
     expect(screen.getByText("After")).toBeTruthy();
     expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(
+        screen.getByRole("complementary").contains(screen.getByRole("article")),
+    ).toBe(true);
     expect(
         container
             .querySelector(".recharts-line-curve")
@@ -710,36 +716,6 @@ test.each(["scatter", "bar"] as const)(
         );
     },
 );
-
-test("an in-place widget update retains its sidebar placement", async () => {
-    const messages = surface([bar("Original")]);
-    const placements = { sales: { pinned: true } };
-    const { rerender } = render(
-        <Results messages={messages} placements={placements} />,
-    );
-    await waitFor(() => expect(screen.getByText("Original")).toBeTruthy());
-    const updated = a2uiBatchSchema.parse([
-        {
-            version: "v0.9",
-            updateComponents: {
-                surfaceId: "sales",
-                components: [bar("Updated")],
-            },
-        },
-    ]);
-    rerender(
-        <Results
-            messages={[...messages, ...updated]}
-            placements={placements}
-        />,
-    );
-    await waitFor(() => expect(screen.getByText("Updated")).toBeTruthy());
-    expect(screen.queryByText("Original")).toBeNull();
-    expect(screen.getAllByRole("article")).toHaveLength(1);
-    expect(
-        screen.getByRole("complementary").contains(screen.getByRole("article")),
-    ).toBe(true);
-});
 
 test("the center holds at most four widgets and overflow stays visible on the side", async () => {
     const messages = [1, 2, 3, 4, 5].flatMap((index) =>

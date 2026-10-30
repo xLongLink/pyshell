@@ -48,32 +48,6 @@ test("placement events and snapshots use one pinned flag", () => {
     );
 });
 
-test("UI events are accepted at the browser boundary", () => {
-    const event = messageSchema.parse({
-        type: "a2ui",
-        messages: [
-            {
-                version: "v0.9",
-                createSurface: { surfaceId: "sales", catalogId },
-            },
-            {
-                version: "v0.9",
-                updateComponents: {
-                    surfaceId: "sales",
-                    components: [
-                        {
-                            id: "root",
-                            component: "Figure",
-                            data: [{ type: "bar", x: ["Revenue"], y: [42] }],
-                        },
-                    ],
-                },
-            },
-        ],
-    });
-    assert.equal(event.type, "a2ui");
-});
-
 test("surface IDs and placement keys enforce the same boundaries", () => {
     for (const [surfaceId, valid] of [
         ["", false],

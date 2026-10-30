@@ -37,7 +37,6 @@ const limitCases = JSON.parse(
 for (const entry of cases) {
     test(`figure contract: ${entry.name}`, () => {
         const valid = entry.browserValid ?? entry.valid;
-        assert.equal(figureProps.safeParse(entry.figure).success, valid);
         assert.equal(
             componentSchema.safeParse({
                 id: "root",

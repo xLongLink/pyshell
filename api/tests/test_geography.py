@@ -133,12 +133,6 @@ def test_missing_or_duplicate_iso_codes_use_source_identifiers(geography_provide
     assert info["locations"] == {"CHE-shape-0": "Zürich", "CHE-shape-1": "Bern"}
 
 
-def test_new_provider_codes_need_no_local_catalog_update(geography_provider):
-    data = payload(geography_provider)
-    data["features"][1]["properties"].update(shapeISO="CH-NEW", shapeName="New division")
-    assert geography.geography_info("CHE")["locations"]["CH-NEW"] == "New division"
-
-
 def test_unknown_country_can_become_available_without_a_deployment(api_client, geography_provider):
     assert api_client.get("/geographies/ZZZ").status_code == 404
     info = deepcopy(metadata(geography_provider))
@@ -170,7 +164,7 @@ def test_metadata_version_and_lookup_refresh_when_cache_is_removed(geography_pro
     payload(geography_provider)["features"][1]["properties"].update(shapeISO="CH-NEW", shapeName="New division")
     assert geography.geography_info("CHE") == first
     path.unlink()
-    assert "CH-NEW" in geography.geography_info("CHE")["locations"]
+    assert geography.geography_info("CHE")["locations"]["CH-NEW"] == "New division"
     assert json.loads(path.read_text())["source"]["boundaryID"] == "CHE-ADM1-v2"
 
 

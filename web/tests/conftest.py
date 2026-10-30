@@ -2,6 +2,7 @@ import os
 import httpx
 import pytest
 from api.main import create_app
+from importlib import import_module
 from unittest.mock import patch
 from web.src.shell import RemoteShell
 from fastapi.testclient import TestClient
@@ -10,12 +11,7 @@ from pydantic_ai.models.function import FunctionModel
 from api.tests.geography_provider import install_geography_provider
 
 with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
-    from web.src import settings as settings_module
-
-
-@pytest.fixture
-def agent_settings():
-    return settings_module.settings
+    import_module("web.src.settings")
 
 
 @pytest.fixture

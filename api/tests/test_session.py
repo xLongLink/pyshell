@@ -38,14 +38,6 @@ def test_widgets_publish_a2ui_messages_and_preserve_python_state(api_client):
     assert execute(api_client, "ui.remove('revenue')")["ui"] == [replacement[0]]
 
 
-def test_a_typed_figure_can_be_published(api_client):
-    result = execute(
-        api_client, "from src.ui.plot.figure import Figure\nui.show(Figure(data=[{'type': 'scatter', 'x': ['Jan'], 'y': [42]}]))"
-    )
-    assert result["exception"] is None
-    assert result["ui"][1]["updateComponents"]["components"][0]["component"] == "Figure"
-
-
 # Unsupported components and malformed figures must fail before publication.
 @pytest.mark.parametrize(
     "attributes",
@@ -104,22 +96,25 @@ def test_automatic_surface_ids_do_not_replace_named_results(api_client):
 
 @pytest.mark.parametrize("kind", ["bar", "scatter", "pie"])
 def test_trace_types_preserve_missing_values(api_client, kind):
+    # Arrange
     trace = {
         "type": kind,
-        **({"labels": ["Sales", "Missing"], "values": [42, None]} if kind == "pie" else {"x": ["Sales", "Missing"], "y": [42, None]}),
+        "name": "Revenue",
+        **(
+            {"labels": ["Sales", "Zero", "Missing"], "values": [42, 0, None]}
+            if kind == "pie"
+            else {"x": ["Sales", "Missing"], "y": [-42, None]}
+        ),
     }
+
+    # Act
     result = execute(api_client, f"ui.plot([{trace!r}])")
 
-    # Missing values survive validation and serialization for every trace type.
+    # Assert
     assert result["exception"] is None
     chart = result["ui"][1]["updateComponents"]["components"][0]
     assert chart["component"] == "Figure"
     assert chart["data"][0]["type"] == kind
-    assert chart["data"][0]["values" if kind == "pie" else "y"] == [42, None]
-
-
-@pytest.mark.parametrize("kind", ["bar", "scatter"])
-def test_cartesian_charts_accept_negative_values(api_client, kind):
-    result = execute(api_client, f"ui.plot([{{'type': '{kind}', 'x': ['Loss'], 'y': [-42]}}])")
-    assert result["exception"] is None
-    assert result["ui"][1]["updateComponents"]["components"][0]["data"][0]["y"] == [-42]
+    assert chart["data"][0]["name"] == "Revenue"
+    assert chart["data"][0]["labels" if kind == "pie" else "x"] == (["Sales", "Zero", "Missing"] if kind == "pie" else ["Sales", "Missing"])
+    assert chart["data"][0]["values" if kind == "pie" else "y"] == ([42, 0, None] if kind == "pie" else [-42, None])

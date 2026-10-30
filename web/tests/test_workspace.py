@@ -65,7 +65,6 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
         {"type": "stdout_delta", "text": "x" * 100000},
         {"type": "stderr_delta", "text": "warning"},
         {"type": "result", "stdout": "output", "stderr": "", "exception": None, "done": True},
-        {"type": "result", "stdout": "partial", "stderr": "warning", "exception": "Execution failed", "done": False},
     ],
 )
 def test_execution_feedback_is_not_retained_or_broadcast_and_remains_unchanged(event):

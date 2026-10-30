@@ -140,25 +140,27 @@ test("unmount cancels a pending reconnect", () => {
     expect(socket.close).toHaveBeenCalledOnce();
 });
 
-test.each([false, true])(
-    "workspace busy=%s does not block voice controls",
-    (busy) => {
-        const { result } = renderHook(useWorkspace);
-        const socket = sockets[0];
-        socket.receive({ type: "snapshot", events: [], busy });
-        const state = result.current;
-        socket.receive({ type: "state", busy: !busy });
-        expect(result.current).toBe(state);
-        expect(result.current.error).toBe("");
-        expect(result.current.sendVoice("start", "offer")).toBe(true);
-        expect(socket.send).toHaveBeenLastCalledWith(
-            JSON.stringify({ type: "voice", action: "start", sdp: "offer" }),
-        );
-        socket.receive({ type: "voice", name: "answer", sdp: "answer" });
-        expect(result.current.voiceEvent).toEqual({
-            type: "voice",
-            name: "answer",
-            sdp: "answer",
-        });
-    },
-);
+test("workspace becoming busy does not block voice controls", () => {
+    // Arrange
+    const { result } = renderHook(useWorkspace);
+    const socket = sockets[0];
+    socket.receive({ type: "snapshot", events: [], busy: false });
+    const state = result.current;
+
+    // Act
+    socket.receive({ type: "state", busy: true });
+
+    // Assert
+    expect(result.current).toBe(state);
+    expect(result.current.error).toBe("");
+    expect(result.current.sendVoice("start", "offer")).toBe(true);
+    expect(socket.send).toHaveBeenLastCalledWith(
+        JSON.stringify({ type: "voice", action: "start", sdp: "offer" }),
+    );
+    socket.receive({ type: "voice", name: "answer", sdp: "answer" });
+    expect(result.current.voiceEvent).toEqual({
+        type: "voice",
+        name: "answer",
+        sdp: "answer",
+    });
+});

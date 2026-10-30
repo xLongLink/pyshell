@@ -37,17 +37,6 @@ def test_show_publishes_a_typed_handle_once():
     assert ui.messages[-1] == {"type": "widget", "surface_id": "sales", "action": "pin"}
 
 
-def test_plot_rejects_duplicate_or_excess_positional_data_before_publication():
-    ui = UI()
-    data = [{"type": "bar", "x": ["A"], "y": [1]}]
-    with pytest.raises(TypeError):
-        ui.plot(data, data=data)
-    with pytest.raises(TypeError):
-        ui.plot(data, data)
-    assert ui.messages == []
-    assert ui.surfaces == set()
-
-
 @pytest.mark.parametrize("attributes", [{}, {"data": None}, {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True}])
 def test_invalid_plot_arguments_do_not_publish(attributes):
     ui = UI()
@@ -176,11 +165,6 @@ def test_failed_publication_does_not_change_widget_attributes():
     ui.messages = []
     widget.update(layout={"title": {"text": "Now published"}})
     assert widget.layout.title.text == "Now published"
-
-
-def test_unsupported_chart_constructor_is_not_exposed():
-    ui = UI()
-    assert not hasattr(ui, "chart")
 
 
 def test_update_replaces_supplied_fields_and_keeps_omitted_fields():

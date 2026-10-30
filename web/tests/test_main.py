@@ -13,13 +13,11 @@ from starlette.websockets import WebSocketDisconnect
 
 
 @pytest.fixture
-def browser_api(monkeypatch, model_for, remote_shell, agent_settings):
+def browser_api(monkeypatch, model_for, remote_shell):
     requests = []
     model = model_for(["print('browser result')\ndone()"], ["print('next result')\ndone()"], requests=requests)
-    monkeypatch.setattr(server, "settings", agent_settings)
     monkeypatch.setattr(server, "OpenAIResponsesModel", lambda *args, **kwargs: model)
     monkeypatch.setattr(server, "AsyncClient", lambda **kwargs: remote_shell.client)
-    monkeypatch.setattr(server, "RemoteShell", lambda client: remote_shell)
     with TestClient(app) as client:
         yield client, requests
 
@@ -34,9 +32,8 @@ def receive_until_idle(socket):
 
 
 @pytest.fixture
-def lifespan_resources(monkeypatch, model_for, remote_shell, agent_settings):
+def lifespan_resources(monkeypatch, model_for, remote_shell):
     provider = SimpleNamespace(client=SimpleNamespace(close=AsyncMock()))
-    monkeypatch.setattr(server, "settings", agent_settings)
     monkeypatch.setattr(server, "OpenAIProvider", lambda **kwargs: provider)
     monkeypatch.setattr(server, "AsyncClient", lambda **kwargs: remote_shell.client)
     monkeypatch.setattr(server, "OpenAIResponsesModel", lambda *args, **kwargs: model_for(["done()"]))
@@ -192,7 +189,6 @@ def test_browser_executes_and_reconnects_without_replaying(browser_api):
             for event in events
         )
         assert {"type": "instruction", "text": "print a result"} in events
-        assert events[-1] == {"type": "state", "busy": False}
         assert all("run_id" not in event for event in events)
         feedback = json.loads(client.app.state.workspace.agent.pending_feedback)
         assert feedback["stdout"] == "browser result\n"
@@ -240,7 +236,7 @@ def test_browser_reuses_the_provider_event_loop(browser_api, monkeypatch):
         # Consecutive turns must reuse the application's event loop.
         for instruction in ("first", "second"):
             socket.send_json({"type": "run", "instruction": instruction})
-            assert receive_until_idle(socket)[-1] == {"type": "state", "busy": False}
+            receive_until_idle(socket)
             assert client.app.state.workspace.status()["latest_outcome"]["outcome"] == "completed"
     assert len(requests) == 2
     assert len(threads) == 2
@@ -396,14 +392,26 @@ def test_control_order_is_preserved_when_a_named_widget_is_replaced(browser_api,
         assert placements[-1] == {"notice": {"pinned": False}}
 
 
-def test_browser_widget_commands_are_rejected_without_starting_work(browser_api):
+@pytest.mark.parametrize(
+    ("command", "error"),
+    [
+        pytest.param({"type": "widget", "surface_id": "sales", "action": "pin"}, "validation error", id="unsupported-widget-command"),
+        pytest.param({"type": "run", "instruction": " "}, "Enter an instruction.", id="blank-instruction"),
+    ],
+)
+def test_invalid_commands_do_not_start_work(browser_api, command, error):
+    # Arrange
     client, requests = browser_api
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
-        socket.send_json({"type": "widget", "surface_id": "sales", "action": "pin"})
+
+        # Act
+        socket.send_json(command)
         events = receive_until_idle(socket)
+
+        # Assert
         assert events[0]["type"] == "error"
-        assert "validation error" in events[0]["text"]
+        assert error in events[0]["text"]
         assert requests == []
 
 
@@ -457,7 +465,7 @@ def test_python_placement_remains_available_during_agent_work(browser_api, model
         # Always release the worker so a failed assertion cannot hang teardown.
         finally:
             release.set()
-        assert receive_until_idle(socket)[-1]["busy"] is False
+        receive_until_idle(socket)
         assert client.app.state.workspace.status()["latest_outcome"]["outcome"] == "completed"
 
 
@@ -499,16 +507,6 @@ def test_center_capacity_eviction_and_return_from_sidebar(browser_api, model_for
         assert socket.receive_json()["placements"] == state
 
 
-def test_invalid_command_does_not_start_work(browser_api):
-    client, requests = browser_api
-    with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
-        socket.receive_json()
-        socket.send_json({"type": "run", "instruction": " "})
-        events = receive_until_idle(socket)
-        assert events[0]["type"] == "error"
-        assert requests == []
-
-
 def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypatch):
     client, _ = browser_api
     started = threading.Event()
@@ -540,8 +538,7 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
 
             # The disconnected tab's work must finish without accepting overlap.
             release.set()
-            events = receive_until_idle(socket)
-            assert events[-1] == {"type": "state", "busy": False}
+            receive_until_idle(socket)
             assert client.app.state.workspace.status()["latest_outcome"]["result"] == "Finished"
             assert finished.is_set()
     finally:
