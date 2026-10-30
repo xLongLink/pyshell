@@ -1,46 +1,22 @@
 import { useWorkspace } from "@/lib/hooks/useWorkspace";
-import { Results } from "@/components/results";
-import { ErrorBoundary } from "react-error-boundary";
+import { Renderer } from "@/components/renderer";
 import { Voice } from "@/components/voice";
 
 export default function App() {
-    const {
-        connected,
-        uiMessages,
-        placements,
-        error,
-        sendVoice,
-        voiceEvent,
-    } = useWorkspace();
+    const { connected, uiMessages, placements, error, sendVoice, voiceEvent } =
+        useWorkspace();
 
     return (
-        <div className="flex h-dvh flex-col">
-            <main className="min-h-0 flex-1 overflow-y-auto">
-                <div className="space-y-6 p-4 md:p-8">
-                    {error && (
-                        <p role="alert" className="text-sm text-destructive">
-                            {error}
-                        </p>
-                    )}
-                    <ErrorBoundary
-                        resetKeys={[uiMessages]}
-                        fallback={
-                            <p
-                                role="alert"
-                                className="text-sm text-destructive"
-                            >
-                                Unable to render these widgets. Check the server
-                                console for execution details.
-                            </p>
-                        }
-                    >
-                        <Results
-                            messages={uiMessages}
-                            placements={placements}
-                        />
-                    </ErrorBoundary>
-                </div>
-            </main>
+        <div className="h-dvh">
+            <Renderer messages={uiMessages} placements={placements} />
+            {error && (
+                <p
+                    role="alert"
+                    className="fixed top-4 left-4 z-20 rounded bg-background p-3 text-sm text-destructive"
+                >
+                    {error}
+                </p>
+            )}
             <Voice
                 docked={uiMessages.length > 0}
                 connected={connected}

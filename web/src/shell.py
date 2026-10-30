@@ -34,6 +34,12 @@ class RemoteShell:
         response.raise_for_status()
         return response
 
+    async def renderer(self, path: str) -> httpx.Response:
+        """Fetch the renderer shipped with this execution backend."""
+        response = await self.client.get(f"/renderer/{path}")
+        response.raise_for_status()
+        return response
+
     async def stream(self, code: str, emit: Callable[[dict[str, object]], None]) -> ExecutionResult:
         """Submit once and consume ordered output until completion is confirmed."""
         if self.uncertain:

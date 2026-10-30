@@ -11,10 +11,7 @@ import {
 
 const cases = JSON.parse(
     readFileSync(
-        resolve(
-            import.meta.dirname,
-            "../../../../api/tests/fixtures/figures.json",
-        ),
+        resolve(import.meta.dirname, "../../tests/fixtures/figures.json"),
         "utf8",
     ),
 ) as {
@@ -26,10 +23,7 @@ const cases = JSON.parse(
 
 const limitCases = JSON.parse(
     readFileSync(
-        resolve(
-            import.meta.dirname,
-            "../../../../api/tests/fixtures/figure_limits.json",
-        ),
+        resolve(import.meta.dirname, "../../tests/fixtures/figure_limits.json"),
         "utf8",
     ),
 ) as { traces: number; points: number; valid: boolean }[];

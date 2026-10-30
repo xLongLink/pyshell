@@ -19,9 +19,11 @@ test:
 	uv run --locked --project api pytest -c api/pyproject.toml api/tests -v
 	uv run --locked --project web pytest -c web/pyproject.toml web/tests -v
 	npm --prefix web/src/ui test
+	npm --prefix api/web test
 
 format:
 	uvx ruff check --fix .
 	uvx pyunslop
 	uvx ruff format .
 	npm --prefix web/src/ui run format
+	npm --prefix api/web run format

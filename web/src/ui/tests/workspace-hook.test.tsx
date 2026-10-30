@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useWorkspace } from "../lib/hooks/useWorkspace";
-import { catalogId } from "../lib/a2ui";
 
 const sockets: Socket[] = [];
 
@@ -34,7 +33,10 @@ afterEach(() => {
 });
 
 const messages = [
-    { version: "v0.9", createSurface: { surfaceId: "sales", catalogId } },
+    {
+        version: "v0.9",
+        createSurface: { surfaceId: "sales", catalogId: "urn:test:catalog:v1" },
+    },
     {
         version: "v0.9",
         updateComponents: {
