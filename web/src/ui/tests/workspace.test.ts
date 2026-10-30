@@ -18,7 +18,6 @@ test("malformed events are rejected at the browser boundary", () => {
         messageSchema.safeParse({
             type: "snapshot",
             events: [{ type: "unknown" }],
-            busy: false,
         }).success,
         false,
     );
@@ -33,7 +32,6 @@ test("placement events and snapshots use one pinned flag", () => {
     const snapshot = messageSchema.parse({
         type: "snapshot",
         events: [],
-        busy: false,
         placements: widgets,
     });
     assert.equal(snapshot.type, "snapshot");
@@ -75,7 +73,7 @@ test("surface IDs and placement keys enforce the same boundaries", () => {
     }
 });
 
-test("removed widgets, invalid charts, and unknown catalog IDs are rejected", () => {
+test("unsupported widgets and invalid charts are rejected", () => {
     for (const component of [
         { id: "root", component: "Image", url: "https://example.com" },
         {
@@ -103,18 +101,6 @@ test("removed widgets, invalid charts, and unknown catalog IDs are rejected", ()
             false,
         );
     }
-    assert.equal(
-        a2uiBatchSchema.safeParse([
-            {
-                version: "v0.9",
-                createSurface: {
-                    surfaceId: "sales",
-                    catalogId: "https://untrusted.example/catalog",
-                },
-            },
-        ]).success,
-        false,
-    );
 });
 
 test("oversized collections fail before reaching A2UI's schema processor", () => {

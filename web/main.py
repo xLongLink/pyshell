@@ -107,7 +107,6 @@ async def workspace_socket(socket: WebSocket) -> None:
                     workspace.start(command)
             except (ValidationError, ValueError, RuntimeError) as error:
                 await queue.put({"type": "error", "text": str(error)})
-                await queue.put({"type": "state", "busy": workspace.busy})
 
     sender = asyncio.create_task(send())
     receiver = asyncio.create_task(receive())

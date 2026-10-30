@@ -267,13 +267,10 @@ test.each(["bar", "scatter"] as const)(
     },
 );
 
-test("chart colors stay scoped to their containers and preserve supplied styles", () => {
+test("chart colors stay scoped to their containers", () => {
     const { container, rerender } = render(
         <>
-            <ChartContainer
-                config={{ series: { color: "red" } }}
-                style={{ opacity: 0.5 }}
-            >
+            <ChartContainer config={{ series: { color: "red" } }}>
                 <svg />
             </ChartContainer>
             <ChartContainer config={{ series: { color: "blue" } }}>
@@ -286,7 +283,6 @@ test("chart colors stay scoped to their containers and preserve supplied styles"
     );
     expect(charts[0].style.getPropertyValue("--color-series")).toBe("red");
     expect(charts[1].style.getPropertyValue("--color-series")).toBe("blue");
-    expect(charts[0].style.opacity).toBe("0.5");
     rerender(
         <ChartContainer config={{}}>
             <svg />

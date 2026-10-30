@@ -10,11 +10,10 @@ from collections.abc import Callable
 class ExecutionOutput(io.StringIO):
     """Capture Python output while streaming it to the container log."""
 
-    def __init__(self, stream: TextIO, emit: Callable[[str], None] | None = None) -> None:
+    def __init__(self, stream: TextIO) -> None:
         """Keep the original output stream alongside the response buffer."""
         super().__init__()
         self.stream = stream
-        self.emit = emit
         self.size = 0
 
     def write(self, text: str) -> int:
@@ -25,10 +24,6 @@ class ExecutionOutput(io.StringIO):
         count = super().write(text)
         self.stream.write(text)
         self.stream.flush()
-
-        # Empty writes need no browser event.
-        if text and self.emit is not None:
-            self.emit(text)
         return count
 
 
@@ -48,8 +43,8 @@ class PythonShell:
     def execute(self, source: str, on_event: Callable[[dict[str, object]], None] | None = None) -> dict[str, object]:
         """Run source and capture its output, errors, and completion state."""
         print(source, flush=True)
-        stdout = ExecutionOutput(sys.stdout, (lambda text: on_event({"type": "stdout_delta", "text": text})) if on_event else None)
-        stderr = ExecutionOutput(sys.stderr, (lambda text: on_event({"type": "stderr_delta", "text": text})) if on_event else None)
+        stdout = ExecutionOutput(sys.stdout)
+        stderr = ExecutionOutput(sys.stderr)
         self.finished = False
         self.ui.messages = []
         self.ui.on_publish = on_event

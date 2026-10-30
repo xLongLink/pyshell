@@ -1,21 +1,58 @@
-from typing import Literal, Annotated
-from pydantic import Field, model_validator
-from src.ui.widget import Widget
+from typing import TYPE_CHECKING, Literal, Annotated
+from pydantic import Field, PrivateAttr, model_validator
+from src.ui.model import UIModel
+from src.ui.types import Identifier
 from src.ui.plot.bar import Bar
 from src.ui.plot.pie import Pie
 from src.ui.plot.layout import Layout
 from src.ui.plot.scatter import Scatter
 from src.ui.plot.choropleth import Choropleth
 
+if TYPE_CHECKING:
+    from src.ui.session import UI
+
 Trace = Annotated[Scatter | Bar | Pie | Choropleth, Field(discriminator="type")]
 
 
-class Figure(Widget):
+class Figure(UIModel):
     """Publish a bounded Plotly-style figure on one surface."""
 
+    id: Identifier = "root"
     component: Literal["Figure"] = "Figure"
     data: Annotated[list[Trace], Field(min_length=1, max_length=20)]
     layout: Layout = Field(default_factory=Layout)
+
+    # Publication metadata is private and excluded from the wire model.
+    _owner: "UI | None" = PrivateAttr(default=None)
+    _surface_id: str | None = PrivateAttr(default=None)
+
+    @property
+    def surface_id(self) -> str:
+        """The stable ID assigned when the figure was published."""
+        if self._surface_id is None:
+            raise RuntimeError("Publish the widget before using its handle")
+        return self._surface_id
+
+    def _publisher(self) -> "UI":
+        if self._owner is None:
+            raise RuntimeError("Publish the widget before using its handle")
+        return self._owner
+
+    def update(self, **attributes: object) -> None:
+        """Publish validated changes without replacing the figure's identity."""
+        self._publisher().update(self, attributes)
+
+    def focus(self) -> None:
+        """Move this figure into the center, which holds up to four widgets."""
+        self._publisher().action(self, "focus")
+
+    def pin(self) -> None:
+        """Move this figure into the sidebar."""
+        self._publisher().action(self, "pin")
+
+    def remove(self) -> None:
+        """Remove this figure and invalidate its handle."""
+        self._publisher().remove_widget(self)
 
     @model_validator(mode="after")
     def traces(self) -> "Figure":

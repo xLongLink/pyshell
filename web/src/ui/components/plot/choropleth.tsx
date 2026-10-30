@@ -84,11 +84,10 @@ function BoundaryMap({
     boundaries,
 }: MapProps & { boundaries: GeographyData }) {
     const [active, setActive] = useState<string | null>(null);
-    const projection = useMemo(
-        () => mapProjection(boundaries, trace.geography === "world"),
+    const path = useMemo(
+        () => geoPath(mapProjection(boundaries, trace.geography === "world")),
         [trace.geography, boundaries],
     );
-    const path = useMemo(() => geoPath(projection), [projection]);
     const values = new Map(
         trace.locations.map((code, index) => [code, trace.values[index]]),
     );
@@ -127,10 +126,7 @@ function BoundaryMap({
             >
                 {boundaries.features.map((feature) => {
                     const code = feature.id;
-                    const label = describe(
-                        code,
-                        feature.properties?.name ?? code,
-                    );
+                    const label = describe(code, feature.properties.name);
                     return (
                         <path
                             key={code}
@@ -158,10 +154,7 @@ function BoundaryMap({
                 className="min-h-5 shrink-0 text-center text-xs text-muted-foreground"
             >
                 {activeFeature
-                    ? describe(
-                          String(activeFeature.id),
-                          activeFeature.properties?.name ?? active,
-                      )
+                    ? describe(activeFeature.id, activeFeature.properties.name)
                     : present.length
                       ? "Hover or focus a region for details."
                       : "No values to display."}

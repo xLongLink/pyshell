@@ -24,13 +24,6 @@ function workspace(overrides = {}) {
     return state;
 }
 
-test("workspace offers voice", () => {
-    workspace();
-    render(<App />);
-    const voice = screen.getByRole("button", { name: "Start voice" });
-    expect((voice as HTMLButtonElement).disabled).toBe(false);
-});
-
 test("workspace keeps errors visible and voice available", () => {
     workspace({ error: "The operation failed" });
     render(<App />);

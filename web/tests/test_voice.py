@@ -105,37 +105,6 @@ def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(mon
     asyncio.run(run())
 
 
-def test_voice_rejects_a_task_while_text_work_is_running(monkeypatch):
-    async def run():
-        release = asyncio.Event()
-        tools = {}
-        realtime = Realtime()
-
-        install_agent(monkeypatch, realtime, tools)
-
-        async def execute(instruction, emit):
-            await release.wait()
-            return "Text completed"
-
-        workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), pending_feedback=None, arun=execute))
-        text = workspace.start(Command(type="run", instruction="Text task"))
-        call = voice.VoiceSession(None, workspace, AsyncMock())
-        await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
-        await realtime.entered.wait()
-        await asyncio.sleep(0)
-
-        # Voice must not replace or overlap the active text task.
-        result = await tools["worker"]("Voice task")
-        assert "not submitted" in result
-        assert "busy" in result
-        assert workspace.task is text
-        await call.stop()
-        release.set()
-        await text
-
-    asyncio.run(run())
-
-
 def test_reconnection_after_failure_keeps_old_tools_disconnected(monkeypatch):
     class FailedRealtime(Realtime):
         async def __anext__(self):
@@ -213,6 +182,9 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         assert context["recent_tasks"][0]["instruction"] == "Calculate answer"
         task = workspace.start(Command(type="run", instruction="slow"))
         assert json.loads(await tools["workspace_status"]())["busy"] is True
+        result = await tools["worker"]("Voice task")
+        assert "not submitted" in result
+        assert "busy" in result
         assert workspace.task is task
         handle = Mock(spec=asyncio.TimerHandle)
         call_later = Mock(return_value=handle)

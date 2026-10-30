@@ -8,13 +8,6 @@ class Event(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
-class Output(Event):
-    """Carry a fragment of Python output."""
-
-    type: Literal["stdout_delta", "stderr_delta"]
-    text: str
-
-
 class Content(Event):
     """Carry validated UI protocol messages."""
 
@@ -49,4 +42,4 @@ class Finished(Event):
     type: Literal["execution_finished"]
 
 
-execution_event = TypeAdapter(Annotated[Output | Content | WidgetCommand | Result | Finished, Field(discriminator="type")])
+execution_event = TypeAdapter(Annotated[Content | WidgetCommand | Result | Finished, Field(discriminator="type")])

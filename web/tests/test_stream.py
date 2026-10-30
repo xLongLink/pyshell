@@ -10,7 +10,7 @@ from web.src.workspace import Workspace
 @pytest.mark.parametrize(
     "events",
     [
-        [{"type": "stdout_delta", "text": "partial"}],
+        [{"type": "widget", "surface_id": "sales", "action": "focus"}],
         [{"type": "execution_finished"}],
         [{"type": "result", "stdout": "", "stderr": "", "exception": None, "done": True}],
         [{"type": "unknown"}],
@@ -40,8 +40,8 @@ def test_unconfirmed_stream_is_not_replayed_and_blocks_more_work(events):
 
 def test_confirmed_stream_forwards_events_in_order_without_terminal_marker():
     events = [
-        {"type": "stdout_delta", "text": "output\n"},
-        {"type": "stderr_delta", "text": "warning\n"},
+        {"type": "a2ui", "messages": [{"version": "v0.9", "createSurface": {"surfaceId": "sales", "catalogId": "urn:pyshell:catalog:v3"}}]},
+        {"type": "widget", "surface_id": "sales", "action": "pin"},
         {"type": "result", "stdout": "output\n", "stderr": "warning\n", "exception": None, "done": True},
         {"type": "execution_finished"},
     ]

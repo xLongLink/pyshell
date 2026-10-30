@@ -45,7 +45,7 @@ def create_app() -> FastAPI:
     @app.get("/libraries", response_model=list[Library])
     def libraries() -> list[Library]:
         return sorted(
-            [Library(name=package.metadata["Name"], version=package.version) for package in distributions()],
+            (Library(name=package.metadata["Name"], version=package.version) for package in distributions()),
             key=lambda library: library.name.casefold(),
         )
 

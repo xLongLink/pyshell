@@ -12,7 +12,6 @@ export const eventSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("placement"), widgets: placementsSchema }),
     z.object({ type: z.literal("instruction"), text: z.string() }),
     z.object({ type: z.literal("error"), text: z.string() }),
-    z.object({ type: z.literal("state"), busy: z.boolean() }),
 ]);
 
 export const voiceEventSchema = z.discriminatedUnion("name", [
@@ -36,7 +35,6 @@ export const messageSchema = z.union([
     z.object({
         type: z.literal("snapshot"),
         events: z.array(eventSchema),
-        busy: z.boolean(),
         placements: placementsSchema.default({}),
     }),
 ]);

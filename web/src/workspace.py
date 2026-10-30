@@ -27,7 +27,6 @@ class Workspace:
         self.task: asyncio.Task[None] | None = None
         self.placements: dict[str, dict[str, bool]] = {}
         self.surfaces: dict[str, list[dict[str, object]]] = {}
-        self.run_id: str | None = None
 
         self.closing = False
         self.results: set[Callable[[str], None]] = set()
@@ -45,7 +44,6 @@ class Workspace:
         return {
             "busy": self.busy,
             "phase": self.phase,
-            "run_id": self.run_id,
             "instruction": self.current_instruction,
             "execution_uncertain": self.agent.shell.uncertain,
             "latest_outcome": dict(self.recent_tasks[-1]) if self.recent_tasks else None,
@@ -75,7 +73,7 @@ class Workspace:
         events = [{"type": "a2ui", "messages": messages} for messages in self.surfaces.values()]
 
         # Reconnecting tabs receive state without resubmitting work.
-        return {"type": "snapshot", "events": events, "busy": self.busy, "placements": self._copy_placements()}
+        return {"type": "snapshot", "events": events, "placements": self._copy_placements()}
 
     def publish(self, event: dict[str, object]) -> None:
         """Apply ordered mutations and broadcast without waiting on slow tabs."""
@@ -83,7 +81,7 @@ class Workspace:
             if self.busy:
                 self.phase = "generating_code" if event["type"] == "code_start" else "executing_python"
             return
-        if event["type"] in {"stdout_delta", "stderr_delta", "result"}:
+        if event["type"] == "result":
             return
         if event["type"] == "widget":
             self.place(WidgetCommand.model_validate(event))
@@ -184,12 +182,9 @@ class Workspace:
             raise ValueError("Enter an instruction.")
         if self.agent.shell.uncertain:
             raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
-        self.run_id = str(uuid4())
         self.current_instruction = instruction
         self.phase = "starting"
 
-        # Publish acceptance before scheduling work independently of its caller.
-        self.publish({"type": "state", "busy": True})
         self.publish({"type": "instruction", "text": instruction})
         self.task = asyncio.create_task(self._execute(instruction))
         return self.task
@@ -210,9 +205,7 @@ class Workspace:
         finally:
             self.phase = "idle"
             self.current_instruction = None
-            self.publish({"type": "state", "busy": False})
         record = {
-            "run_id": self.run_id,
             "instruction": instruction[:2000],
             "outcome": outcome,
             "result": result[-4000:],

@@ -152,12 +152,12 @@ def normalize(geography: str, name: str, source: dict, data: dict | list) -> dic
         raise ValueError("Invalid geographic properties")
     if any(not isinstance(feature["properties"].get("shapeISO") or "", str) for feature in data["features"]):
         raise ValueError("Invalid geographic identifier")
-    codes = [(feature.get("properties", {}).get("shapeISO") or "").strip().upper() for feature in data["features"]]
+    codes = [(feature["properties"].get("shapeISO") or "").strip().upper() for feature in data["features"]]
     counts = Counter(codes)
     features = []
     seen = set()
     for feature, code in zip(data["features"], codes):
-        properties = feature.get("properties", {})
+        properties = feature["properties"]
         if geography == "world":
             code = properties.get("ISO_A3_EH")
             if not isinstance(code, str) or not re.fullmatch(r"[A-Z]{3}", code):

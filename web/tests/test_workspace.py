@@ -30,8 +30,6 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
         reports = []
         workspace.results.add(reports.append)
         task = workspace.start(Command(type="run", instruction="Plot monthly sales"))
-        run_id = workspace.status()["run_id"]
-        assert run_id
         await started.wait()
         assert workspace.status()["instruction"] == "Plot monthly sales"
         assert workspace.status()["phase"] == "executing_python"
@@ -50,8 +48,6 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
         ]
         assert json.loads(reports[0])["changed_charts"] == ["sales"]
         assert context["recent_tasks"][0]["result"] == "Confirmed sales: 42"
-        assert context["recent_tasks"][0]["run_id"] == run_id
-        assert json.loads(reports[0])["run_id"] == run_id
         ui.on_publish = workspace.publish
         ui.remove("sales")
         assert workspace.context()["charts"] == []
@@ -62,8 +58,6 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
 @pytest.mark.parametrize(
     "event",
     [
-        {"type": "stdout_delta", "text": "x" * 100000},
-        {"type": "stderr_delta", "text": "warning"},
         {"type": "result", "stdout": "output", "stderr": "", "exception": None, "done": True},
         {"type": "code_start"},
         {"type": "execution_start"},
@@ -211,7 +205,6 @@ def test_instructions_are_normalized_for_acceptance_execution_and_history():
         task = workspace.start(Command(type="run", instruction=" \t Plot sales \n"))
         assert workspace.busy is True
         assert workspace.current_instruction == "Plot sales"
-        assert queue.get_nowait() == {"type": "state", "busy": True}
         assert queue.get_nowait() == {"type": "instruction", "text": "Plot sales"}
         await task
         assert workspace.busy is False

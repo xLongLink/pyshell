@@ -38,6 +38,9 @@ See [api/pyproject.toml](api/pyproject.toml) for default libraries and version c
 
 ## How it works
 
+<img src="architecture.png" alt="PyShell architecture" />
+
+
 The browser connects to the web server over `/ws`. Text instructions and voice-delegated tasks share one execution agent, Python namespace, and widget layout. Only one task runs at a time; closing a tab or ending a call does not cancel submitted work. Reconnecting restores the workspace without resubmitting it.
 
 Generated code executes only after the model response completes successfully. The Docker execution API streams stdout, stderr, and widget updates over `/execute/stream`; the web server forwards widget updates, not execution output, to connected tabs. Execution feedback goes back to the agent until it calls `done()` or reaches its task budget.

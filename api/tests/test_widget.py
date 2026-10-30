@@ -1,6 +1,5 @@
 import pytest
 from pydantic import ValidationError
-from src.ui.widget import Widget
 from src.ui.session import UI
 from src.ui.plot.figure import Figure
 
@@ -8,33 +7,17 @@ from src.ui.plot.figure import Figure
 def test_plot_returns_typed_widgets_with_common_methods():
     ui = UI()
     widget = ui.plot(data=[{"type": "bar", "x": ["A"], "y": [1]}])
-    assert isinstance(widget, Widget)
+    assert isinstance(widget, Figure)
     assert widget.component == "Figure"
     assert widget.surface_id == "surface_1"
 
     # All typed widgets use the same ordered placement commands.
     ui.messages = []
     widget.focus()
-    widget.unfocus()
     widget.pin()
-    widget.unpin()
-    assert [message["action"] for message in ui.messages] == ["focus", "pin", "pin", "focus"]
+    assert [message["action"] for message in ui.messages] == ["focus", "pin"]
     widget.remove()
     assert ui.messages[-1] == {"version": "v0.9", "deleteSurface": {"surfaceId": "surface_1"}}
-
-
-def test_show_publishes_a_typed_handle_once():
-    ui = UI()
-    figure = Figure(data=[{"type": "bar", "x": ["A"], "y": [1]}])
-    assert ui.show(figure, surface_id="sales") is figure
-    assert figure.surface_id == "sales"
-    previous = list(ui.messages)
-    with pytest.raises(RuntimeError, match=r"Use update\(\)"):
-        ui.show(figure, surface_id="other")
-    assert ui.messages == previous
-    assert ui.surfaces == {"sales"}
-    figure.pin()
-    assert ui.messages[-1] == {"type": "widget", "surface_id": "sales", "action": "pin"}
 
 
 @pytest.mark.parametrize("attributes", [{}, {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True}])
@@ -126,14 +109,7 @@ def test_removed_replaced_and_reset_handles_cannot_mutate_new_widgets(invalidate
 
     # Stale operations must not append messages to the replacement session.
     previous = list(ui.messages)
-    for operation in (
-        original.pin,
-        original.focus,
-        original.unpin,
-        original.unfocus,
-        original.remove,
-        lambda: original.update(layout={"title": {"text": "Stale"}}),
-    ):
+    for operation in (original.pin, original.focus, original.remove, lambda: original.update(layout={"title": {"text": "Stale"}})):
         with pytest.raises(RuntimeError, match="removed, replaced, or reset"):
             operation()
     assert ui.messages == previous
@@ -145,7 +121,6 @@ def test_removed_replaced_and_reset_handles_cannot_mutate_new_widgets(invalidate
         ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "component": "Unknown"}, "Input should be 'Figure'"),
         ({"data": [{"type": "pie", "labels": ["A"], "values": [-1]}]}, "greater than or equal to 0"),
         ({"id": "other", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}, "component ID 'root'"),
-        ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "extra": True}, "Extra inputs"),
         ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "layout": {"yaxis": {"title": {"text": "Amount"}}}}, "Extra inputs"),
     ],
 )

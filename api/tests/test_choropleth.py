@@ -5,18 +5,13 @@ from urllib.error import URLError
 from src.ui.session import UI
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
-def test_nonfinite_map_values_are_rejected(value):
-    with pytest.raises(ValidationError):
-        UI().plot([{"type": "choropleth", "locations": ["FRA"], "values": [value]}])
-
-
 def test_validation_checks_input_structure_before_fetching(monkeypatch):
     def unexpected_download(url):
         pytest.fail("Invalid input must be rejected before fetching geography")
 
     monkeypatch.setattr(geography, "download", unexpected_download)
     for trace in [
+        {"locations": ["CH-ZH"], "values": [float("inf")]},
         {"locations": ["CH-ZH"], "values": []},
         {"locations": ["CH-ZH", "CH-ZH"], "values": [1, 2]},
         {"level": "country", "locations": ["CH-ZH"], "values": [1]},

@@ -4,6 +4,7 @@ import pytest
 import asyncio
 from types import SimpleNamespace
 from importlib import import_module
+from threading import Event
 from unittest.mock import AsyncMock, patch
 from web.src.workspace import Command, Workspace
 from fastapi.testclient import TestClient
@@ -155,19 +156,19 @@ def test_web_server_rejects_untrusted_host():
 def test_browser_executes_once_and_reconnects_without_replay(monkeypatch):
     execute = AsyncMock(return_value="Completed")
     workspace = Workspace(SimpleNamespace(arun=execute, shell=SimpleNamespace(uncertain=False)))
+    completed = Event()
+    workspace.results.add(lambda record: completed.set())
     monkeypatch.setattr(server.app.state, "workspace", workspace, raising=False)
     monkeypatch.setattr(server.app.state, "realtime_model", None, raising=False)
     client = TestClient(server.app)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         assert socket.receive_json()["type"] == "snapshot"
         socket.send_json({"type": "run", "instruction": "show sales"})
-        assert socket.receive_json() == {"type": "state", "busy": True}
         assert socket.receive_json() == {"type": "instruction", "text": "show sales"}
-        assert socket.receive_json() == {"type": "state", "busy": False}
+        assert completed.wait(1)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         snapshot = socket.receive_json()
         assert snapshot["type"] == "snapshot"
-        assert snapshot["busy"] is False
     execute.assert_awaited_once_with("show sales", workspace.publish)
 
 
@@ -190,6 +191,5 @@ def test_invalid_commands_do_not_start_work(monkeypatch, command, error):
         event = socket.receive_json()
         assert event["type"] == "error"
         assert error in event["text"]
-        assert socket.receive_json() == {"type": "state", "busy": False}
         execute.assert_not_awaited()
         assert workspace.task is None

@@ -2,15 +2,15 @@ import {
     Bar,
     CartesianGrid,
     ComposedChart,
+    Legend,
     Line,
+    Tooltip,
     XAxis,
     YAxis,
 } from "recharts";
 import {
     ChartContainer,
-    ChartLegend,
     ChartLegendContent,
-    ChartTooltip,
     ChartTooltipContent,
     type ChartConfig,
 } from "@/components/ui/chart";
@@ -123,7 +123,7 @@ export function Cartesian({
                     hide
                     width={0}
                 />
-                <ChartTooltip
+                <Tooltip
                     cursor={
                         hasBars
                             ? { fill: "var(--accent)", fillOpacity: 0.5 }
@@ -132,7 +132,7 @@ export function Cartesian({
                     content={
                         <ChartTooltipContent
                             indicator={hasBars ? "dot" : "line"}
-                            labelFormatter={(_, payload) =>
+                            formatLabel={(payload) =>
                                 numeric
                                     ? String(payload[0]?.payload?.x ?? "")
                                     : (categories[payload[0]?.payload?.x] ?? "")
@@ -141,7 +141,7 @@ export function Cartesian({
                     }
                 />
                 {layout.showlegend && (
-                    <ChartLegend content={<ChartLegendContent />} />
+                    <Legend content={<ChartLegendContent />} />
                 )}
                 {data.map((trace, index) => {
                     const key = `trace_${index}`;
@@ -181,9 +181,6 @@ export function Cartesian({
                                 stroke: "var(--card)",
                                 strokeWidth: 2,
                             }}
-                            legendType={
-                                trace.mode === "markers" ? "circle" : "line"
-                            }
                             connectNulls={false}
                             isAnimationActive={false}
                         />

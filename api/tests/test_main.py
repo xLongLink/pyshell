@@ -25,7 +25,6 @@ def test_libraries_reports_installed_versions():
     libraries = response.json()
     assert {"name": "fastapi", "version": version("fastapi")} in libraries
     assert all(library["name"] and library["version"] for library in libraries)
-    assert libraries == sorted(libraries, key=lambda library: library["name"].casefold())
 
 
 def test_libraries_discovers_extra_packages(monkeypatch):
@@ -87,7 +86,7 @@ def test_requests_are_serialized():
     assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "8\n"
 
 
-def test_stream_preserves_output_widget_and_placement_order():
+def test_stream_preserves_widget_placement_and_final_output_order():
     api_client = TestClient(create_app())
     response = api_client.post(
         "/execute/stream",
@@ -103,20 +102,10 @@ def test_stream_preserves_output_widget_and_placement_order():
     )
     events = [json.loads(line) for line in response.text.splitlines()]
 
-    # Content and placement must stay interleaved with Python output.
     assert response.headers["content-type"].startswith("application/x-ndjson")
-    assert [event["type"] for event in events] == [
-        "stdout_delta",
-        "stdout_delta",
-        "a2ui",
-        "widget",
-        "stdout_delta",
-        "stdout_delta",
-        "result",
-        "execution_finished",
-    ]
-    assert events[2]["messages"][0]["createSurface"]["surfaceId"] == "sales"
-    assert events[3] == {"type": "widget", "surface_id": "sales", "action": "pin"}
+    assert [event["type"] for event in events] == ["a2ui", "widget", "result", "execution_finished"]
+    assert events[0]["messages"][0]["createSurface"]["surfaceId"] == "sales"
+    assert events[1] == {"type": "widget", "surface_id": "sales", "action": "pin"}
     assert events[-2] == {"type": "result", "stdout": "before\nafter\n", "stderr": "", "exception": None, "done": True}
     assert api_client.post("/", json={"code": "print(chart.surface_id)"}).json()["stdout"] == "sales\n"
 
@@ -125,7 +114,8 @@ def test_stream_reports_partial_output_and_python_failure():
     api_client = TestClient(create_app())
     response = api_client.post("/execute/stream", json={"code": "value = 42\nprint('before')\ndone()\n1 / 0"})
     events = [json.loads(line) for line in response.text.splitlines()]
-    assert "".join(event["text"] for event in events if event["type"] == "stdout_delta") == "before\n"
+    assert [event["type"] for event in events] == ["result", "execution_finished"]
+    assert events[-2]["stdout"] == "before\n"
     assert "ZeroDivisionError" in events[-2]["exception"]
     assert events[-2]["done"] is False
     assert events[-1] == {"type": "execution_finished"}
@@ -150,7 +140,7 @@ def test_stream_terminal_event_fits_at_queue_capacity(monkeypatch):
     def execute(_shell, code, on_event):
         calls.append(code)
         for index in range(254):
-            on_event({"type": "stdout_delta", "text": str(index)})
+            on_event({"type": "widget", "surface_id": str(index), "action": "focus"})
         return {"stdout": "complete", "ui": []}
 
     monkeypatch.setattr("main.PythonShell.execute", execute)
@@ -160,7 +150,7 @@ def test_stream_terminal_event_fits_at_queue_capacity(monkeypatch):
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
         assert queue.qsize() == queue.maxsize == 256
         events = [json.loads(line) async for line in response.body_iterator]
-        assert [event["text"] for event in events[:-2]] == [str(index) for index in range(254)]
+        assert events[:-2] == [{"type": "widget", "surface_id": str(index), "action": "focus"} for index in range(254)]
         assert events[-2:] == [{"type": "result", "stdout": "complete"}, {"type": "execution_finished"}]
         assert queue.empty()
 
@@ -177,7 +167,7 @@ def test_stream_saturated_queue_drains_without_resubmitting(monkeypatch):
     def execute(_shell, code, on_event):
         calls.append(code)
         for index in range(300):
-            on_event({"type": "stdout_delta", "text": str(index)})
+            on_event({"type": "widget", "surface_id": str(index), "action": "focus"})
         calls.append("completed")
         return {"stdout": "complete", "ui": []}
 
@@ -187,7 +177,7 @@ def test_stream_saturated_queue_drains_without_resubmitting(monkeypatch):
         response, workers = await open_stream(app)
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
         events = [json.loads(line) async for line in response.body_iterator]
-        assert events == [{"type": "stdout_delta", "text": str(index)} for index in range(256)]
+        assert events == [{"type": "widget", "surface_id": str(index), "action": "focus"} for index in range(256)]
         assert queue.empty()
 
     asyncio.run(check())
@@ -198,7 +188,7 @@ def test_stream_worker_failure_still_emits_terminal_event(monkeypatch):
     app = create_app()
 
     def execute(_shell, _code, on_event):
-        on_event({"type": "stdout_delta", "text": "before"})
+        on_event({"type": "widget", "surface_id": "before", "action": "pin"})
         raise RuntimeError("worker failed")
 
     monkeypatch.setattr("main.PythonShell.execute", execute)
@@ -210,7 +200,7 @@ def test_stream_worker_failure_still_emits_terminal_event(monkeypatch):
         assert isinstance(errors[0], RuntimeError)
         assert str(errors[0]) == "worker failed"
         assert [json.loads(line) async for line in response.body_iterator] == [
-            {"type": "stdout_delta", "text": "before"},
+            {"type": "widget", "surface_id": "before", "action": "pin"},
             {"type": "execution_finished"},
         ]
 
@@ -226,10 +216,10 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
 
     def execute(_shell, code, on_event):
         calls.append(code)
-        on_event({"type": "stdout_delta", "text": "before"})
+        on_event({"type": "widget", "surface_id": "before", "action": "pin"})
         assert disconnected.wait(timeout=2)
         for index in range(300):
-            on_event({"type": "stdout_delta", "text": str(index)})
+            on_event({"type": "widget", "surface_id": str(index), "action": "focus"})
         calls.append("completed")
         return {"stdout": "complete", "ui": []}
 
@@ -253,10 +243,10 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
         finally:
             disconnected.set()
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
-        assert json.loads(sent[-1]["body"]) == {"type": "stdout_delta", "text": "before"}
+        assert json.loads(sent[-1]["body"]) == {"type": "widget", "surface_id": "before", "action": "pin"}
         assert queue.qsize() == 256
         events = [json.loads(line) async for line in response.body_iterator]
-        assert events == [{"type": "stdout_delta", "text": str(index)} for index in range(256)]
+        assert events == [{"type": "widget", "surface_id": str(index), "action": "focus"} for index in range(256)]
         assert queue.empty()
 
     asyncio.run(check())

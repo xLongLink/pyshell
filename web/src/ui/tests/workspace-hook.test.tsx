@@ -59,7 +59,6 @@ test("workspace restores widgets and handles live placement", () => {
             { type: "instruction", text: "Plot sales" },
             { type: "a2ui", messages },
         ],
-        busy: false,
         placements: { sales: { pinned: true } },
     });
     expect(result.current.connected).toBe(true);
@@ -83,7 +82,6 @@ test("workspace restores widgets and handles live placement", () => {
     socket.receive({
         type: "snapshot",
         events: [],
-        busy: false,
         placements: {},
     });
     expect(result.current.uiMessages).toEqual([]);
@@ -99,7 +97,6 @@ test("reconnect snapshots replace widget history and stale sockets cannot change
     socket.receive({
         type: "snapshot",
         events: [],
-        busy: false,
     });
     expect(result.current.connected).toBe(true);
     act(() => socket.onclose?.());
@@ -109,7 +106,6 @@ test("reconnect snapshots replace widget history and stale sockets cannot change
     reconnected.receive({
         type: "snapshot",
         events: [{ type: "a2ui", messages }],
-        busy: false,
         placements: { sales: { pinned: false } },
     });
     expect(result.current.connected).toBe(true);
@@ -126,24 +122,16 @@ test("reconnect snapshots replace widget history and stale sockets cannot change
     expect(reconnected.send).not.toHaveBeenCalled();
     act(() => reconnected.onclose?.());
     unmount();
-    reconnected.receive({ type: "state", busy: true });
+    reconnected.receive({ type: "error", text: "Late event" });
     expect(reconnected.close).toHaveBeenCalledOnce();
     act(() => vi.advanceTimersByTime(1500));
     expect(sockets).toHaveLength(2);
 });
 
-test("workspace becoming busy does not block voice controls", () => {
-    // Arrange
+test("workspace sends voice controls and receives answers", () => {
     const { result } = renderHook(useWorkspace);
     const socket = sockets[0];
-    socket.receive({ type: "snapshot", events: [], busy: false });
-    const state = result.current;
-
-    // Act
-    socket.receive({ type: "state", busy: true });
-
-    // Assert
-    expect(result.current).toBe(state);
+    socket.receive({ type: "snapshot", events: [] });
     expect(result.current.error).toBe("");
     expect(result.current.sendVoice("start", "offer")).toBe(true);
     expect(socket.send).toHaveBeenLastCalledWith(

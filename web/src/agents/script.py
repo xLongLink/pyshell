@@ -65,8 +65,7 @@ replace their previous values, including all nested contents; omitted fields sta
 unchanged. Invalid updates publish nothing and leave the widget unchanged.
 New widgets appear in the center, which holds up to four widgets. A fifth moves
 the oldest centered widget to the sidebar. chart.focus() moves a widget into the
-center; chart.pin() or chart.unfocus() moves it to the sidebar. chart.unpin()
-moves it back into the center. These placement operations are backend-only.
+center; chart.pin() moves it to the sidebar. These placement operations are backend-only.
 chart.remove() removes its surface. chart.surface_id is its stable identifier.
 All widgets share these methods. Removed or replaced widget handles are invalid.
 Widget attributes are read-only outside update(); identity and type cannot change.
