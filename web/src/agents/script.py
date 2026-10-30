@@ -71,20 +71,14 @@ async def stream_response(
     agent: PydanticAgent[None, str],
     message: str,
     message_history: list[ModelMessage],
-    on_code: Callable[[str], None] | None = None,
     *,
     usage: RunUsage | None = None,
     usage_limits: UsageLimits | None = None,
 ) -> tuple[str, list[ModelMessage]]:
-    """Stream generated code to the UI and return only a completed response."""
+    """Consume the model stream and return only a completed response."""
 
-    # Display deltas immediately, but return code only after a clean model finish.
     async with agent.run_stream(message, message_history=message_history, usage=usage, usage_limits=usage_limits) as stream:
-        async for text in stream.stream_text(delta=True, debounce_by=None):
-            if on_code is not None:
-                on_code(text)
-
-        # Truncated responses are displayed but must never reach execution.
+        # Truncated responses must never reach execution.
         code = await stream.get_output()
         if stream.response.finish_reason != "stop":
             raise RuntimeError(f"Model response {stream.response.finish_reason}; code was not executed.")
@@ -98,7 +92,6 @@ class Agent:
         self, model: Model, service_tier: Literal["auto", "default", "flex", "priority"] = "auto", shell: RemoteShell | None = None
     ) -> None:
         """Create a model-backed agent for a remote Python session."""
-        self.model = model.model_name
         self.shell = shell if shell is not None else RemoteShell()
         self._libraries: list[dict[str, str]] | None = None
 
@@ -120,23 +113,12 @@ class Agent:
             + json.dumps(self._libraries)
         )
 
-    def reset(self) -> None:
-        """Clear remote state and conversation after a successful reset."""
-        self.shell.reset()
-        self._libraries = None
-        self.message_history = []
-        self.pending_feedback = None
-
-    def run(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> None:
-        """Run a task from a synchronous caller."""
-        asyncio.run(self.arun(instruction, on_event))
-
     async def arun(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> str:
         """Generate complete code and consume live execution feedback."""
+        if self.shell.client is None:
+            raise RuntimeError("Execution transport is closed")
         if self._libraries is None:
-            self._libraries = (
-                await self.shell.inventory() if self.shell.client is not None else await asyncio.to_thread(self.shell.libraries)
-            )
+            self._libraries = await self.shell.inventory()
         emit = on_event if on_event is not None else lambda _event: None
         usage = RunUsage()
         limits = UsageLimits(request_limit=50, total_tokens_limit=200_000)
@@ -153,15 +135,8 @@ class Agent:
             try:
                 emit({"type": "code_start"})
 
-                # Stream code for display without executing incomplete responses.
-                code, history = await stream_response(
-                    self.agent,
-                    prompt,
-                    self.message_history,
-                    on_code=lambda text: emit({"type": "code_delta", "text": text}),
-                    usage=usage,
-                    usage_limits=limits,
-                )
+                # Finish generation before executing any code.
+                code, history = await stream_response(self.agent, prompt, self.message_history, usage=usage, usage_limits=limits)
 
             # Record that the interrupted response never reached the container.
             except (Exception, KeyboardInterrupt, asyncio.CancelledError) as error:
@@ -180,12 +155,8 @@ class Agent:
             # Execute once; an ambiguous transport failure must not trigger a retry.
             emit({"type": "execution_start"})
 
-            # Use the persistent async transport when the workspace owns one.
             try:
-                if self.shell.client is not None:
-                    result = await self.shell.stream(code, emit)
-                else:
-                    result = await asyncio.to_thread(self.shell.execute, code)
+                result = await self.shell.stream(code, emit)
 
             # Preserve history without allowing an ambiguous execution to replay.
             except BaseException:
@@ -200,30 +171,6 @@ class Agent:
             self.message_history = history
             message = json.dumps(result)
             outputs.append(result["stdout"] + result["stderr"] + (result["exception"] or ""))
-
-            # Preserve content and placement ordering from the execution API.
-            if self.shell.client is None:
-                emit({"type": "result", **{key: value for key, value in result.items() if key != "ui"}})
-
-                messages = []
-
-                # Batch adjacent content without crossing a placement command.
-                for item in result.get("ui", []):
-                    if item.get("type") != "widget":
-                        messages.append(item)
-
-                        # Defer content until the next placement boundary or batch end.
-                        continue
-
-                    # Emit placement only after the preceding content batch.
-                    if messages:
-                        emit({"type": "a2ui", "messages": messages})
-                        messages = []
-                    emit(item)
-
-                # Publish any content left after the final placement command.
-                if messages:
-                    emit({"type": "a2ui", "messages": messages})
 
             # Carry final execution feedback into the next user turn.
             if result["done"]:

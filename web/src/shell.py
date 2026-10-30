@@ -102,26 +102,3 @@ class RemoteShell:
                 "Execution was not confirmed; code may already have run. Restart the execution container and web server before submitting more work."
             )
         return result
-
-    def execute(self, code: str) -> ExecutionResult:
-        """Submit code once and wait for its result."""
-        try:
-            response = httpx.post(f"{self.url}/", json={"code": code}, timeout=None, trust_env=False)
-            response.raise_for_status()
-
-        # Transport failure does not mean the server skipped execution.
-        except httpx.HTTPError:
-            raise RuntimeError("Execution request failed; code may already have run. Inspect the session or use /reset before retrying.")
-        return response.json()
-
-    def reset(self) -> None:
-        """Clear the remote namespace after any active execution finishes."""
-        response = httpx.post(f"{self.url}/reset", timeout=None, trust_env=False)
-        response.raise_for_status()
-        self.uncertain = False
-
-    def libraries(self) -> list[dict[str, str]]:
-        """List packages installed in the execution environment."""
-        response = httpx.get(f"{self.url}/libraries", timeout=10, trust_env=False)
-        response.raise_for_status()
-        return response.json()

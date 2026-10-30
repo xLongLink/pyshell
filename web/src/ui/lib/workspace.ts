@@ -12,7 +12,6 @@ export const eventSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("placement"), widgets: placementsSchema }),
     z.object({ type: z.literal("instruction"), text: z.string() }),
     z.object({ type: z.literal("code_start") }),
-    z.object({ type: z.literal("code_delta"), text: z.string() }),
     z.object({ type: z.literal("execution_start") }),
     z.object({ type: z.literal("stdout_delta"), text: z.string() }),
     z.object({ type: z.literal("stderr_delta"), text: z.string() }),
@@ -23,7 +22,6 @@ export const eventSchema = z.discriminatedUnion("type", [
         exception: z.string().nullable(),
         done: z.boolean(),
     }),
-    z.object({ type: z.literal("done") }),
     z.object({ type: z.literal("error"), text: z.string() }),
     z.object({ type: z.literal("state"), busy: z.boolean() }),
 ]);
@@ -50,7 +48,6 @@ export const messageSchema = z.union([
         type: z.literal("snapshot"),
         events: z.array(eventSchema),
         busy: z.boolean(),
-        model: z.string(),
         placements: placementsSchema.default({}),
     }),
 ]);

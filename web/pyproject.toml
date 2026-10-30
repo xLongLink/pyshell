@@ -44,7 +44,6 @@ ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN", "ARG", "D", "N803", "S"]
-"src/shell.py" = ["S113"]
 
 [tool.ruff.lint.isort]
 no-sections = true

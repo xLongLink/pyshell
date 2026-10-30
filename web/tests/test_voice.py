@@ -67,7 +67,7 @@ def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(mon
             return "Confirmed result: 42"
 
         shell = SimpleNamespace(uncertain=False)
-        agent = SimpleNamespace(model="test", shell=shell, pending_feedback=None, arun=execute)
+        agent = SimpleNamespace(shell=shell, pending_feedback=None, arun=execute)
         workspace = Workspace(agent)
         events = []
 
@@ -116,7 +116,7 @@ def test_voice_rejects_a_task_while_text_work_is_running(monkeypatch):
             await release.wait()
             return "Text completed"
 
-        workspace = Workspace(SimpleNamespace(model="test", shell=SimpleNamespace(uncertain=False), pending_feedback=None, arun=execute))
+        workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), pending_feedback=None, arun=execute))
         text = workspace.start(Command(type="run", instruction="Text task"))
         call = voice.VoiceSession(None, workspace, AsyncMock())
         await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
@@ -149,7 +149,7 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
                 await release.wait()
             return "Confirmed answer: 42"
 
-        workspace = Workspace(SimpleNamespace(model="test", shell=SimpleNamespace(uncertain=False), arun=execute))
+        workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), arun=execute))
         await workspace.start(Command(type="run", instruction="Calculate answer"))
         events = []
 

@@ -107,10 +107,9 @@ function ChartTooltipContent({
     label,
     labelFormatter,
     labelClassName,
-    formatter,
     color,
     nameKey,
-}: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
+}: Omit<React.ComponentProps<typeof RechartsPrimitive.Tooltip>, "formatter"> &
     React.ComponentProps<"div"> & {
         hideLabel?: boolean;
         indicator?: "line" | "dot";
@@ -120,7 +119,7 @@ function ChartTooltipContent({
             TooltipValueType,
             TooltipNameType
         >,
-        "accessibilityLayer"
+        "accessibilityLayer" | "formatter"
     >) {
     const { config } = useChart();
 
@@ -187,64 +186,43 @@ function ChartTooltipContent({
                                     indicator === "dot" && "items-center",
                                 )}
                             >
-                                {formatter &&
-                                item?.value !== undefined &&
-                                item.name ? (
-                                    formatter(
-                                        item.value,
-                                        item.name,
-                                        item,
-                                        index,
-                                        item.payload,
-                                    )
-                                ) : (
-                                    <>
-                                        <div
-                                            className={cn(
-                                                "shrink-0 rounded-[2px] border-(--color-border) bg-(--color-bg)",
-                                                {
-                                                    "h-2.5 w-2.5":
-                                                        indicator === "dot",
-                                                    "w-1": indicator === "line",
-                                                },
-                                            )}
-                                            style={
-                                                {
-                                                    "--color-bg":
-                                                        indicatorColor,
-                                                    "--color-border":
-                                                        indicatorColor,
-                                                } as React.CSSProperties
-                                            }
-                                        />
-                                        <div
-                                            className={cn(
-                                                "flex flex-1 justify-between leading-none",
-                                                nestLabel
-                                                    ? "items-end"
-                                                    : "items-center",
-                                            )}
-                                        >
-                                            <div className="grid gap-1.5">
-                                                {nestLabel
-                                                    ? tooltipLabel
-                                                    : null}
-                                                <span className="text-muted-foreground">
-                                                    {itemConfig?.label ??
-                                                        item.name}
-                                                </span>
-                                            </div>
-                                            {item.value != null && (
-                                                <span className="font-mono font-medium text-foreground tabular-nums">
-                                                    {typeof item.value ===
-                                                    "number"
-                                                        ? item.value.toLocaleString()
-                                                        : String(item.value)}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
+                                <div
+                                    className={cn(
+                                        "shrink-0 rounded-[2px] border-(--color-border) bg-(--color-bg)",
+                                        {
+                                            "h-2.5 w-2.5": indicator === "dot",
+                                            "w-1": indicator === "line",
+                                        },
+                                    )}
+                                    style={
+                                        {
+                                            "--color-bg": indicatorColor,
+                                            "--color-border": indicatorColor,
+                                        } as React.CSSProperties
+                                    }
+                                />
+                                <div
+                                    className={cn(
+                                        "flex flex-1 justify-between leading-none",
+                                        nestLabel
+                                            ? "items-end"
+                                            : "items-center",
+                                    )}
+                                >
+                                    <div className="grid gap-1.5">
+                                        {nestLabel ? tooltipLabel : null}
+                                        <span className="text-muted-foreground">
+                                            {itemConfig?.label ?? item.name}
+                                        </span>
+                                    </div>
+                                    {item.value != null && (
+                                        <span className="font-mono font-medium text-foreground tabular-nums">
+                                            {typeof item.value === "number"
+                                                ? item.value.toLocaleString()
+                                                : String(item.value)}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                         );
                     })}

@@ -79,14 +79,7 @@ class Workspace:
                 events.append({"type": "a2ui", "messages": messages})
 
         # Reconnecting tabs receive state without resubmitting work.
-        return {
-            "type": "snapshot",
-            "events": events,
-            "busy": self.busy,
-            "model": self.agent.model,
-            "placements": self._copy_placements(),
-            "run_id": self.run_id,
-        }
+        return {"type": "snapshot", "events": events, "busy": self.busy, "placements": self._copy_placements()}
 
     def publish(self, event: dict[str, object]) -> None:
         """Apply ordered mutations and broadcast without waiting on slow tabs."""
@@ -121,8 +114,6 @@ class Workspace:
                     self.placements.pop(identifier, None)
                     placement_changed = True
 
-        # Stamp events before retaining or broadcasting them.
-        event = {**event, "run_id": self.run_id}
         if event["type"] not in {"state", "placement"}:
             self.events.append(event)
             self.history_bytes += len(json.dumps(event).encode())
@@ -221,7 +212,6 @@ class Workspace:
         placements = self._copy_placements()
         try:
             result = await self.agent.arun(instruction, self.publish)
-            self.publish({"type": "done"})
         except Exception as error:
             outcome = "failed"
             self.publish({"type": "error", "text": str(error)})

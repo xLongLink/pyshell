@@ -4,6 +4,11 @@ import { messageSchema } from "../lib/workspace.ts";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui.ts";
 
 test("malformed events are rejected at the browser boundary", () => {
+    for (const event of [
+        { type: "code_delta", text: "print('unused')" },
+        { type: "done" },
+    ])
+        assert.equal(messageSchema.safeParse(event).success, false);
     assert.equal(
         messageSchema.safeParse({ type: "result", stdout: 42 }).success,
         false,
@@ -13,7 +18,6 @@ test("malformed events are rejected at the browser boundary", () => {
             type: "snapshot",
             events: [{ type: "unknown" }],
             busy: false,
-            model: "test",
         }).success,
         false,
     );
@@ -29,7 +33,6 @@ test("placement events and snapshots use one pinned flag", () => {
         type: "snapshot",
         events: [],
         busy: false,
-        model: "test",
         placements: widgets,
     });
     assert.equal(snapshot.type, "snapshot");

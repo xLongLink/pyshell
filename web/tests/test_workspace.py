@@ -24,10 +24,12 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
             )
             return "Confirmed sales: 42"
 
-        workspace = Workspace(SimpleNamespace(model="test", shell=SimpleNamespace(uncertain=False), arun=execute))
+        workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), arun=execute))
         reports = []
         workspace.results.add(reports.append)
         task = workspace.start(Command(type="run", instruction="Plot monthly sales"))
+        run_id = workspace.status()["run_id"]
+        assert run_id
         await started.wait()
         assert workspace.status()["instruction"] == "Plot monthly sales"
         assert workspace.status()["phase"] == "executing_python"
@@ -43,6 +45,8 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
         ]
         assert json.loads(reports[0])["changed_charts"] == ["sales"]
         assert context["recent_tasks"][0]["result"] == "Confirmed sales: 42"
+        assert context["recent_tasks"][0]["run_id"] == run_id
+        assert json.loads(reports[0])["run_id"] == run_id
         ui.on_publish = workspace.publish
         ui.remove("sales")
         assert workspace.context()["charts"] == []
@@ -57,7 +61,7 @@ def test_recent_work_is_bounded_and_preserves_failed_partial_changes():
                 raise RuntimeError("Earlier changes may have applied")
             return "x" * 5000
 
-        workspace = Workspace(SimpleNamespace(model="test", shell=SimpleNamespace(uncertain=False), arun=execute))
+        workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), arun=execute))
         for index in range(10):
             await workspace.start(Command(type="run", instruction=str(index)))
         context = workspace.context()
@@ -92,7 +96,7 @@ def test_task_outcomes_track_chart_updates_placements_and_partial_removal():
                 raise RuntimeError("Failed after removal")
             return "Confirmed"
 
-        workspace = Workspace(SimpleNamespace(model="test", shell=SimpleNamespace(uncertain=False), arun=execute))
+        workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), arun=execute))
         for instruction in ("create", "update", "pin"):
             await workspace.start(Command(type="run", instruction=instruction))
             assert workspace.status()["latest_outcome"]["changed_charts"] == ["sales"]
@@ -108,7 +112,7 @@ def test_task_outcomes_track_chart_updates_placements_and_partial_removal():
 
 
 def test_placement_snapshots_and_broadcasts_remain_detached():
-    workspace = Workspace(SimpleNamespace(model="test"))
+    workspace = Workspace(SimpleNamespace())
     ui = UI()
     ui.on_publish = workspace.publish
     chart = ui.plot([{"type": "bar", "x": ["Jan"], "y": [42]}], surface_id="sales")
@@ -131,7 +135,7 @@ def test_instructions_are_normalized_for_acceptance_execution_and_history():
             received.append(instruction)
             return "Confirmed"
 
-        workspace = Workspace(SimpleNamespace(model="test", shell=SimpleNamespace(uncertain=False), arun=execute))
+        workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), arun=execute))
         with pytest.raises(ValueError, match="Enter an instruction"):
             workspace.start(Command(type="run", instruction=" \t\n "))
         assert workspace.events == []

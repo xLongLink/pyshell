@@ -66,7 +66,7 @@ def test_confirmed_stream_forwards_events_in_order_without_terminal_marker():
 
 
 def test_compacted_snapshot_retains_current_widgets_and_slow_clients_resynchronize():
-    workspace = Workspace(SimpleNamespace(model="test"))
+    workspace = Workspace(SimpleNamespace())
     create = {"version": "v0.9", "createSurface": {"surfaceId": "sales", "catalogId": "urn:pyshell:catalog:v3"}}
     update = {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [{"id": "root"}]}}
     workspace.publish({"type": "a2ui", "messages": [create, update]})

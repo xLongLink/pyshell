@@ -57,14 +57,13 @@ test("workspace restores widgets, ignores transcript fragments, and handles live
         type: "snapshot",
         events: [{ type: "a2ui", messages }],
         busy: false,
-        model: "test",
         placements: { sales: { pinned: true } },
     });
     expect(result.current.connected).toBe(true);
     expect(result.current.uiMessages).toHaveLength(2);
     expect(result.current.placements).toEqual({ sales: { pinned: true } });
     const state = result.current;
-    socket.receive({ type: "code_delta", text: "print('not rendered')" });
+    socket.receive({ type: "code_start" });
     expect(result.current).toBe(state);
     socket.receive({
         type: "placement",
@@ -84,7 +83,6 @@ test("workspace restores widgets, ignores transcript fragments, and handles live
         type: "snapshot",
         events: [],
         busy: false,
-        model: "test",
         placements: {},
     });
     expect(result.current.uiMessages).toEqual([]);
@@ -104,7 +102,6 @@ test("reconnect snapshots replace widget history and keep commands blocked until
         type: "snapshot",
         events: [],
         busy: false,
-        model: "test",
     });
     act(() => {
         sent = result.current.send({ type: "run", instruction: "Create" });
@@ -119,7 +116,6 @@ test("reconnect snapshots replace widget history and keep commands blocked until
         type: "snapshot",
         events: [{ type: "a2ui", messages }],
         busy: false,
-        model: "test",
         placements: { sales: { pinned: false } },
     });
     expect(result.current.connected).toBe(true);
@@ -139,7 +135,7 @@ test("snapshot and live output agree on resets, exceptions, and truncation", () 
         { type: "instruction", text: "Start again" },
         { type: "stdout_delta", text: "x".repeat(65536) },
         { type: "stderr_delta", text: "warning\n" },
-        { type: "code_delta", text: "not output" },
+        { type: "execution_start" },
         {
             type: "result",
             stdout: "must not repeat",
@@ -153,7 +149,6 @@ test("snapshot and live output agree on resets, exceptions, and truncation", () 
         type: "snapshot",
         events,
         busy: false,
-        model: "test",
     });
     const expected = "x".repeat(65520) + "warning\nfailure\n";
     expect(live.result.current.output).toBe(expected);
@@ -163,7 +158,6 @@ test("snapshot and live output agree on resets, exceptions, and truncation", () 
         type: "snapshot",
         events: [...events, { type: "instruction", text: "Clear" }],
         busy: false,
-        model: "test",
     });
     expect(live.result.current.output).toBe("");
     expect(replay.result.current.output).toBe("");
@@ -172,7 +166,7 @@ test("snapshot and live output agree on resets, exceptions, and truncation", () 
 test("execution output streams without duplicating final output and voice controls work while busy", () => {
     const { result } = renderHook(useWorkspace);
     const socket = sockets[0];
-    socket.receive({ type: "snapshot", events: [], busy: true, model: "test" });
+    socket.receive({ type: "snapshot", events: [], busy: true });
     socket.receive({ type: "stdout_delta", text: "first\n" });
     socket.receive({ type: "stderr_delta", text: "warning\n" });
     socket.receive({

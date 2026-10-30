@@ -55,21 +55,24 @@ def test_browser_executes_and_reconnects_without_replaying(browser_api):
         assert socket.receive_json()["type"] == "snapshot"
         socket.send_json({"type": "run", "instruction": "print a result"})
         events = receive_until_idle(socket)
-        assert "print('browser result')" in "".join(event.get("text", "") for event in events if event["type"] == "code_delta")
+        assert not any(event["type"] in {"code_delta", "done"} for event in events)
         assert any(event["type"] == "result" and event["stdout"] == "browser result\n" for event in events), events
-        assert any(event["type"] == "done" for event in events)
+        assert events[-1] == {"type": "state", "busy": False}
+        assert all("run_id" not in event for event in events)
 
     # Reconnection restores history without another model request.
     with client.websocket_connect("/ws", headers={"origin": "http://127.0.0.1:5180"}) as socket:
         snapshot = socket.receive_json()
         assert snapshot["busy"] is False
-        assert any(event["type"] == "done" for event in snapshot["events"])
+        assert any(event["type"] == "result" and event["stdout"] == "browser result\n" for event in snapshot["events"])
+        assert "model" not in snapshot
+        assert "run_id" not in snapshot
         assert len(requests) == 1
 
 
-def test_browser_rejects_reset_without_changing_shared_state(browser_api, remote_shell):
+def test_browser_rejects_reset_without_changing_shared_state(browser_api, api_client):
     client, _ = browser_api
-    remote_shell.execute("value = 42")
+    assert api_client.post("/", json={"code": "value = 42"}).json()["exception"] is None
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "reset"})
@@ -78,7 +81,7 @@ def test_browser_rejects_reset_without_changing_shared_state(browser_api, remote
         # Unsupported reset commands must not clear execution or agent state.
         assert events[0]["type"] == "error"
         assert not any(event["type"] == "reset" for event in events)
-        assert remote_shell.execute("print(value)")["stdout"] == "42\n"
+        assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "42\n"
         assert client.app.state.workspace.agent.message_history == []
 
 
@@ -99,13 +102,13 @@ def test_browser_reuses_the_provider_event_loop(browser_api, monkeypatch):
         # Consecutive turns must reuse the application's event loop.
         for instruction in ("first", "second"):
             socket.send_json({"type": "run", "instruction": instruction})
-            assert any(event["type"] == "done" for event in receive_until_idle(socket))
+            assert any(event["type"] == "result" and event["done"] for event in receive_until_idle(socket))
     assert len(requests) == 2
     assert len(threads) == 2
     assert threads[0] == threads[1]
 
 
-def test_browser_reports_model_failure_without_executing(browser_api, model_for, remote_shell):
+def test_browser_reports_model_failure_without_executing(browser_api, model_for, remote_shell, api_client):
     client, _ = browser_api
     client.app.state.workspace.agent = server.Agent(model_for(["value = 42\n", ConnectionError("stream interrupted")]), shell=remote_shell)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
@@ -115,8 +118,8 @@ def test_browser_reports_model_failure_without_executing(browser_api, model_for,
         assert any(event["type"] == "error" and "stream interrupted" in event["text"] for event in events)
 
         # An incomplete model stream must never reach execution.
-        assert not any(event["type"] in {"result", "done"} for event in events)
-    assert "NameError" in remote_shell.execute("print(value)")["exception"]
+        assert not any(event["type"] == "result" for event in events)
+    assert "NameError" in api_client.post("/", json={"code": "print(value)"}).json()["exception"]
 
 
 def test_python_widgets_stream_and_replay(browser_api, model_for, remote_shell):
@@ -318,7 +321,8 @@ def test_python_placement_remains_available_during_agent_work(browser_api, model
         # Always release the worker so a failed assertion cannot hang teardown.
         finally:
             release.set()
-        assert any(event["type"] == "done" for event in receive_until_idle(socket))
+        assert receive_until_idle(socket)[-1]["busy"] is False
+        assert client.app.state.workspace.status()["latest_outcome"]["outcome"] == "completed"
 
 
 def test_center_capacity_eviction_and_return_from_sidebar(browser_api, model_for, remote_shell):
@@ -401,7 +405,7 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
             # The disconnected tab's work must finish without accepting overlap.
             release.set()
             events = receive_until_idle(socket)
-            assert any(event["type"] == "done" for event in events)
+            assert any(event["type"] == "result" and event["stdout"] == "finished\n" for event in events)
             assert finished.is_set()
     finally:
         release.set()
