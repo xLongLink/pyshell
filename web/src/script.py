@@ -123,9 +123,11 @@ class RemoteShell:
             async with asyncio.timeout(180), self.client.stream("POST", "/execute/stream", json={"code": code}) as response:
                 response.raise_for_status()
 
+                # Bound the aggregate stream, not only individual output events.
                 async for line in response.aiter_lines():
-                    # Bound the aggregate stream, not only individual output events.
                     received += len(line.encode())
+
+                    # Reject excess output before decoding more protocol data.
                     if received > 16_777_216:
                         raise RuntimeError("Execution stream exceeded 16 MiB")
 
@@ -135,10 +137,11 @@ class RemoteShell:
                         raise RuntimeError("Execution events arrived after the final result")
 
                     # A finish marker confirms a result, never substitutes for it.
+                    if event["type"] == "execution_finished" and result is None:
+                        raise RuntimeError("Execution finished without a result")
+
+                    # Remember the terminal marker until the transport reaches EOF.
                     if event["type"] == "execution_finished":
-                        # EOF without a result cannot establish the execution outcome.
-                        if result is None:
-                            raise RuntimeError("Execution finished without a result")
                         finished = True
 
                     # Forward the result without its wire discriminator.
@@ -306,8 +309,9 @@ class Agent:
             # Execute once; an ambiguous transport failure must not trigger a retry.
             if on_event is not None:
                 on_event({"type": "execution_start"})
+
+            # Use the persistent async transport when the workspace owns one.
             try:
-                # Use the persistent async transport when the workspace owns one.
                 if self.shell.client is not None:
                     result = await self.shell.stream(code, emit)
                 else:

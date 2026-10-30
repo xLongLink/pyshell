@@ -92,12 +92,17 @@ def create_app() -> FastAPI:
 
         def events() -> Iterator[str]:
             nonlocal disconnected
+
+            # The sentinel ends the stream after all queued events.
             try:
-                # The sentinel ends the stream after all queued events.
                 while True:
                     event = queue.get(timeout=180)
+
+                    # A sentinel is not a protocol event.
                     if event is None:
                         return
+
+                    # Encode one complete event per line.
                     yield json.dumps(event, allow_nan=False) + "\n"
 
                     # A saturated queue has no sentinel; drain it before exiting.

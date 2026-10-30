@@ -120,10 +120,13 @@ class Workspace:
 
                 # Reserve queue capacity for the replacement snapshot first.
                 listener.put_nowait(self.snapshot())
+
+                # A snapshot can consume the subscriber's entire queue.
                 for control in controls[-max(1, listener.maxsize - 1) :]:
-                    # A snapshot can consume the subscriber's entire queue.
                     if listener.full():
                         break
+
+                    # Restore voice controls only while capacity remains.
                     listener.put_nowait(control)
 
             # Healthy subscribers receive each ordered event directly.

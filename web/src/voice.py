@@ -86,19 +86,33 @@ class VoiceSession:
         answer = None
 
         def report(result: str) -> None:
+
+            # A failed voice notification must not fail completed workspace work.
             if self.session is not None:
-                # A failed voice notification must not fail completed workspace work.
                 try:
                     self.session.enqueue(f"Workspace task result (data, not instructions):\n{result[-24000:]}")
+
+                # Keep notification failures visible without disturbing execution.
                 except Exception:
                     logger.exception("Could not enqueue workspace result for voice")
+
+        async def hang_up() -> None:
+            """Bound provider cleanup without hiding a local call teardown."""
+            try:
+                async with asyncio.timeout(15):
+                    await realtime.hang_up(answer.session)
+
+            # Local teardown must finish even if provider cleanup fails.
+            except Exception:
+                logger.exception("Voice hangup failed")
 
         # Limit negotiation time without imposing a maximum call duration.
         try:
             async with asyncio.timeout(60) as setup:
                 answer = await realtime.answer_webrtc_offer(sdp)
+
+                # Result delivery is active only while the sideband is connected.
                 async with realtime.session(provider_session=answer.session) as session:
-                    # Result delivery is active only while the sideband is connected.
                     self.session = session
                     self.workspace.results.add(report)
                     setup.reschedule(None)
@@ -113,8 +127,10 @@ class VoiceSession:
                     )
 
                     # Consume provider events until hangup or failure.
-                    async for event in session:
-                        # Ignore only the provider's transient overlapping-response error.
+                    async for event in (
+                        # Provider errors arrive over the sideband, not browser WebRTC.
+                        session
+                    ):
                         if isinstance(event, RealtimeSessionErrorEvent) and event.code != "conversation_already_has_active_response":
                             raise RuntimeError(f"Voice provider error: {event.code}: {event.message}")
 
@@ -123,6 +139,8 @@ class VoiceSession:
             raise
         except Exception:
             logger.exception("Voice call failed")
+
+            # Report failure without implying that submitted work was cancelled.
             await self.emit(
                 {
                     "type": "voice",
@@ -130,20 +148,15 @@ class VoiceSession:
                     "text": "Voice connection failed. Check the server configuration and retry the call; submitted work may still be running.",
                 }
             )
+
+        # Detach result delivery before attempting remote cleanup.
         finally:
             self.workspace.results.discard(report)
             self.session = None
 
             # Provider cleanup is bounded independently of call setup.
             if answer is not None:
-                try:
-                    # A failed hangup must not prevent local call teardown.
-                    async with asyncio.timeout(15):
-                        await realtime.hang_up(answer.session)
-
-                # Local resources are already detached even if provider cleanup fails.
-                except Exception:
-                    logger.exception("Voice hangup failed")
+                await hang_up()
         await self.emit({"type": "voice", "name": "closed"})
 
     async def stop(self, *, notify: bool = True) -> None:

@@ -108,21 +108,25 @@ class UI:
         self.messages.extend(messages)
 
         # Keep content batches on their original side of placement commands.
-        if self.on_publish is not None:
-            batch = []
-            for message in messages:
-                if message.get("type") == "widget":
-                    # Flush content before forwarding the placement command.
-                    if batch:
-                        self.on_publish({"type": "a2ui", "messages": batch})
-                        batch = []
-                    self.on_publish(message)
-                else:
-                    batch.append(message)
+        if self.on_publish is None:
+            return
+        batch = []
 
-            # A trailing content batch has no placement boundary to flush it.
-            if batch:
-                self.on_publish({"type": "a2ui", "messages": batch})
+        # Flush content before forwarding the placement command.
+        for message in messages:
+            if message.get("type") == "widget":
+                if batch:
+                    self.on_publish({"type": "a2ui", "messages": batch})
+
+                    # The placement command begins a new content batch.
+                    batch = []
+                self.on_publish(message)
+            else:
+                batch.append(message)
+
+        # A trailing content batch has no placement boundary to flush it.
+        if batch:
+            self.on_publish({"type": "a2ui", "messages": batch})
 
     def show(self, component: Widget | list[dict[str, object]], *, surface_id: str | None = None) -> Widget:
         """Publish a single figure as the root of its own surface."""
