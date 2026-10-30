@@ -18,6 +18,9 @@ function workspace(overrides = {}) {
         placements: {},
         error: "",
         send: vi.fn(() => true),
+        sendVoice: vi.fn(() => true),
+        voiceEvent: null,
+        output: "",
         ...overrides,
     };
     vi.mocked(useWorkspace).mockReturnValue(state);

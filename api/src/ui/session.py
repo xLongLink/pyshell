@@ -3,6 +3,7 @@ from typing import Generic, TypeVar
 from pydantic import TypeAdapter
 from src.ui.types import Action, Identifier
 from src.ui.widget import Widget
+from collections.abc import Callable
 from a2ui.core.catalog import Catalog, ModelComponentApi
 from src.ui.plot.figure import Figure
 from a2ui.core.processing import MessageProcessor
@@ -45,6 +46,7 @@ class UI:
     def __init__(self) -> None:
         """Keep protocol state local to one execution session."""
         self.messages: list[dict[str, object]] = []
+        self.on_publish: Callable[[dict[str, object]], None] | None = None
         self._widgets: dict[str, Widget] = {}
         self._sequence = 0
         self._closed = False
@@ -104,6 +106,18 @@ class UI:
         if protocol:
             self._processor.process_messages(protocol)
         self.messages.extend(messages)
+        if self.on_publish is not None:
+            batch = []
+            for message in messages:
+                if message.get("type") == "widget":
+                    if batch:
+                        self.on_publish({"type": "a2ui", "messages": batch})
+                        batch = []
+                    self.on_publish(message)
+                else:
+                    batch.append(message)
+            if batch:
+                self.on_publish({"type": "a2ui", "messages": batch})
 
     def show(self, component: Widget | list[dict[str, object]], *, surface_id: str | None = None) -> Widget:
         """Publish a single figure as the root of its own surface."""

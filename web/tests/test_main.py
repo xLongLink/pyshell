@@ -23,7 +23,7 @@ def receive_until_idle(socket):
     while True:
         event = socket.receive_json()
         events.append(event)
-        if event == {"type": "state", "busy": False}:
+        if event["type"] == "state" and not event["busy"]:
             return events
 
 
@@ -56,8 +56,8 @@ def test_browser_executes_and_reconnects_without_replaying(browser_api):
         socket.send_json({"type": "run", "instruction": "print a result"})
         events = receive_until_idle(socket)
         assert "print('browser result')" in "".join(event.get("text", "") for event in events if event["type"] == "code_delta")
-        assert any(event["type"] == "result" and event["stdout"] == "browser result\n" for event in events)
-        assert {"type": "done"} in events
+        assert any(event["type"] == "result" and event["stdout"] == "browser result\n" for event in events), events
+        assert any(event["type"] == "done" for event in events)
 
     # Reconnection restores history without another model request.
     with client.websocket_connect("/ws", headers={"origin": "http://127.0.0.1:5180"}) as socket:
@@ -85,21 +85,21 @@ def test_browser_rejects_reset_without_changing_shared_state(browser_api, remote
 def test_browser_reuses_the_provider_event_loop(browser_api, monkeypatch):
     client, requests = browser_api
     agent = client.app.state.workspace.agent
-    run = agent.run
+    run = agent.arun
     threads = []
 
-    def tracked_run(instruction, emit):
+    async def tracked_run(instruction, emit):
         threads.append((threading.get_ident(), asyncio.get_event_loop()))
-        run(instruction, emit)
+        return await run(instruction, emit)
 
-    monkeypatch.setattr(agent, "run", tracked_run)
+    monkeypatch.setattr(agent, "arun", tracked_run)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         socket.receive_json()
 
-        # Consecutive turns must reuse the provider's worker thread and loop.
+        # Consecutive turns must reuse the application's event loop.
         for instruction in ("first", "second"):
             socket.send_json({"type": "run", "instruction": instruction})
-            assert {"type": "done"} in receive_until_idle(socket)
+            assert any(event["type"] == "done" for event in receive_until_idle(socket))
     assert len(requests) == 2
     assert len(threads) == 2
     assert threads[0] == threads[1]
@@ -107,8 +107,7 @@ def test_browser_reuses_the_provider_event_loop(browser_api, monkeypatch):
 
 def test_browser_reports_model_failure_without_executing(browser_api, model_for, remote_shell):
     client, _ = browser_api
-    agent = client.app.state.workspace.agent
-    agent.agent = server.Agent(model_for(["value = 42\n", ConnectionError("stream interrupted")]), shell=remote_shell).agent
+    client.app.state.workspace.agent = server.Agent(model_for(["value = 42\n", ConnectionError("stream interrupted")]), shell=remote_shell)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "set value"})
@@ -296,10 +295,11 @@ def test_python_placement_remains_available_during_agent_work(browser_api, model
     started = threading.Event()
     release = threading.Event()
 
-    def work(instruction, emit):
+    async def work(instruction, emit):
         emit({"type": "widget", "surface_id": "notice", "action": "pin"})
         started.set()
-        assert release.wait(timeout=5)
+        assert await asyncio.to_thread(release.wait, 5)
+        return "Finished"
 
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
@@ -307,18 +307,18 @@ def test_python_placement_remains_available_during_agent_work(browser_api, model
         receive_until_idle(socket)
 
         # Block the next run while checking that its placement event arrives live.
-        monkeypatch.setattr(agent, "run", work)
+        monkeypatch.setattr(agent, "arun", work)
         socket.send_json({"type": "run", "instruction": "keep working"})
-        assert socket.receive_json() == {"type": "state", "busy": True}
+        assert socket.receive_json()["busy"] is True
         assert socket.receive_json()["type"] == "instruction"
         try:
             assert started.wait(timeout=5)
-            assert socket.receive_json() == {"type": "placement", "widgets": {"notice": {"pinned": True}}}
+            assert socket.receive_json()["widgets"] == {"notice": {"pinned": True}}
 
         # Always release the worker so a failed assertion cannot hang teardown.
         finally:
             release.set()
-        assert {"type": "done"} in receive_until_idle(socket)
+        assert any(event["type"] == "done" for event in receive_until_idle(socket))
 
 
 def test_center_capacity_eviction_and_return_from_sidebar(browser_api, model_for, remote_shell):
@@ -375,13 +375,14 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
     release = threading.Event()
     finished = threading.Event()
 
-    def run(instruction, emit):
+    async def run(instruction, emit):
         started.set()
-        assert release.wait(timeout=5)
+        assert await asyncio.to_thread(release.wait, 5)
         emit({"type": "result", "stdout": "finished\n", "stderr": "", "exception": None, "done": True})
         finished.set()
+        return "Finished"
 
-    monkeypatch.setattr(client.app.state.workspace.agent, "run", run)
+    monkeypatch.setattr(client.app.state.workspace.agent, "arun", run)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "work"})
@@ -398,7 +399,7 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
             # The disconnected tab's work must finish without accepting overlap.
             release.set()
             events = receive_until_idle(socket)
-            assert {"type": "done"} in events
+            assert any(event["type"] == "done" for event in events)
             assert finished.is_set()
     finally:
         release.set()

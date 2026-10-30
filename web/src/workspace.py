@@ -1,0 +1,167 @@
+import json
+import asyncio
+from uuid import uuid4
+from typing import Literal
+from pydantic import Field, BaseModel, ConfigDict
+from web.src.events import WidgetCommand
+from web.src.script import Agent
+from collections.abc import Callable
+
+
+class Command(BaseModel):
+    """Validate text instructions before allocating work."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type: Literal["run"]
+    instruction: str = Field(default="", max_length=8000)
+
+
+class Workspace:
+    """Own shared execution, history, widgets, and browser subscriptions."""
+
+    def __init__(self, agent: Agent) -> None:
+        """Keep workspace resources independent of browser connections."""
+        self.id = str(uuid4())
+        self.agent = agent
+        self.events: list[dict[str, object]] = []
+        self.listeners: set[asyncio.Queue[dict[str, object]]] = set()
+        self.task: asyncio.Task[str] | None = None
+        self.placements: dict[str, dict[str, bool]] = {}
+        self.surfaces: dict[str, list[dict[str, object]]] = {}
+        self.run_id: str | None = None
+        self.sequence = 0
+        self.history_bytes = 0
+        self.compacted = False
+        self.closing = False
+        self.running = False
+        self.results: set[Callable[[str], None]] = set()
+
+    @property
+    def busy(self) -> bool:
+        """Whether a submitted operation is still running."""
+        return self.running
+
+    def snapshot(self) -> dict[str, object]:
+        """Copy current state without replaying any submitted operation."""
+        events = list(self.events)
+        if self.compacted:
+            events = [event for event in events if event["type"] != "a2ui"]
+            for messages in self.surfaces.values():
+                events.append({"type": "a2ui", "messages": messages})
+        return {
+            "type": "snapshot",
+            "events": events,
+            "busy": self.busy,
+            "model": self.agent.model,
+            "placements": {key: dict(value) for key, value in self.placements.items()},
+            "sequence": self.sequence,
+            "run_id": self.run_id,
+        }
+
+    def publish(self, event: dict[str, object]) -> None:
+        """Apply ordered mutations and broadcast without waiting on slow tabs."""
+        if event["type"] == "widget":
+            self.place(WidgetCommand.model_validate(event))
+            return
+        placement_changed = False
+        if event["type"] == "a2ui":
+            for message in event["messages"]:
+                if "createSurface" in message:
+                    identifier = message["createSurface"]["surfaceId"]
+                    self.surfaces[identifier] = [message]
+                    self.placements[identifier] = {"pinned": False}
+                    self._focus(identifier)
+                    placement_changed = True
+                elif "updateComponents" in message:
+                    identifier = message["updateComponents"]["surfaceId"]
+                    self.surfaces[identifier] = [self.surfaces[identifier][0], message]
+                elif "deleteSurface" in message:
+                    identifier = message["deleteSurface"]["surfaceId"]
+                    self.surfaces.pop(identifier, None)
+                    self.placements.pop(identifier, None)
+                    placement_changed = True
+        self.sequence += 1
+        event = {**event, "sequence": self.sequence, "run_id": self.run_id}
+        if event["type"] not in {"state", "placement"}:
+            self.events.append(event)
+            self.history_bytes += len(json.dumps(event).encode())
+            while self.events and (len(self.events) > 2000 or self.history_bytes > 2_097_152):
+                self.history_bytes -= len(json.dumps(self.events.pop(0)).encode())
+                self.compacted = True
+        for listener in self.listeners:
+            if listener.full():
+                controls = []
+                while not listener.empty():
+                    queued = listener.get_nowait()
+                    if queued["type"] == "voice":
+                        controls.append(queued)
+                listener.put_nowait(self.snapshot())
+                for control in controls[-max(1, listener.maxsize - 1) :]:
+                    if listener.full():
+                        break
+                    listener.put_nowait(control)
+            else:
+                listener.put_nowait(event)
+        if placement_changed:
+            self._placement_event()
+
+    def _placement_event(self) -> None:
+        self.publish({"type": "placement", "widgets": {key: dict(value) for key, value in self.placements.items()}})
+
+    def _focus(self, surface_id: str) -> None:
+        placement = self.placements.pop(surface_id)
+        placement["pinned"] = False
+        self.placements[surface_id] = placement
+        centered = [value for value in self.placements.values() if not value["pinned"]]
+        for oldest in centered[:-4]:
+            oldest["pinned"] = True
+
+    def place(self, command: WidgetCommand) -> None:
+        """Keep Python widget placement authoritative across all tabs."""
+        placement = self.placements.get(command.surface_id)
+        if placement is None:
+            raise ValueError("Unknown or removed widget")
+        if command.action in {"focus", "unpin"}:
+            self._focus(command.surface_id)
+        else:
+            placement["pinned"] = True
+        self._placement_event()
+
+    def start(self, command: Command) -> asyncio.Task[str]:
+        """Submit text or voice work once, outside the socket's lifetime."""
+        if self.closing:
+            raise RuntimeError("The workspace is shutting down.")
+        if self.busy:
+            raise RuntimeError("The shared workspace is busy. Wait for the current operation to finish.")
+        if not command.instruction.strip():
+            raise ValueError("Enter an instruction.")
+        if self.agent.shell.uncertain:
+            raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
+        self.run_id = str(uuid4())
+        self.running = True
+        self.publish({"type": "state", "busy": True})
+        self.publish({"type": "instruction", "text": command.instruction.strip()})
+        self.task = asyncio.create_task(self.execute(command))
+        return self.task
+
+    async def execute(self, command: Command) -> str:
+        """Return confirmed execution feedback to voice and publish shared status."""
+        try:
+            result = await self.agent.arun(command.instruction.strip(), self.publish)
+            self.publish({"type": "done"})
+        except Exception as error:
+            self.publish({"type": "error", "text": str(error)})
+            result = f"Task failed: {error}. Earlier changes may have applied; do not automatically resubmit."
+        finally:
+            self.running = False
+            self.publish({"type": "state", "busy": False})
+        for report in self.results:
+            report(f"Task instruction (data): {command.instruction}\nExecution feedback:\n{result}")
+        return result
+
+    async def close(self) -> None:
+        """Finish accepted work before releasing the execution transport."""
+        self.closing = True
+        if self.task is not None:
+            await self.task
+        await self.agent.shell.close()

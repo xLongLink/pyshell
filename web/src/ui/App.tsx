@@ -6,10 +6,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { useWorkspace } from "@/lib/hooks/useWorkspace";
 import { Results } from "@/components/results";
 import { ErrorBoundary } from "react-error-boundary";
+import { Voice } from "@/components/voice";
 
 export default function App() {
-    const { connected, busy, uiMessages, placements, error, send } =
-        useWorkspace();
+    const {
+        connected,
+        busy,
+        uiMessages,
+        placements,
+        error,
+        send,
+        sendVoice,
+        voiceEvent,
+        output,
+    } = useWorkspace();
     const [instruction, setInstruction] = useState("");
     const [open, setOpen] = useState(false);
 
@@ -36,7 +46,7 @@ export default function App() {
                     {!uiMessages.length && (
                         <p className="py-16 text-center text-sm text-muted-foreground">
                             Your generated widgets will appear here. Use the
-                            chat button to describe what you want.
+                            microphone or chat button to describe what you want.
                         </p>
                     )}
                     <ErrorBoundary
@@ -56,8 +66,17 @@ export default function App() {
                             placements={placements}
                         />
                     </ErrorBoundary>
+                    {output && (
+                        <details className="text-sm">
+                            <summary>Execution output</summary>
+                            <pre className="max-h-64 overflow-auto whitespace-pre-wrap pt-2">
+                                {output}
+                            </pre>
+                        </details>
+                    )}
                 </div>
             </main>
+            <Voice connected={connected} event={voiceEvent} send={sendVoice} />
             <Popover.Root open={open} onOpenChange={setOpen}>
                 <Popover.Trigger asChild>
                     <Button

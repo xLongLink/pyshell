@@ -68,3 +68,47 @@ def test_requests_are_serialized(api_client):
         responses = list(executor.map(increment, range(8)))
     assert all(response.status_code == 200 for response in responses)
     assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "8\n"
+
+
+def test_stream_preserves_output_widget_and_placement_order(api_client):
+    response = api_client.post(
+        "/execute/stream",
+        json={
+            "code": (
+                "print('before')\n"
+                "chart = ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='sales')\n"
+                "chart.pin()\n"
+                "print('after')\n"
+                "done()"
+            )
+        },
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert [event["type"] for event in events] == [
+        "stdout_delta",
+        "stdout_delta",
+        "a2ui",
+        "widget",
+        "stdout_delta",
+        "stdout_delta",
+        "result",
+        "execution_finished",
+    ]
+    assert events[2]["messages"][0]["createSurface"]["surfaceId"] == "sales"
+    assert events[3] == {"type": "widget", "surface_id": "sales", "action": "pin"}
+    assert events[-2] == {"type": "result", "stdout": "before\nafter\n", "stderr": "", "exception": None, "done": True}
+    assert api_client.post("/", json={"code": "print(chart.surface_id)"}).json()["stdout"] == "sales\n"
+
+
+def test_stream_reports_partial_output_and_python_failure(api_client):
+    response = api_client.post("/execute/stream", json={"code": "value = 42\nprint('before')\ndone()\n1 / 0"})
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert "".join(event["text"] for event in events if event["type"] == "stdout_delta") == "before\n"
+    assert "ZeroDivisionError" in events[-2]["exception"]
+    assert events[-2]["done"] is False
+    assert events[-1] == {"type": "execution_finished"}
+    assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "42\n"
+
+
+import json

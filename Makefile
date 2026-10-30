@@ -5,7 +5,7 @@ up:
 	docker compose -f api/compose.yaml up --build --detach --wait pyshell
 	npm --prefix web/src/ui ci
 	npm --prefix web/src/ui run build
-	uv run --locked --project web uvicorn web.main:app --host 127.0.0.1 --port 8010 --ws-max-size 16384 --no-access-log --log-level warning
+	uv run --locked --project web uvicorn web.main:app --host 127.0.0.1 --port 8010 --ws-max-size 131072 --no-access-log --log-level warning
 
 down:
 	docker compose -f api/compose.yaml down --remove-orphans

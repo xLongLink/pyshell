@@ -1,6 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { messageSchema, type Placements } from "@/lib/workspace";
+import {
+    messageSchema,
+    type Placements,
+    type VoiceEvent,
+} from "@/lib/workspace";
 import type { A2uiMessage } from "@/lib/a2ui";
+
+function retainWidgets(messages: A2uiMessage[]) {
+    if (messages.length <= 200) return messages;
+    const surfaces = new Map<string, A2uiMessage[]>();
+    for (const message of messages) {
+        if ("createSurface" in message)
+            surfaces.set(message.createSurface.surfaceId, [message]);
+        else if ("deleteSurface" in message)
+            surfaces.delete(message.deleteSurface.surfaceId);
+        else {
+            const surface = surfaces.get(message.updateComponents.surfaceId);
+            if (surface)
+                surfaces.set(message.updateComponents.surfaceId, [
+                    surface[0],
+                    message,
+                ]);
+        }
+    }
+    return [...surfaces.values()].flat();
+}
 
 export function useWorkspace() {
     const socket = useRef<WebSocket | null>(null);
@@ -9,6 +33,8 @@ export function useWorkspace() {
     const [error, setError] = useState("");
     const [uiMessages, setUiMessages] = useState<A2uiMessage[]>([]);
     const [placements, setPlacements] = useState<Placements>({});
+    const [voiceEvent, setVoiceEvent] = useState<VoiceEvent | null>(null);
+    const [output, setOutput] = useState("");
 
     useEffect(() => {
         let disposed = false;
@@ -19,38 +45,70 @@ export function useWorkspace() {
             const ws = new WebSocket(`${protocol}//${location.host}/ws`);
             socket.current = ws;
             ws.onmessage = (message) => {
-                if (disposed) return;
+                if (disposed || socket.current !== ws) return;
                 try {
                     const event = messageSchema.parse(JSON.parse(message.data));
-                    if (event.type === "snapshot") {
+                    if (event.type === "voice") {
+                        setVoiceEvent(event);
+                    } else if (event.type === "snapshot") {
                         setPlacements(event.placements);
                         setUiMessages(
-                            event.events.flatMap((item) =>
-                                item.type === "a2ui" ? item.messages : [],
+                            retainWidgets(
+                                event.events.flatMap((item) =>
+                                    item.type === "a2ui" ? item.messages : [],
+                                ),
                             ),
                         );
                         setBusy(event.busy);
                         setError("");
                         setConnected(true);
+                        setOutput(
+                            event.events.reduce((text, item) => {
+                                if (item.type === "instruction") return "";
+                                if (
+                                    item.type === "stdout_delta" ||
+                                    item.type === "stderr_delta"
+                                )
+                                    return (text + item.text).slice(-65536);
+                                if (item.type === "result" && item.exception)
+                                    return (text + item.exception).slice(
+                                        -65536,
+                                    );
+                                return text;
+                            }, ""),
+                        );
                     } else if (event.type === "state") {
                         setBusy(event.busy);
                     } else {
                         if (event.type === "error") setError(event.text);
-                        if (event.type === "instruction") setError("");
+                        if (event.type === "instruction") {
+                            setError("");
+                            setOutput("");
+                        }
+                        if (
+                            event.type === "stdout_delta" ||
+                            event.type === "stderr_delta"
+                        )
+                            setOutput((previous) =>
+                                (previous + event.text).slice(-65536),
+                            );
+                        if (event.type === "result" && event.exception)
+                            setOutput((previous) =>
+                                (previous + event.exception).slice(-65536),
+                            );
                         if (event.type === "placement")
                             setPlacements(event.widgets);
                         if (event.type === "a2ui")
-                            setUiMessages((previous) => [
-                                ...previous,
-                                ...event.messages,
-                            ]);
+                            setUiMessages((previous) =>
+                                retainWidgets([...previous, ...event.messages]),
+                            );
                     }
                 } catch {
                     setError("The API sent an invalid workspace event.");
                 }
             };
             ws.onclose = () => {
-                if (disposed) return;
+                if (disposed || socket.current !== ws) return;
                 setConnected(false);
                 setError(
                     "Connection lost. Reconnecting; submitted work may still be running.",
@@ -82,6 +140,14 @@ export function useWorkspace() {
         [connected, busy],
     );
 
+    const sendVoice = useCallback((action: "start" | "stop", sdp?: string) => {
+        if (socket.current?.readyState !== WebSocket.OPEN) return false;
+        socket.current.send(
+            JSON.stringify({ type: "voice", action, ...(sdp ? { sdp } : {}) }),
+        );
+        return true;
+    }, []);
+
     return {
         connected,
         busy,
@@ -89,5 +155,8 @@ export function useWorkspace() {
         placements,
         error,
         send,
+        sendVoice,
+        voiceEvent,
+        output,
     };
 }

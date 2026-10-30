@@ -1,8 +1,13 @@
+import json
+import asyncio
+from queue import Full, Queue
 from fastapi import FastAPI
 from pydantic import Field, BaseModel, JsonValue
 from src.shell import PythonShell
 from threading import Lock
+from collections.abc import Iterator
 from importlib.metadata import distributions
+from starlette.responses import StreamingResponse
 
 
 class Library(BaseModel):
@@ -34,6 +39,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="PyShell execution API")
     shell = PythonShell()
     lock = Lock()
+    executions: set[asyncio.Task[None]] = set()
 
     @app.get("/libraries", response_model=list[Library])
     def libraries() -> list[Library]:
@@ -50,6 +56,50 @@ def create_app() -> FastAPI:
     def execute(request: ExecutionRequest) -> dict[str, object]:
         with lock:
             return shell.execute(request.code)
+
+    @app.post("/execute/stream")
+    async def stream(request: ExecutionRequest) -> StreamingResponse:
+        """Stream a submitted execution without coupling it to the HTTP connection."""
+        queue: Queue[dict[str, object] | None] = Queue(maxsize=256)
+        disconnected = False
+
+        def emit(event: dict[str, object]) -> None:
+            nonlocal disconnected
+            if disconnected:
+                return
+            try:
+                queue.put(event, timeout=1)
+            except Full:
+                disconnected = True
+
+        def execute() -> None:
+            try:
+                with lock:
+                    result = shell.execute(request.code, on_event=emit)
+                emit({"type": "result", **{key: value for key, value in result.items() if key != "ui"}})
+            finally:
+                emit({"type": "execution_finished"})
+                if not disconnected:
+                    queue.put(None)
+
+        task = asyncio.create_task(asyncio.to_thread(execute))
+        executions.add(task)
+        task.add_done_callback(executions.discard)
+
+        def events() -> Iterator[str]:
+            nonlocal disconnected
+            try:
+                while True:
+                    event = queue.get(timeout=180)
+                    if event is None:
+                        return
+                    yield json.dumps(event, allow_nan=False) + "\n"
+                    if disconnected and queue.empty():
+                        return
+            finally:
+                disconnected = True
+
+        return StreamingResponse(events(), media_type="application/x-ndjson")
 
     @app.post("/reset", response_model=dict[str, str])
     def reset() -> dict[str, str]:

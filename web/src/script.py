@@ -1,8 +1,11 @@
 import json
 import httpx
+import asyncio
 from typing import Literal, TypedDict
 from pydantic_ai import Agent as PydanticAgent
+from web.src.events import execution_event
 from collections.abc import Callable
+from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai.models import Model
 from pydantic_ai.messages import ModelMessage
 
@@ -82,6 +85,66 @@ class RemoteShell:
     def __init__(self, url: str = "http://127.0.0.1:8000") -> None:
         """Select the execution API endpoint."""
         self.url = url.rstrip("/")
+        self.client: httpx.AsyncClient | None = None
+        self.uncertain = False
+
+    async def open(self) -> None:
+        """Open the workspace-owned execution transport."""
+        self.client = httpx.AsyncClient(base_url=self.url, timeout=httpx.Timeout(180, connect=10), trust_env=False)
+
+    async def close(self) -> None:
+        """Release the execution transport."""
+        if self.client is not None:
+            await self.client.aclose()
+            self.client = None
+
+    async def inventory(self) -> list[dict[str, str]]:
+        """Read installed packages through the asynchronous transport."""
+        if self.client is None:
+            raise RuntimeError("Execution transport is closed")
+        response = await self.client.get("/libraries")
+        response.raise_for_status()
+        return response.json()
+
+    async def stream(self, code: str, emit: Callable[[dict[str, object]], None]) -> ExecutionResult:
+        """Submit once and consume ordered output until completion is confirmed."""
+        if self.client is None:
+            raise RuntimeError("Execution transport is closed")
+        if self.uncertain:
+            raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
+        result = None
+        finished = False
+        received = 0
+        try:
+            async with asyncio.timeout(180), self.client.stream("POST", "/execute/stream", json={"code": code}) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    received += len(line.encode())
+                    if received > 16_777_216:
+                        raise RuntimeError("Execution stream exceeded 16 MiB")
+                    event = execution_event.validate_json(line).model_dump()
+                    if finished or (result is not None and event["type"] != "execution_finished"):
+                        raise RuntimeError("Execution events arrived after the final result")
+                    if event["type"] == "execution_finished":
+                        if result is None:
+                            raise RuntimeError("Execution finished without a result")
+                        finished = True
+                    elif event["type"] == "result":
+                        result = {**event, "ui": []}
+                        result.pop("type")
+                        emit(event)
+                    else:
+                        emit(event)
+            if not finished or result is None:
+                raise RuntimeError("Execution stream ended without a confirmed result")
+        except BaseException as error:
+            self.uncertain = True
+            if not isinstance(error, Exception):
+                raise
+            raise RuntimeError(
+                "Execution was not confirmed; code may already have run. Restart the execution container and web server before submitting more work."
+            ) from error
+        return result
 
     def execute(self, code: str) -> ExecutionResult:
         """Submit code once and wait for its result."""
@@ -100,6 +163,7 @@ class RemoteShell:
         """Clear the remote namespace after any active execution finishes."""
         response = httpx.post(f"{self.url}/reset", timeout=None, trust_env=False)
         response.raise_for_status()
+        self.uncertain = False
 
     def libraries(self) -> list[dict[str, str]]:
         """List packages installed in the execution environment."""
@@ -108,22 +172,24 @@ class RemoteShell:
         return response.json()
 
 
-def stream_response(
-    agent: PydanticAgent[None, str], message: str, message_history: list[ModelMessage], on_code: Callable[[str], None] | None = None
+async def stream_response(
+    agent: PydanticAgent[None, str],
+    message: str,
+    message_history: list[ModelMessage],
+    on_code: Callable[[str], None] | None = None,
+    *,
+    usage: RunUsage | None = None,
+    usage_limits: UsageLimits | None = None,
 ) -> tuple[str, list[ModelMessage]]:
     """Stream generated code to the UI and return only a completed response."""
-    stream = agent.run_stream_sync(message, message_history=message_history)
-
-    # Partial code is display-only until the model finishes successfully.
-    for text in stream.stream_text(delta=True, debounce_by=None):
-        if on_code is not None:
-            on_code(text)
-
-    # Only a normally completed model response may reach execution.
-    code = stream.get_output()
-    if stream.response.finish_reason != "stop":
-        raise RuntimeError(f"Model response {stream.response.finish_reason}; code was not executed.")
-    return code, stream.all_messages()
+    async with agent.run_stream(message, message_history=message_history, usage=usage, usage_limits=usage_limits) as stream:
+        async for text in stream.stream_text(delta=True, debounce_by=None):
+            if on_code is not None:
+                on_code(text)
+        code = await stream.get_output()
+        if stream.response.finish_reason != "stop":
+            raise RuntimeError(f"Model response {stream.response.finish_reason}; code was not executed.")
+        return code, stream.all_messages()
 
 
 class Agent:
@@ -149,7 +215,7 @@ class Agent:
 
     def _instructions(self) -> str:
         if self._libraries is None:
-            self._libraries = self.shell.libraries()
+            raise RuntimeError("Execution library inventory has not been loaded")
         return (
             INSTRUCTIONS
             + "\nInstalled packages in the execution environment (distribution names may differ from import names):\n"
@@ -164,9 +230,21 @@ class Agent:
         self.pending_feedback = None
 
     def run(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> None:
-        """Execute model responses until the task signals completion."""
+        """Run a task from a synchronous caller."""
+        asyncio.run(self.arun(instruction, on_event))
+
+    async def arun(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> str:
+        """Generate complete code and consume live execution feedback."""
+        if self._libraries is None:
+            self._libraries = (
+                await self.shell.inventory() if self.shell.client is not None else await asyncio.to_thread(self.shell.libraries)
+            )
+        emit = on_event if on_event is not None else lambda _event: None
+        usage = RunUsage()
+        limits = UsageLimits(request_limit=50, total_tokens_limit=200_000)
+        outputs = []
         message = instruction
-        while True:
+        for _ in range(10):
             prompt = message
             if self.pending_feedback is not None:
                 prompt = self.pending_feedback + "\n" + message
@@ -177,15 +255,17 @@ class Agent:
                     on_event({"type": "code_start"})
 
                 # Stream code for display without executing incomplete responses.
-                code, history = stream_response(
+                code, history = await stream_response(
                     self.agent,
                     prompt,
                     self.message_history,
-                    on_code=(lambda text: on_event({"type": "code_delta", "text": text})) if on_event is not None else None,
+                    on_code=lambda text: emit({"type": "code_delta", "text": text}),
+                    usage=usage,
+                    usage_limits=limits,
                 )
 
             # Record that the interrupted response never reached the container.
-            except (Exception, KeyboardInterrupt) as error:
+            except (Exception, KeyboardInterrupt, asyncio.CancelledError) as error:
                 feedback = json.dumps({"stream_error": f"{type(error).__name__}: {error}", "executed": False})
 
                 # Keep prior execution feedback alongside this unexecuted request.
@@ -201,15 +281,26 @@ class Agent:
             # Execute once; an ambiguous transport failure must not trigger a retry.
             if on_event is not None:
                 on_event({"type": "execution_start"})
-            result = self.shell.execute(code)
+            try:
+                if self.shell.client is not None:
+                    result = await self.shell.stream(code, emit)
+                else:
+                    result = await asyncio.to_thread(self.shell.execute, code)
+            except BaseException:
+                self.message_history = history
+                self.pending_feedback = json.dumps(
+                    {"execution_error": "Execution was not confirmed; earlier changes may have applied. Do not replay."}
+                )
+                raise
 
             # Retain the completed exchange before deciding whether to continue.
             self.pending_feedback = None
             self.message_history = history
             message = json.dumps(result)
+            outputs.append(result["stdout"] + result["stderr"] + (result["exception"] or ""))
 
             # Preserve content and placement ordering from the execution API.
-            if on_event is not None:
+            if on_event is not None and self.shell.client is None:
                 on_event({"type": "result", **{key: value for key, value in result.items() if key != "ui"}})
 
                 messages = []
@@ -235,4 +326,8 @@ class Agent:
             # Carry final execution feedback into the next user turn.
             if result["done"]:
                 self.pending_feedback = message
-                return
+                return "\n".join(outputs) or "Task completed without printed output."
+        self.pending_feedback = (
+            message + "\nTask stopped at the ten-execution limit; completion was not confirmed. Do not replay earlier mutations."
+        )
+        raise RuntimeError("Task reached the ten-execution limit; earlier changes may have applied.")

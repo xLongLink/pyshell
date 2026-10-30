@@ -130,3 +130,29 @@ test("reconnect snapshots replace widget history and keep commands blocked until
     reconnected.receive({ type: "state", busy: true });
     expect(reconnected.close).toHaveBeenCalledOnce();
 });
+
+test("execution output streams without duplicating final output and voice controls work while busy", () => {
+    const { result } = renderHook(useWorkspace);
+    const socket = sockets[0];
+    socket.receive({ type: "snapshot", events: [], busy: true, model: "test" });
+    socket.receive({ type: "stdout_delta", text: "first\n" });
+    socket.receive({ type: "stderr_delta", text: "warning\n" });
+    socket.receive({
+        type: "result",
+        stdout: "first\n",
+        stderr: "warning\n",
+        exception: null,
+        done: true,
+    });
+    expect(result.current.output).toBe("first\nwarning\n");
+    expect(result.current.sendVoice("start", "offer")).toBe(true);
+    expect(socket.send).toHaveBeenLastCalledWith(
+        JSON.stringify({ type: "voice", action: "start", sdp: "offer" }),
+    );
+    socket.receive({ type: "voice", name: "answer", sdp: "answer" });
+    expect(result.current.voiceEvent).toEqual({
+        type: "voice",
+        name: "answer",
+        sdp: "answer",
+    });
+});

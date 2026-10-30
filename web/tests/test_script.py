@@ -1,8 +1,9 @@
 import json
 import httpx
 import pytest
+import asyncio
 from pydantic_ai import Agent as PydanticAgent
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, AsyncMock, patch
 from web.src.script import Agent, RemoteShell, stream_response
 from importlib.metadata import version
 
@@ -68,7 +69,7 @@ def test_execution_transport_failure_is_not_retried(monkeypatch):
 def test_streams_code_to_callback_without_console_logs(model_for, capsys):
     agent = PydanticAgent(model_for(["print(", "'hello')"]))
     chunks = []
-    code, history = stream_response(agent, "say hello", [], on_code=chunks.append)
+    code, history = asyncio.run(stream_response(agent, "say hello", [], on_code=chunks.append))
     output = capsys.readouterr()
     assert "".join(chunks) == "print('hello')"
     assert output.out == ""
@@ -80,7 +81,7 @@ def test_streams_code_to_callback_without_console_logs(model_for, capsys):
 def test_stream_failure_propagates_without_timing(model_for, capsys):
     agent = PydanticAgent(model_for(["value = 42", ConnectionError("disconnected")]))
     with pytest.raises(ConnectionError, match="disconnected"):
-        stream_response(agent, "set value", [])
+        asyncio.run(stream_response(agent, "set value", []))
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
@@ -121,6 +122,7 @@ def test_requests_priority_processing(model_for, remote_shell):
 
 def test_agent_does_not_log_code_or_results(model_for, capsys):
     shell = Mock()
+    shell.client = None
     shell.libraries.return_value = []
     shell.execute.return_value = {"stdout": "result\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
     agent = Agent(model_for(["print('result')\ndone()"]), shell=shell)
@@ -161,12 +163,17 @@ def test_incomplete_response_never_executes(model_for, remote_shell):
     agent = Agent(model_for(["value = 42\n"]), shell=remote_shell)
     stream = Mock()
     stream.stream_text.return_value = iter(["value = 42\n"])
-    stream.get_output.return_value = "value = 42\n"
+    stream.get_output = AsyncMock(return_value="value = 42\n")
     stream.response.finish_reason = "length"
 
     # A truncated response must not reach the execution API.
-    with patch.object(agent.agent, "run_stream_sync") as run:
-        run.return_value = stream
+    async def chunks(*args, **kwargs):
+        yield "value = 42\n"
+
+    stream.stream_text = chunks
+    with patch.object(agent.agent, "run_stream") as run:
+        run.return_value.__aenter__ = AsyncMock(return_value=stream)
+        run.return_value.__aexit__ = AsyncMock(return_value=False)
         with pytest.raises(RuntimeError, match="Model response length"):
             agent.run("set value")
     assert "NameError" in remote_shell.execute("print(value)")["exception"]

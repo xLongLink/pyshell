@@ -1,4 +1,5 @@
 import os
+import httpx
 import pytest
 from main import create_app
 from contextlib import asynccontextmanager
@@ -36,7 +37,13 @@ def remote_shell(api_client, monkeypatch):
 
     monkeypatch.setattr("web.src.script.httpx.post", post)
     monkeypatch.setattr("web.src.script.httpx.get", get)
-    return RemoteShell("http://testserver")
+    shell = RemoteShell("http://testserver")
+
+    async def open_transport():
+        shell.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=api_client.app), base_url=shell.url)
+
+    monkeypatch.setattr(shell, "open", open_transport)
+    return shell
 
 
 class CompletedFunctionModel(FunctionModel):
