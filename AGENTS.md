@@ -2,22 +2,29 @@
 
 - AVOID extra comments that a human wouldn't add or is inconsistent with the rest of the file
 - MINIMIZE comment to the bare minimun.
-
+- DO NOT add content to markdown files, only fix what is outdated or wrong
 
 ## Project layout
 
 ```bash
 ├── api/
-│   ├── src/api/       # Persistent Python namespace
+│   ├── main.py        # FastAPI application and endpoints
+│   ├── src/           # Execution API and persistent Python namespace
+│   │   └── ui/        # One module per UI element
 │   ├── tests/         # Server tests
 │   ├── Dockerfile     # Execution container image
-│   ├── Dockerfile.dockerignore
+│   ├── .dockerignore
 │   ├── pyproject.toml # API dependencies
 │   ├── uv.lock
 │   └── compose.yaml   # Execution environment configuration
 ├── web/
-│   ├── script.py      # Terminal client
-│   ├── tests/         # Terminal client tests
+│   ├── main.py        # Browser-facing FastAPI app and shared workspace
+│   ├── src/
+│   │   ├── agents/    # Execution agent loop and voice assistant
+│   │   ├── shell.py   # Execution container client
+│   │   ├── settings.py # Shared application settings
+│   │   └── ui/        # Self-contained React frontend, npm configuration, and tests
+│   ├── tests/         # Agent and server tests
 │   ├── pyproject.toml # Client dependencies
 │   └── uv.lock
 ├── README.md          # Setup and usage

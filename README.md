@@ -2,78 +2,70 @@
 
 <img src="banner.png" alt="PyShell banner" />
 
-# Python agent shell
+<h3 >
 
-Give instructions. Watch the agent write and run Python inside Docker.
+Python in the shell
+
+</h3 >
+
+Give instructions in your browser. Watch the agent write and run Python inside Docker.
 
 </div>
 
+
+<br />
+
 ## What it does
 
-- **Persistent sessions:** Variables, imports, and conversation context carry over between instructions.
-- **Execution feedback:** Output and errors go back to the model so it can continue or correct mistakes.
-- **Custom environment:** Install Python libraries at container startup.
+- 🧠 **Persistent sessions:** Variables, imports, and conversation context carry over between instructions.
+- 🔄 **Execution feedback:** Output and errors go back to the model so it can continue or correct mistakes.
+- 📦 **Custom environment:** Install Python libraries at container startup.
+- 📊 **Rich results:** A2UI renders Plotly-style figures with lines, markers, bars, and pies alongside code and printed output.
+- 🎙️ **Voice and text:** Speak to the voice assistant or submit text instructions. Both use the same persistent workspace.
+
+
+<br />
 
 ## Getting started
 
-Requirements: Python 3.10+, [uv](https://docs.astral.sh/uv/), Make, Docker,
-Docker Compose v2.24+, and an OpenAI API key.
-
-From the repository root:
 
 ```bash
-cp web/.env.sample web/.env
-# Edit web/.env and set OPENAI_API_KEY.
-make up
+docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/xlonglink/pyshell:latest
 ```
+See [api/pyproject.toml](api/pyproject.toml) for default libraries and version constraints. Pass `-e PYSHELL_REQUIREMENTS=httpx2` to `docker run` to install extra libraries.
 
-Submit instructions in the terminal. Press Ctrl-C to exit the client; stop the
-API with `make down`. Workspace files are preserved.
-
-Configure the model, processing tier, and execution server URL in
-[`web/.env`](web/.env.sample). The model must be available to your OpenAI account;
-Priority processing may cost more.
+<br />
 
 ## How it works
 
-The terminal client sends instructions to the model and runs generated Python
-through a local execution API. Code and output appear in the terminal.
+The browser connects to the web server over `/ws`. Text instructions and voice-delegated tasks share one execution agent, Python namespace, and widget layout. Only one task runs at a time; closing a tab or ending a call does not cancel submitted work. Reconnecting restores the workspace without resubmitting it.
 
-`POST /` accepts Python source, not natural-language instructions:
+Generated code executes only after the model response completes successfully. The Docker execution API streams stdout, stderr, and widget updates over `/execute/stream`; the web server forwards widget updates, not execution output, to connected tabs. Execution feedback goes back to the agent until it calls `done()` or reaches its task budget.
 
-```bash
-curl http://127.0.0.1:8000/ -H 'Content-Type: application/json' \
-  -d '{"code":"value = 42\nprint(value)"}'
-```
+Voice uses browser microphone audio over WebRTC and server-side OpenAI Realtime signaling. Allow microphone access on localhost or HTTPS. Provider credentials stay on the server. Voice conversation lasts for the call; Python state and the execution agent's history persist across calls and text turns.
 
-```json
-{"stdout":"42\n","stderr":"","exception":null,"done":false}
-```
+The voice assistant can check the current task and execution phase, inspect chart titles and types, and recall the last eight task summaries across calls. Ask “what are you doing?” or “change the sales chart to a bar chart.” Say “end the call” to hang up without cancelling submitted work. Steering or stopping running Python is not supported.
 
-Use `print()` for results. `GET /` reports health; `POST /reset` clears the Python
-namespace. The terminal's `/reset` command also clears the conversation.
+Configure `OPENAI_API_KEY` in `web/.env`. Optional settings are `OPENAI_MODEL` and `OPENAI_REALTIME_MODEL` (default: `gpt-realtime`). Voice requires access to the realtime model. The web server requires Python 3.11 or newer.
 
-All requests share one session, and execution is serialized. Run only one server
-worker. Reset does not undo file writes or other side effects. Keep the execution
-API local: it runs arbitrary Python without authentication.
+Execution stream failures are not retried: code may already have run. Restart both the execution container and web server before submitting more work after an unconfirmed execution. A transport timeout does not terminate Python; restarting the container does. Listener queues are bounded; reconnect snapshots contain current widgets, not event history.
 
-## Customize the environment
+<br />
 
-Pass extra packages as newline-separated requirements (Bash syntax):
+
+## Development
+
+Run from the repository root:
 
 ```bash
-PYSHELL_REQUIREMENTS=$'pandas==2.3.3\nnumpy\nrequests' make up
+make up         # Setup the local server
+make down       # Stop and remove the containers
+make test       # Testing
+make format     # Format the code
+make logs       # Show the container logs
 ```
 
-Without `PYSHELL_REQUIREMENTS`, no extra packages are installed. Packages are
-installed at container startup; installation failure prevents launch.
-
-See [Contributing](CONTRIBUTING.md#dependencies) for dependency and container details.
-
-## Contributing
-
-Run tests with `make test`. See [CONTRIBUTING.md](CONTRIBUTING.md) for development,
-workspace access, and release instructions.
+<br />
 
 ---
 

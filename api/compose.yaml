@@ -11,7 +11,6 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     init: true
-    read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 128
@@ -22,7 +21,7 @@ services:
     volumes:
       - workspace:/workspace
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=2)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
       interval: 2s
       timeout: 3s
       retries: 30

@@ -1,51 +1,53 @@
+import os
+import httpx
 import pytest
-from script import RemoteShell
 from api.main import create_app
-from contextlib import asynccontextmanager
+from importlib import import_module
+from unittest.mock import patch
+from web.src.shell import RemoteShell
 from fastapi.testclient import TestClient
+from pydantic_ai.messages import TextPart, ModelResponse
 from pydantic_ai.models.function import FunctionModel
+from api.tests.geography_provider import install_geography_provider
+
+with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
+    import_module("web.src.settings")
 
 
 @pytest.fixture
-def api_client():
-    with TestClient(create_app()) as client:
+def execution_app(monkeypatch, tmp_path):
+    install_geography_provider(monkeypatch, tmp_path)
+    return create_app()
+
+
+@pytest.fixture
+def api_client(execution_app):
+    with TestClient(execution_app) as client:
         yield client
 
 
 @pytest.fixture
-def remote_shell(api_client, monkeypatch):
-    def post(url, **kwargs):
-        kwargs.pop("timeout", None)
-        kwargs.pop("trust_env", None)
-        return api_client.post(url, **kwargs)
-
-    monkeypatch.setattr("script.httpx.post", post)
-    return RemoteShell("http://testserver")
-
-
-class CompletedFunctionModel(FunctionModel):
-    @asynccontextmanager
-    async def request_stream(self, *args, **kwargs):
-        async with super().request_stream(*args, **kwargs) as response:
-            response.finish_reason = "stop"
-            yield response
+def remote_shell(execution_app):
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=execution_app), base_url="http://testserver")
+    return RemoteShell(client)
 
 
 @pytest.fixture
 def model_for():
-    def build(*responses, requests=None):
+    def build(*responses, requests=None, finish_reason="stop"):
         responses = iter(responses)
 
-        async def stream(messages, info):
+        async def respond(messages, info):
             if requests is not None:
                 requests.append((list(messages), info))
 
-            # Responses may fail after yielding partial code.
+            content = []
             for chunk in next(responses):
                 if isinstance(chunk, BaseException):
                     raise chunk
-                yield chunk
+                content.append(chunk)
+            return ModelResponse(parts=[TextPart("".join(content))], finish_reason=finish_reason)
 
-        return CompletedFunctionModel(stream_function=stream)
+        return FunctionModel(function=respond)
 
     return build
