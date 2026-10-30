@@ -5,6 +5,7 @@ import {
     render,
     screen,
     waitFor,
+    within,
 } from "@testing-library/react";
 import { Results } from "../components/results";
 import { ChartContainer } from "../components/ui/chart";
@@ -269,8 +270,17 @@ test.each(["bar", "scatter", "pie"] as const)(
             expect(path?.match(/M/g)).toHaveLength(2);
         }
         if (type === "pie") {
-            expect(screen.getAllByText("Apples")).toHaveLength(1);
-            expect(screen.queryByText("Pears")).toBeNull();
+            const legend = within(
+                container.querySelector<HTMLElement>(
+                    ".recharts-legend-wrapper",
+                )!,
+            );
+            expect(legend.getByText("Apples")).toBeTruthy();
+            expect(legend.getByText("Oranges")).toBeTruthy();
+            expect(legend.queryByText("Pears")).toBeNull();
+            expect(
+                container.querySelectorAll(".recharts-pie-sector"),
+            ).toHaveLength(2);
         }
     },
 );
@@ -710,6 +720,7 @@ test.each(["scatter", "bar", "pie"] as const)(
         expect(legend.classList.contains("max-h-16")).toBe(true);
         expect(legend.classList.contains("overflow-hidden")).toBe(true);
         expect(legend.classList.contains("gap-y-2")).toBe(true);
+        expect(legend.classList.contains("pt-4")).toBe(true);
         expect(legend.children).toHaveLength(20);
         for (const item of legend.children) {
             expect(item.classList.contains("h-5")).toBe(true);

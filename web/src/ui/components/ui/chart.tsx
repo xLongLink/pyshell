@@ -222,8 +222,7 @@ function ChartLegendContent({
     return (
         <div
             className={cn(
-                "flex max-h-16 flex-wrap items-center justify-center gap-x-4 gap-y-2 overflow-hidden",
-                "pt-3",
+                "flex max-h-16 flex-wrap items-center justify-center gap-x-4 gap-y-2 overflow-hidden pt-4",
                 className,
             )}
         >

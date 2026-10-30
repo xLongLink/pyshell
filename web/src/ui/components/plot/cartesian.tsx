@@ -141,11 +141,7 @@ export function Cartesian({
                     }
                 />
                 {layout.showlegend && (
-                    <ChartLegend
-                        content={
-                            <ChartLegendContent className="flex-wrap gap-x-4 gap-y-2 pt-4" />
-                        }
-                    />
+                    <ChartLegend content={<ChartLegendContent />} />
                 )}
                 {data.map((trace, index) => {
                     const key = `trace_${index}`;

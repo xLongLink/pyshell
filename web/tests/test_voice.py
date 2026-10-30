@@ -135,6 +135,52 @@ def test_voice_rejects_a_task_while_text_work_is_running(monkeypatch):
     asyncio.run(run())
 
 
+def test_reconnection_after_failure_keeps_old_tools_disconnected(monkeypatch):
+    class FailedRealtime(Realtime):
+        async def __anext__(self):
+            raise RuntimeError("Sideband failed")
+
+    async def run():
+        async def execute(instruction, emit):
+            return "Confirmed after reconnect"
+
+        workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), arun=execute))
+        failed = FailedRealtime()
+        old_tools = {}
+        install_agent(monkeypatch, failed, old_tools)
+        events = []
+
+        async def emit(event):
+            events.append(event)
+
+        call = voice.VoiceSession(None, workspace, emit)
+        await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
+        await call.task
+        assert any(event.get("name") == "error" for event in events)
+        assert events[-1]["name"] == "closed"
+        assert not workspace.results
+        failed.hang_up.assert_awaited_once_with("provider")
+
+        realtime = Realtime()
+        tools = {}
+        install_agent(monkeypatch, realtime, tools)
+        await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="new offer"))
+        try:
+            await asyncio.wait_for(realtime.entered.wait(), 1)
+            assert "not connected" in await old_tools["worker"]("Stale task")
+            assert workspace.events == []
+            assert "submitted" in await tools["worker"]("New task")
+            assert await workspace.task == "Confirmed after reconnect"
+            await asyncio.wait_for(realtime.delivered.wait(), 1)
+            assert any("Confirmed after reconnect" in message for message in realtime.messages)
+            assert not any("Confirmed after reconnect" in message for message in failed.messages)
+        finally:
+            await call.stop()
+        assert not workspace.results
+
+    asyncio.run(run())
+
+
 def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(monkeypatch):
     async def run():
         realtime = Realtime()

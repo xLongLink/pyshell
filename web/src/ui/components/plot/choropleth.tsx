@@ -21,7 +21,6 @@ const format = new Intl.NumberFormat(undefined, {
 export default function Choropleth(props: MapProps) {
     const geography = props.trace.geography;
     const [result, setResult] = useState<{
-        geography: string;
         boundaries?: GeographyData;
         error?: boolean;
     }>();
@@ -30,17 +29,17 @@ export default function Choropleth(props: MapProps) {
         let cancelled = false;
         loadGeography(geography).then(
             (boundaries) => {
-                if (!cancelled) setResult({ geography, boundaries });
+                if (!cancelled) setResult({ boundaries });
             },
             () => {
-                if (!cancelled) setResult({ geography, error: true });
+                if (!cancelled) setResult({ error: true });
             },
         );
         return () => {
             cancelled = true;
         };
     }, [geography, attempt]);
-    if (result?.geography === geography && result.error) {
+    if (result?.error) {
         return (
             <div role="alert" className="py-8 text-sm text-muted-foreground">
                 Unable to load map boundaries.{" "}
@@ -56,7 +55,7 @@ export default function Choropleth(props: MapProps) {
             </div>
         );
     }
-    if (result?.geography !== geography || !result.boundaries) {
+    if (!result?.boundaries) {
         return (
             <p role="status" className="py-8 text-sm text-muted-foreground">
                 Loading map…
@@ -76,13 +75,7 @@ export default function Choropleth(props: MapProps) {
             </p>
         );
     }
-    return (
-        <BoundaryMap
-            key={geography}
-            {...props}
-            boundaries={result.boundaries}
-        />
-    );
+    return <BoundaryMap {...props} boundaries={result.boundaries} />;
 }
 
 function BoundaryMap({

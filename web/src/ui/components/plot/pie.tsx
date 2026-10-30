@@ -56,12 +56,7 @@ export function PiePlot({
                 />
                 {showlegend && (
                     <ChartLegend
-                        content={
-                            <ChartLegendContent
-                                nameKey="category"
-                                className="flex-wrap gap-x-4 gap-y-2 pt-4"
-                            />
-                        }
+                        content={<ChartLegendContent nameKey="category" />}
                     />
                 )}
             </PieChart>
