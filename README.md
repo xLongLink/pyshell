@@ -32,7 +32,7 @@ Give instructions in your browser. Watch the agent write and run Python inside D
 ```bash
 docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/xlonglink/pyshell:latest
 ```
-See [api/pyproject.toml](api/pyproject.toml) for default libraries and version constraints.  Use `PYSHELL_REQUIREMENTS=$'httpx2\'` tp install extra libraries
+See [api/pyproject.toml](api/pyproject.toml) for default libraries and version constraints. Pass `-e PYSHELL_REQUIREMENTS=httpx2` to `docker run` to install extra libraries.
 
 <br />
 
@@ -40,7 +40,7 @@ See [api/pyproject.toml](api/pyproject.toml) for default libraries and version c
 
 The browser connects to the web server over `/ws`. Text instructions and voice-delegated tasks share one execution agent, Python namespace, and widget layout. Only one task runs at a time; closing a tab or ending a call does not cancel submitted work. Reconnecting restores the workspace without resubmitting it.
 
-Generated code executes only after the model response completes successfully. The Docker execution API streams stdout, stderr, and widget updates over `/execute/stream`; the web server forwards them to connected tabs. Execution feedback goes back to the agent until it calls `done()` or reaches its task budget.
+Generated code executes only after the model response completes successfully. The Docker execution API streams stdout, stderr, and widget updates over `/execute/stream`; the web server forwards widget updates, not execution output, to connected tabs. Execution feedback goes back to the agent until it calls `done()` or reaches its task budget.
 
 Voice uses browser microphone audio over WebRTC and server-side OpenAI Realtime signaling. Allow microphone access on localhost or HTTPS. Provider credentials stay on the server. Voice conversation lasts for the call; Python state and the execution agent's history persist across calls and text turns.
 
@@ -48,7 +48,7 @@ The voice assistant can check the current task and execution phase, inspect char
 
 Configure `OPENAI_API_KEY` in `web/.env`. Optional settings are `OPENAI_MODEL` and `OPENAI_REALTIME_MODEL` (default: `gpt-realtime`). Voice requires access to the realtime model. The web server requires Python 3.11 or newer.
 
-Execution stream failures are not retried: code may already have run. Restart both the execution container and web server before submitting more work after an unconfirmed execution. A transport timeout does not terminate Python; restarting the container does. Browser transcripts and listener queues are bounded; current widgets remain available in reconnect snapshots.
+Execution stream failures are not retried: code may already have run. Restart both the execution container and web server before submitting more work after an unconfirmed execution. A transport timeout does not terminate Python; restarting the container does. Listener queues are bounded; reconnect snapshots contain current widgets, not event history.
 
 <br />
 
@@ -59,7 +59,7 @@ Run from the repository root:
 
 ```bash
 make up         # Setup the local server
-make down       # Remove and cleanup the docker image
+make down       # Stop and remove the containers
 make test       # Testing
 make format     # Format the code
 make logs       # Show the container logs

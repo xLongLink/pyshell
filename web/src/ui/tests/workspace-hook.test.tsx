@@ -57,9 +57,6 @@ test("workspace restores widgets and handles live placement", () => {
         type: "snapshot",
         events: [
             { type: "instruction", text: "Plot sales" },
-            { type: "stdout_delta", text: "Sales ready" },
-            { type: "stderr_delta", text: "warning" },
-            { type: "result", exception: "Earlier execution failed" },
             { type: "a2ui", messages },
         ],
         busy: false,
@@ -93,34 +90,18 @@ test("workspace restores widgets and handles live placement", () => {
     expect(result.current.placements).toEqual({});
 });
 
-test("reconnect snapshots replace widget history and keep commands blocked until ready", () => {
+test("reconnect snapshots replace widget history and stale sockets cannot change state", () => {
     vi.useFakeTimers();
     const { result, unmount } = renderHook(useWorkspace);
     const socket = sockets[0];
-    let sent = false;
-    act(() => {
-        sent = result.current.send("Create");
-    });
-    expect(sent).toBe(false);
+    expect(result.current.connected).toBe(false);
     expect(socket.send).not.toHaveBeenCalled();
     socket.receive({
         type: "snapshot",
         events: [],
         busy: false,
     });
-    act(() => {
-        sent = result.current.send("Create");
-    });
-    expect(sent).toBe(true);
-    expect(result.current.busy).toBe(true);
-    expect(socket.send).toHaveBeenCalledExactlyOnceWith(
-        JSON.stringify({ type: "run", instruction: "Create" }),
-    );
-    act(() => {
-        sent = result.current.send("Wait");
-    });
-    expect(sent).toBe(false);
-    expect(socket.send).toHaveBeenCalledOnce();
+    expect(result.current.connected).toBe(true);
     act(() => socket.onclose?.());
     expect(result.current.connected).toBe(false);
     act(() => vi.advanceTimersByTime(1500));
@@ -132,43 +113,52 @@ test("reconnect snapshots replace widget history and keep commands blocked until
         placements: { sales: { pinned: false } },
     });
     expect(result.current.connected).toBe(true);
-    expect(result.current.busy).toBe(false);
     expect(result.current.error).toBe("");
     expect(result.current.uiMessages).toHaveLength(2);
+    const restored = result.current;
+    socket.receive({ type: "error", text: "Stale connection" });
+    socket.receive({ type: "placement", widgets: {} });
+    expect(result.current).toBe(restored);
     reconnected.readyState = 3;
     act(() => {
-        sent = result.current.send("Disconnected");
+        expect(result.current.sendVoice("start", "offer")).toBe(false);
     });
-    expect(sent).toBe(false);
-    expect(result.current.busy).toBe(false);
     expect(reconnected.send).not.toHaveBeenCalled();
     unmount();
     reconnected.receive({ type: "state", busy: true });
     expect(reconnected.close).toHaveBeenCalledOnce();
 });
 
-test("execution events leave browser state unchanged and voice controls work while busy", () => {
-    const { result } = renderHook(useWorkspace);
+test("unmount cancels a pending reconnect", () => {
+    vi.useFakeTimers();
+    const { unmount } = renderHook(useWorkspace);
     const socket = sockets[0];
-    socket.receive({ type: "snapshot", events: [], busy: true });
-    const state = result.current;
-    socket.receive({ type: "stdout_delta", text: "first\n" });
-    socket.receive({ type: "stderr_delta", text: "warning\n" });
-    socket.receive({
-        type: "result",
-        exception: null,
-    });
-    expect(result.current).toBe(state);
-    expect(result.current.busy).toBe(true);
-    expect(result.current.error).toBe("");
-    expect(result.current.sendVoice("start", "offer")).toBe(true);
-    expect(socket.send).toHaveBeenLastCalledWith(
-        JSON.stringify({ type: "voice", action: "start", sdp: "offer" }),
-    );
-    socket.receive({ type: "voice", name: "answer", sdp: "answer" });
-    expect(result.current.voiceEvent).toEqual({
-        type: "voice",
-        name: "answer",
-        sdp: "answer",
-    });
+    act(() => socket.onclose?.());
+    unmount();
+    act(() => vi.advanceTimersByTime(1500));
+    expect(sockets).toHaveLength(1);
+    expect(socket.close).toHaveBeenCalledOnce();
 });
+
+test.each([false, true])(
+    "workspace busy=%s does not block voice controls",
+    (busy) => {
+        const { result } = renderHook(useWorkspace);
+        const socket = sockets[0];
+        socket.receive({ type: "snapshot", events: [], busy });
+        const state = result.current;
+        socket.receive({ type: "state", busy: !busy });
+        expect(result.current).toBe(state);
+        expect(result.current.error).toBe("");
+        expect(result.current.sendVoice("start", "offer")).toBe(true);
+        expect(socket.send).toHaveBeenLastCalledWith(
+            JSON.stringify({ type: "voice", action: "start", sdp: "offer" }),
+        );
+        socket.receive({ type: "voice", name: "answer", sdp: "answer" });
+        expect(result.current.voiceEvent).toEqual({
+            type: "voice",
+            name: "answer",
+            sdp: "answer",
+        });
+    },
+);

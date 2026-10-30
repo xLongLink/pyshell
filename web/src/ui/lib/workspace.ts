@@ -11,12 +11,6 @@ export const eventSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("a2ui"), messages: a2uiBatchSchema }),
     z.object({ type: z.literal("placement"), widgets: placementsSchema }),
     z.object({ type: z.literal("instruction"), text: z.string() }),
-    z.object({ type: z.literal("stdout_delta"), text: z.string() }),
-    z.object({ type: z.literal("stderr_delta"), text: z.string() }),
-    z.object({
-        type: z.literal("result"),
-        exception: z.string().nullable(),
-    }),
     z.object({ type: z.literal("error"), text: z.string() }),
     z.object({ type: z.literal("state"), busy: z.boolean() }),
 ]);

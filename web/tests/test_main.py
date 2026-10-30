@@ -147,7 +147,7 @@ def test_geography_proxy_serves_backend_data_and_cache_headers_without_execution
         assert response.headers[name] == upstream.headers[name]
     assert requests == []
     assert workspace.surfaces == {}
-    assert workspace.events == []
+    assert workspace.snapshot()["events"] == []
     assert workspace.agent.shell.uncertain is True
 
 
@@ -187,9 +187,11 @@ def test_browser_executes_and_reconnects_without_replaying(browser_api):
         assert socket.receive_json()["type"] == "snapshot"
         socket.send_json({"type": "run", "instruction": "print a result"})
         events = receive_until_idle(socket)
-        assert not any(event["type"] in {"code_delta", "done", "code_start", "execution_start"} for event in events)
-        assert {"type": "result", "exception": None} in events
-        assert "".join(event["text"] for event in events if event["type"] == "stdout_delta") == "browser result\n"
+        assert not any(
+            event["type"] in {"code_delta", "done", "code_start", "execution_start", "stdout_delta", "stderr_delta", "result"}
+            for event in events
+        )
+        assert {"type": "instruction", "text": "print a result"} in events
         assert events[-1] == {"type": "state", "busy": False}
         assert all("run_id" not in event for event in events)
         feedback = json.loads(client.app.state.workspace.agent.pending_feedback)
@@ -200,8 +202,7 @@ def test_browser_executes_and_reconnects_without_replaying(browser_api):
     with client.websocket_connect("/ws", headers={"origin": "http://127.0.0.1:5180"}) as socket:
         snapshot = socket.receive_json()
         assert snapshot["busy"] is False
-        assert {"type": "result", "exception": None} in snapshot["events"]
-        assert "".join(event["text"] for event in snapshot["events"] if event["type"] == "stdout_delta") == "browser result\n"
+        assert snapshot["events"] == []
         assert "model" not in snapshot
         assert "run_id" not in snapshot
         assert len(requests) == 1
@@ -239,7 +240,8 @@ def test_browser_reuses_the_provider_event_loop(browser_api, monkeypatch):
         # Consecutive turns must reuse the application's event loop.
         for instruction in ("first", "second"):
             socket.send_json({"type": "run", "instruction": instruction})
-            assert {"type": "result", "exception": None} in receive_until_idle(socket)
+            assert receive_until_idle(socket)[-1] == {"type": "state", "busy": False}
+            assert client.app.state.workspace.status()["latest_outcome"]["outcome"] == "completed"
     assert len(requests) == 2
     assert len(threads) == 2
     assert threads[0] == threads[1]
@@ -275,8 +277,8 @@ def test_python_widgets_stream_and_replay(browser_api, model_for, remote_shell):
 
         # The replayed payload must match the Python figure's serialized content.
         assert ui["messages"][1]["updateComponents"]["components"][0]["data"] == [{"type": "bar", "name": "", "x": ["Apples"], "y": [42]}]
-        assert {"type": "result", "exception": None} in events
-        assert "".join(event["text"] for event in events if event["type"] == "stdout_delta") == "Sales ready\n"
+        assert not any(event["type"] in {"stdout_delta", "stderr_delta", "result"} for event in events)
+        assert json.loads(client.app.state.workspace.agent.pending_feedback)["stdout"] == "Sales ready\n"
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert ui in socket.receive_json()["events"]
 
@@ -344,13 +346,11 @@ def test_placement_history_is_not_retained_but_reconnect_and_live_events_are_cur
             {"sales": {"pinned": True}},
         ]
 
-    # Placement is sent live but kept out of retained transcript history.
-    history = [event for event in events if event["type"] not in {"state", "placement", "a2ui"}]
+    # Placement is sent live and snapshots use current state.
     content = [event for event in events if event["type"] == "a2ui"]
-    assert workspace.events == history
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         snapshot = socket.receive_json()
-        assert snapshot["events"] == history + content
+        assert snapshot["events"] == content
         assert snapshot["placements"] == {"sales": {"pinned": True}}
 
         # Removal must preserve the ordering of preceding placement commands.
@@ -369,11 +369,9 @@ def test_placement_history_is_not_retained_but_reconnect_and_live_events_are_cur
         ]
 
     # Reconnection uses the latest placement map, not obsolete placement events.
-    history += [event for event in events if event["type"] not in {"state", "placement", "a2ui"}]
-    assert workspace.events == history
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         snapshot = socket.receive_json()
-        assert snapshot["events"] == history
+        assert snapshot["events"] == []
         assert snapshot["placements"] == {}
 
 
@@ -544,7 +542,8 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
             # The disconnected tab's work must finish without accepting overlap.
             release.set()
             events = receive_until_idle(socket)
-            assert {"type": "result", "exception": None} in events
+            assert events[-1] == {"type": "state", "busy": False}
+            assert client.app.state.workspace.status()["latest_outcome"]["result"] == "Finished"
             assert finished.is_set()
     finally:
         release.set()

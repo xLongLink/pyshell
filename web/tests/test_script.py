@@ -2,12 +2,11 @@ import json
 import httpx
 import pytest
 import asyncio
-from pydantic_ai import Agent as PydanticAgent
 from unittest.mock import AsyncMock, patch
 from web.src.shell import RemoteShell
-from pydantic_ai.usage import RunUsage, UsageLimits
+from pydantic_ai.usage import UsageLimits
 from importlib.metadata import version
-from web.src.agents.script import Agent, generate_response
+from web.src.agents.script import Agent
 from pydantic_ai.exceptions import UsageLimitExceeded
 
 
@@ -109,16 +108,6 @@ def test_execution_transport_failure_is_not_retried(model_for):
     assert len(calls) == 1
 
 
-def test_consumes_complete_model_response_without_console_logs(model_for, capsys):
-    agent = PydanticAgent(model_for(["print(", "'hello')"]))
-    code, history = asyncio.run(generate_response(agent, "say hello", []))
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == ""
-    assert code == "print('hello')"
-    assert history[-1].parts[0].content == code
-
-
 @pytest.mark.parametrize("with_callback", [False, True])
 def test_agent_event_lifecycle_with_optional_callback(model_for, remote_shell, with_callback):
     code = "print('confirmed')\ndone()"
@@ -163,30 +152,35 @@ done()
     assert feedback[2]["messages"][0]["updateComponents"]["components"][0]["data"][0]["y"] == [2]
 
 
-def test_model_failure_propagates_without_console_logs(model_for, capsys):
-    agent = PydanticAgent(model_for(["value = 42", ConnectionError("disconnected")]))
-    with pytest.raises(ConnectionError, match="disconnected"):
-        asyncio.run(generate_response(agent, "set value", []))
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == ""
-
-
-def test_generation_shares_usage_limits_across_requests(model_for):
+def test_generation_shares_usage_limits_across_requests(model_for, remote_shell):
     requests = []
-    agent = PydanticAgent(model_for(["done()"], requests=requests))
-    usage = RunUsage()
+    agent = Agent(model_for(["print('first step')"], ["done()"], requests=requests), shell=remote_shell)
     limits = UsageLimits(request_limit=1)
 
     async def run():
-        code, history = await generate_response(agent, "finish", [], usage=usage, usage_limits=limits)
-        assert code == "done()"
-        assert usage.requests == 1
-        with pytest.raises(UsageLimitExceeded, match="request_limit"):
-            await generate_response(agent, "continue", history, usage=usage, usage_limits=limits)
+        async with remote_shell.client:
+            with (
+                patch("web.src.agents.script.UsageLimits", return_value=limits) as make_limits,
+                patch.object(agent.agent, "run", wraps=agent.agent.run) as generate,
+                patch.object(remote_shell, "stream", wraps=remote_shell.stream) as execute,
+            ):
+                with pytest.raises(UsageLimitExceeded, match="request_limit"):
+                    await agent.arun("finish")
+                execute.assert_awaited_once()
+                assert execute.await_args.args[0] == "print('first step')"
+                assert generate.await_count == 2
+                first, second = generate.await_args_list
+                assert first.kwargs["usage"] is second.kwargs["usage"]
+                assert first.kwargs["usage"].requests == 1
+                assert first.kwargs["usage_limits"] is second.kwargs["usage_limits"] is limits
+                assert second.kwargs["message_history"] == agent.message_history
+                assert json.loads(second.args[0])["stdout"] == "first step\n"
+                make_limits.assert_called_once_with(request_limit=50, total_tokens_limit=200_000)
 
     asyncio.run(run())
     assert len(requests) == 1
+    assert agent.message_history[-1].parts[0].content == "print('first step')"
+    assert json.loads(agent.pending_feedback)["executed"] is False
 
 
 def test_model_imports_persist_between_requests(model_for, remote_shell):
@@ -234,6 +228,7 @@ def test_agent_does_not_log_code_or_results(model_for, remote_shell, capsys):
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
+    assert agent.message_history[-1].parts[0].content == code
 
 
 def test_continues_until_done_and_sends_execution_feedback(model_for, remote_shell):
@@ -253,7 +248,7 @@ def test_continues_until_done_and_sends_execution_feedback(model_for, remote_she
 
 
 @pytest.mark.parametrize("error_type", [ConnectionError, asyncio.CancelledError])
-def test_failed_model_request_never_executes_code(model_for, remote_shell, api_client, error_type):
+def test_failed_model_request_never_executes_code(model_for, remote_shell, api_client, capsys, error_type):
     model = model_for(["value = 42\n", error_type("disconnected")])
     agent = Agent(model, shell=remote_shell)
     agent.pending_feedback = "previous feedback"
@@ -266,6 +261,9 @@ def test_failed_model_request_never_executes_code(model_for, remote_shell, api_c
                 execute.assert_not_awaited()
 
     asyncio.run(run())
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
     assert "NameError" in api_client.post("/", json={"code": "print(value)"}).json()["exception"]
     assert agent.pending_feedback.startswith("previous feedback\n")
     assert '"executed": false' in agent.pending_feedback

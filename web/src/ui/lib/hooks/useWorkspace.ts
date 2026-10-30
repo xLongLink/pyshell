@@ -29,7 +29,6 @@ function retainWidgets(messages: A2uiMessage[]) {
 export function useWorkspace() {
     const socket = useRef<WebSocket | null>(null);
     const [connected, setConnected] = useState(false);
-    const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
     const [uiMessages, setUiMessages] = useState<A2uiMessage[]>([]);
     const [placements, setPlacements] = useState<Placements>({});
@@ -58,11 +57,8 @@ export function useWorkspace() {
                                 ),
                             ),
                         );
-                        setBusy(event.busy);
                         setError("");
                         setConnected(true);
-                    } else if (event.type === "state") {
-                        setBusy(event.busy);
                     } else {
                         if (event.type === "error") setError(event.text);
                         if (event.type === "instruction") setError("");
@@ -95,21 +91,6 @@ export function useWorkspace() {
         };
     }, []);
 
-    const send = useCallback(
-        (instruction: string) => {
-            if (
-                socket.current?.readyState !== WebSocket.OPEN ||
-                !connected ||
-                busy
-            )
-                return false;
-            socket.current.send(JSON.stringify({ type: "run", instruction }));
-            setBusy(true);
-            return true;
-        },
-        [connected, busy],
-    );
-
     const sendVoice = useCallback((action: "start" | "stop", sdp?: string) => {
         if (socket.current?.readyState !== WebSocket.OPEN) return false;
         socket.current.send(
@@ -120,11 +101,9 @@ export function useWorkspace() {
 
     return {
         connected,
-        busy,
         uiMessages,
         placements,
         error,
-        send,
         sendVoice,
         voiceEvent,
     };

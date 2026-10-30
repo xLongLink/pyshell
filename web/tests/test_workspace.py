@@ -37,7 +37,7 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
         assert workspace.status()["phase"] == "executing_python"
         assert workspace.context() == {"recent_tasks": [], "charts": []}
         assert workspace.task is task
-        assert all(event["type"] not in {"code_start", "execution_start"} for event in workspace.events)
+        assert workspace.snapshot()["events"] == []
         while not queue.empty():
             assert queue.get_nowait()["type"] not in {"code_start", "execution_start"}
         release.set()
@@ -59,20 +59,24 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("exception", [None, "Execution failed after partial output"])
-def test_browser_results_exclude_aggregate_output_without_mutating_execution_feedback(exception):
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"type": "stdout_delta", "text": "x" * 100000},
+        {"type": "stderr_delta", "text": "warning"},
+        {"type": "result", "stdout": "output", "stderr": "", "exception": None, "done": True},
+        {"type": "result", "stdout": "partial", "stderr": "warning", "exception": "Execution failed", "done": False},
+    ],
+)
+def test_execution_feedback_is_not_retained_or_broadcast_and_remains_unchanged(event):
     workspace = Workspace(SimpleNamespace())
     queue = asyncio.Queue(maxsize=10)
     workspace.listeners.add(queue)
-    event = {"type": "result", "stdout": "x" * 100000, "stderr": "warning", "exception": exception, "done": exception is None}
     original = dict(event)
     workspace.publish(event)
-    projected = {"type": "result", "exception": exception}
     assert event == original
-    assert queue.get_nowait() == projected
-    assert workspace.events == [projected]
-    assert workspace.snapshot()["events"] == [projected]
-    assert workspace.history_bytes == len(json.dumps(projected).encode())
+    assert queue.empty()
+    assert workspace.snapshot()["events"] == []
 
 
 def test_idle_phase_markers_are_not_retained_or_broadcast():
@@ -82,12 +86,21 @@ def test_idle_phase_markers_are_not_retained_or_broadcast():
     workspace.publish({"type": "code_start"})
     workspace.publish({"type": "execution_start"})
     assert workspace.phase == "idle"
-    assert workspace.events == []
+    assert workspace.snapshot()["events"] == []
     assert queue.empty()
 
 
-@pytest.mark.parametrize("overflow", [None, "events", "bytes"])
-def test_snapshots_always_restore_current_surfaces_after_updates_replacement_and_removal(overflow):
+@pytest.mark.parametrize("event", [{"type": "instruction", "text": "Plot sales"}, {"type": "error", "text": "Task failed"}])
+def test_instructions_and_errors_are_delivered_live_but_not_replayed(event):
+    workspace = Workspace(SimpleNamespace())
+    queue = asyncio.Queue(maxsize=10)
+    workspace.listeners.add(queue)
+    workspace.publish(event)
+    assert queue.get_nowait() == event
+    assert workspace.snapshot()["events"] == []
+
+
+def test_snapshots_always_restore_current_surfaces_after_updates_replacement_and_removal():
     workspace = Workspace(SimpleNamespace())
     ui = UI()
     ui.on_publish = workspace.publish
@@ -99,12 +112,6 @@ def test_snapshots_always_restore_current_surfaces_after_updates_replacement_and
     discarded.remove()
     replacement = ui.plot([{"type": "scatter", "x": ["Jan"], "y": [4]}], surface_id="sales")
     replacement.update(layout={"title": {"text": "Latest sales"}})
-    if overflow == "events":
-        for _ in range(2100):
-            workspace.publish({"type": "stdout_delta", "text": "x"})
-    elif overflow == "bytes":
-        for _ in range(3):
-            workspace.publish({"type": "stdout_delta", "text": "x" * 1048576})
     snapshot = workspace.snapshot()
     content = [event for event in snapshot["events"] if event["type"] == "a2ui"]
     assert len(content) == 1
@@ -116,9 +123,6 @@ def test_snapshots_always_restore_current_surfaces_after_updates_replacement_and
     assert figure["data"][0]["y"] == [4]
     assert figure["layout"]["title"]["text"] == "Latest sales"
     assert snapshot["placements"] == {"sales": {"pinned": False}}
-    assert all(event["type"] != "a2ui" for event in workspace.events)
-    assert len(workspace.events) <= 2000
-    assert workspace.history_bytes <= 2097152
     assert old_snapshot["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"][0]["y"] == [1]
     replacement.remove()
     assert not any(event["type"] == "a2ui" for event in workspace.snapshot()["events"])
@@ -209,12 +213,15 @@ def test_instructions_are_normalized_for_acceptance_execution_and_history():
         workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False), arun=execute))
         with pytest.raises(ValueError, match="Enter an instruction"):
             workspace.start(Command(type="run", instruction=" \t\n "))
-        assert workspace.events == []
+        assert workspace.snapshot()["events"] == []
         assert workspace.busy is False
+        queue = asyncio.Queue(maxsize=10)
+        workspace.listeners.add(queue)
         task = workspace.start(Command(type="run", instruction=" \t Plot sales \n"))
         assert workspace.busy is True
         assert workspace.current_instruction == "Plot sales"
-        assert [event["text"] for event in workspace.events if event["type"] == "instruction"] == ["Plot sales"]
+        assert queue.get_nowait() == {"type": "state", "busy": True}
+        assert queue.get_nowait() == {"type": "instruction", "text": "Plot sales"}
         await task
         assert workspace.busy is False
         await workspace.start(Command(type="run", instruction=" \t Next call \n"))

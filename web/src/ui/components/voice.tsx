@@ -16,7 +16,6 @@ export function Voice({
         "off" | "connecting" | "on" | "stopping"
     >("off");
     const [error, setError] = useState("");
-    const generation = useRef(0);
     const resources = useRef<{
         peer?: RTCPeerConnection;
         stream?: MediaStream;
@@ -28,7 +27,6 @@ export function Voice({
 
     const stop = useCallback(
         (closed = false) => {
-            generation.current++;
             const current = resources.current;
             resources.current = {};
             clearTimeout(current.timer);
@@ -59,11 +57,11 @@ export function Voice({
         } else if (event.name === "closed") {
             stop(true);
         } else {
-            const id = generation.current;
-            void resources.current.peer
+            const current = resources.current;
+            void current.peer
                 ?.setRemoteDescription({ type: "answer", sdp: event.sdp })
                 .catch(() => {
-                    if (id === generation.current) {
+                    if (current === resources.current) {
                         setError("Unable to connect voice audio.");
                         stop();
                     }
@@ -79,8 +77,8 @@ export function Voice({
         if (!connected) return;
         setPhase("connecting");
         setError("");
-        const id = ++generation.current;
-        const current = resources.current;
+        const current: typeof resources.current = {};
+        resources.current = current;
         try {
             if (!navigator.mediaDevices?.getUserMedia)
                 throw new Error(
@@ -89,7 +87,7 @@ export function Voice({
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: { echoCancellation: true, noiseSuppression: true },
             });
-            if (id !== generation.current) {
+            if (current !== resources.current) {
                 stream.getTracks().forEach((track) => track.stop());
                 return;
             }
@@ -100,10 +98,10 @@ export function Voice({
             audio.autoplay = true;
             current.audio = audio;
             peer.ontrack = ({ streams, track }) => {
-                if (id !== generation.current) return;
+                if (current !== resources.current) return;
                 audio.srcObject = streams[0] ?? new MediaStream([track]);
                 void audio.play().catch(() => {
-                    if (id === generation.current) {
+                    if (current === resources.current) {
                         setError(
                             "Audio playback was blocked. Restart voice to try again.",
                         );
@@ -112,7 +110,7 @@ export function Voice({
                 });
             };
             peer.onconnectionstatechange = () => {
-                if (id !== generation.current) return;
+                if (current !== resources.current) return;
                 if (peer.connectionState === "connected") {
                     clearTimeout(current.timer);
                     setPhase("on");
@@ -151,7 +149,7 @@ export function Voice({
                 };
                 peer.addEventListener("icegatheringstatechange", change);
             });
-            if (id !== generation.current) return;
+            if (current !== resources.current) return;
             const sdp = peer.localDescription?.sdp;
             if (!sdp || !send("start", sdp))
                 throw new Error(
@@ -163,7 +161,7 @@ export function Voice({
                 stop();
             }, 90000);
         } catch (failure) {
-            if (id !== generation.current) return;
+            if (current !== resources.current) return;
             setError(
                 failure instanceof Error
                     ? failure.message

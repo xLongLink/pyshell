@@ -5,7 +5,6 @@ from web.src.shell import RemoteShell
 from collections.abc import Callable
 from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai.models import Model
-from pydantic_ai.messages import ModelMessage
 
 INSTRUCTIONS = """You are an agent working in a persistent Python session inside a container.
 Respond with ONLY executable Python code, without Markdown fences or prose.
@@ -82,23 +81,6 @@ images, inputs, and arbitrary UI actions are unsupported. Do not call ui.text(),
 """
 
 
-async def generate_response(
-    agent: PydanticAgent[None, str],
-    message: str,
-    message_history: list[ModelMessage],
-    *,
-    usage: RunUsage | None = None,
-    usage_limits: UsageLimits | None = None,
-) -> tuple[str, list[ModelMessage]]:
-    """Generate code and return only a completed response."""
-
-    result = await agent.run(message, message_history=message_history, usage=usage, usage_limits=usage_limits)
-    # Truncated responses must never reach execution.
-    if result.response.finish_reason != "stop":
-        raise RuntimeError(f"Model response {result.response.finish_reason}; code was not executed.")
-    return result.output, result.all_messages()
-
-
 class Agent:
     """Run generated Python and feed results back to the model."""
 
@@ -144,7 +126,10 @@ class Agent:
                 emit({"type": "code_start"})
 
                 # Finish generation before executing any code.
-                code, history = await generate_response(self.agent, prompt, self.message_history, usage=usage, usage_limits=limits)
+                response = await self.agent.run(prompt, message_history=self.message_history, usage=usage, usage_limits=limits)
+                if response.response.finish_reason != "stop":
+                    raise RuntimeError(f"Model response {response.response.finish_reason}; code was not executed.")
+                code, history = response.output, response.all_messages()
 
             # Record that the interrupted response never reached the container.
             except (Exception, KeyboardInterrupt, asyncio.CancelledError) as error:

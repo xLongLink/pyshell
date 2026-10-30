@@ -2,7 +2,7 @@ import json
 import asyncio
 from types import SimpleNamespace
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock
+from unittest.mock import Mock, AsyncMock
 from web.src.agents import voice
 from web.src.workspace import Command, Workspace
 
@@ -169,7 +169,7 @@ def test_reconnection_after_failure_keeps_old_tools_disconnected(monkeypatch):
         try:
             await asyncio.wait_for(realtime.entered.wait(), 1)
             assert "not connected" in await old_tools["worker"]("Stale task")
-            assert workspace.events == []
+            assert workspace.task is None
             assert "submitted" in await tools["worker"]("New task")
             await workspace.task
             assert workspace.status()["latest_outcome"]["result"] == "Confirmed after reconnect"
@@ -217,9 +217,19 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         task = workspace.start(Command(type="run", instruction="slow"))
         assert json.loads(await tools["workspace_status"]())["busy"] is True
         assert workspace.task is task
-        assert "end shortly" in await tools["end_call"]()
-        await tools["end_call"]()
-        await asyncio.wait_for(closed.wait(), 4)
+        handle = Mock(spec=asyncio.TimerHandle)
+        call_later = Mock(return_value=handle)
+        with monkeypatch.context() as patch:
+            patch.setattr(asyncio.get_running_loop(), "call_later", call_later)
+            assert "end shortly" in await tools["end_call"]()
+            await tools["end_call"]()
+        call_later.assert_called_once()
+        delay, callback = call_later.call_args.args
+        assert delay == 2
+        await asyncio.wait_for(callback(), 1)
+        await asyncio.wait_for(closed.wait(), 1)
+        handle.cancel.assert_called_once_with()
+        assert call.task is None
         assert events[-1]["name"] == "closed"
         realtime.hang_up.assert_awaited_once()
         assert not task.cancelled()

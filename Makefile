@@ -2,11 +2,11 @@
 
 up: export PYSHELL_REQUIREMENTS ?= swissparlpy
 up:
-	docker compose -f api/compose.yaml build --no-cache pyshell
+	docker compose -f api/compose.yaml build pyshell
 	docker compose -f api/compose.yaml up --force-recreate --detach --wait pyshell
 	npm --prefix web/src/ui ci
 	npm --prefix web/src/ui run build
-	uv sync --locked --project web --reinstall
+	uv sync --locked --project web
 	uv run --locked --project web uvicorn web.main:app --host 127.0.0.1 --port 8010 --ws-max-size 131072 --no-access-log --log-level warning
 
 down:

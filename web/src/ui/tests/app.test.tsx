@@ -13,11 +13,9 @@ afterEach(() => {
 function workspace(overrides = {}) {
     const state = {
         connected: true,
-        busy: false,
         uiMessages: [],
         placements: {},
         error: "",
-        send: vi.fn(() => true),
         sendVoice: vi.fn(() => true),
         voiceEvent: null,
         ...overrides,
@@ -44,8 +42,8 @@ test("workspace offers voice without chat or execution output", () => {
     expect(voice.classList.contains("size-40")).toBe(true);
 });
 
-test("workspace keeps errors visible and voice available while busy", () => {
-    workspace({ busy: true, error: "The operation failed" });
+test("workspace keeps errors visible and voice available", () => {
+    workspace({ error: "The operation failed" });
     render(<App />);
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByRole("alert").textContent).toBe("The operation failed");

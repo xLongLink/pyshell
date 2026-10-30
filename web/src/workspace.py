@@ -23,15 +23,12 @@ class Workspace:
         """Keep workspace resources independent of browser connections."""
         self.id = str(uuid4())
         self.agent = agent
-        self.events: list[dict[str, object]] = []
         self.listeners: set[asyncio.Queue[dict[str, object]]] = set()
         self.task: asyncio.Task[None] | None = None
         self.placements: dict[str, dict[str, bool]] = {}
         self.surfaces: dict[str, list[dict[str, object]]] = {}
         self.run_id: str | None = None
 
-        # Track bounded replay separately from the current widget state.
-        self.history_bytes = 0
         self.closing = False
         self.results: set[Callable[[str], None]] = set()
         self.current_instruction: str | None = None
@@ -75,8 +72,7 @@ class Workspace:
 
     def snapshot(self) -> dict[str, object]:
         """Copy current state without replaying any submitted operation."""
-        events = list(self.events)
-        events.extend({"type": "a2ui", "messages": messages} for messages in self.surfaces.values())
+        events = [{"type": "a2ui", "messages": messages} for messages in self.surfaces.values()]
 
         # Reconnecting tabs receive state without resubmitting work.
         return {"type": "snapshot", "events": events, "busy": self.busy, "placements": self._copy_placements()}
@@ -87,14 +83,14 @@ class Workspace:
             if self.busy:
                 self.phase = "generating_code" if event["type"] == "code_start" else "executing_python"
             return
-        if event["type"] == "result":
-            event = {"type": "result", "exception": event["exception"]}
+        if event["type"] in {"stdout_delta", "stderr_delta", "result"}:
+            return
         if event["type"] == "widget":
             self.place(WidgetCommand.model_validate(event))
             return
         placement_changed = False
 
-        # Maintain current surfaces even after their historical events are evicted.
+        # Maintain current surfaces for reconnect snapshots.
         if event["type"] == "a2ui":
             for message in event["messages"]:
                 if "createSurface" in message:
@@ -117,14 +113,6 @@ class Workspace:
                     self.surfaces.pop(identifier, None)
                     self.placements.pop(identifier, None)
                     placement_changed = True
-
-        if event["type"] not in {"state", "placement", "a2ui"}:
-            self.events.append(event)
-            self.history_bytes += len(json.dumps(event).encode())
-
-            # Bound replay by both event count and serialized size.
-            while self.events and (len(self.events) > 2000 or self.history_bytes > 2_097_152):
-                self.history_bytes -= len(json.dumps(self.events.pop(0)).encode())
 
         # Slow tabs resynchronize from state rather than blocking execution.
         for listener in self.listeners:

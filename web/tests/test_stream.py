@@ -59,7 +59,7 @@ def test_confirmed_stream_forwards_events_in_order_without_terminal_marker():
     asyncio.run(run())
 
 
-def test_bounded_history_retains_current_widgets_and_slow_clients_resynchronize():
+def test_slow_clients_resynchronize_current_widgets_and_preserve_voice_controls():
     workspace = Workspace(SimpleNamespace())
     create = {"version": "v0.9", "createSurface": {"surfaceId": "sales", "catalogId": "urn:pyshell:catalog:v3"}}
     update = {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [{"id": "root"}]}}
@@ -68,10 +68,9 @@ def test_bounded_history_retains_current_widgets_and_slow_clients_resynchronize(
     queue.put_nowait({"type": "voice", "name": "answer", "sdp": "answer"})
     workspace.listeners.add(queue)
 
-    # Overflow both replay history and the subscriber's tiny queue.
-    for _ in range(2100):
-        workspace.publish({"type": "stdout_delta", "text": "x"})
-    assert len(workspace.events) <= 2000
+    # Overflow the subscriber's tiny queue repeatedly.
+    for _ in range(10):
+        workspace.publish({"type": "error", "text": "x"})
     snapshot = workspace.snapshot()
     assert snapshot["placements"] == {"sales": {"pinned": False}}
     assert [event for event in snapshot["events"] if event["type"] == "a2ui"] == [{"type": "a2ui", "messages": [create, update]}]
