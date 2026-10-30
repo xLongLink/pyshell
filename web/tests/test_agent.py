@@ -66,6 +66,20 @@ def test_requests_priority_processing(model_for, remote_shell):
     assert settings["openai_reasoning_effort"] == "low"
 
 
+def test_agent_does_not_log_code_or_results(model_for, capsys):
+    shell = Mock()
+    shell.libraries.return_value = []
+    shell.execute.return_value = {"stdout": "result\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
+    agent = Agent(model_for(["print('result')\ndone()"]), shell=shell)
+
+    agent.run("work")
+
+    shell.execute.assert_called_once_with("print('result')\ndone()")
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+
+
 def test_continues_until_done_and_sends_execution_feedback(model_for, remote_shell):
     requests = []
     model = model_for(["print(1 / 0)"], ["print('fixed')\ndone()"], requests=requests)

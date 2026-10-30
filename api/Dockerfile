@@ -36,4 +36,4 @@ if [ -n \"${PYSHELL_REQUIREMENTS:-}\" ]; then \
     uv pip check --no-cache --python \"$environment/bin/python\"; \
     export PATH=\"$environment/bin:$PATH\"; \
 fi; \
-exec python -m uvicorn main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 \"$@\"", "pyshell-api"]
+exec python -m uvicorn main:create_app --factory --host 0.0.0.0 --port 8000 --workers 1 --no-access-log --log-level warning \"$@\"", "pyshell-api"]

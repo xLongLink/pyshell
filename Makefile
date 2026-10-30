@@ -1,14 +1,17 @@
-.PHONY: up down test format
+.PHONY: up down logs test format
 
 up: export PYSHELL_REQUIREMENTS ?= swissparlpy
 up:
 	docker compose -f api/compose.yaml up --build --detach --wait pyshell
 	npm --prefix web/src/ui ci
 	npm --prefix web/src/ui run build
-	uv run --locked --project web uvicorn web.main:app --host 127.0.0.1 --port 8010 --ws-max-size 16384
+	uv run --locked --project web uvicorn web.main:app --host 127.0.0.1 --port 8010 --ws-max-size 16384 --no-access-log --log-level warning
 
 down:
 	docker compose -f api/compose.yaml down --remove-orphans
+
+logs:
+	docker compose -f api/compose.yaml logs --follow --no-log-prefix pyshell
 
 test:
 	uv run --locked --project api pytest -c api/pyproject.toml api/tests -v

@@ -1,6 +1,5 @@
 """An agent that executes Python through the container API for the web interface."""
 
-import sys
 import json
 import httpx
 from typing import Literal, TypedDict
@@ -114,22 +113,16 @@ class RemoteShell:
 def stream_response(
     agent: PydanticAgent[None, str], message: str, message_history: list[ModelMessage], on_code: Callable[[str], None] | None = None
 ) -> tuple[str, list[ModelMessage]]:
-    """Display generated code and return only a completed response."""
-    print()
-    try:
-        stream = agent.run_stream_sync(message, message_history=message_history)
-        for text in stream.stream_text(delta=True, debounce_by=None):
-            print(text, end="", flush=True)
-            if on_code is not None:
-                on_code(text)
+    """Stream generated code to the UI and return only a completed response."""
+    stream = agent.run_stream_sync(message, message_history=message_history)
+    for text in stream.stream_text(delta=True, debounce_by=None):
+        if on_code is not None:
+            on_code(text)
 
-        # Display partial output, but never execute an incomplete response.
-        code = stream.get_output()
-        if stream.response.finish_reason != "stop":
-            raise RuntimeError(f"Model response {stream.response.finish_reason}; code was not executed.")
-        return code, stream.all_messages()
-    finally:
-        print(flush=True)
+    code = stream.get_output()
+    if stream.response.finish_reason != "stop":
+        raise RuntimeError(f"Model response {stream.response.finish_reason}; code was not executed.")
+    return code, stream.all_messages()
 
 
 class Agent:
@@ -202,10 +195,6 @@ class Agent:
             if on_event is not None:
                 on_event({"type": "execution_start"})
             result = self.shell.execute(code)
-            print(result["stdout"], end="", flush=True)
-            print(result["stderr"], end="", file=sys.stderr, flush=True)
-            if result["exception"]:
-                print(result["exception"], end="", file=sys.stderr, flush=True)
 
             # Retain the completed exchange before deciding whether to continue.
             self.pending_feedback = None
