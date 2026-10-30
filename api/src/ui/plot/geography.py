@@ -194,7 +194,7 @@ def normalize(geography: str, name: str, source: dict, data: dict | list) -> dic
         "geography": geography,
         "name": name,
         "level": "country" if geography == "world" else "region",
-        "source": source,
+        "source": {key: value for key, value in source.items() if key not in {"downloadUrl", "count"}},
         "features": features,
     }
 

@@ -25,10 +25,7 @@ export default function App() {
 
     function submit(event: FormEvent) {
         event.preventDefault();
-        if (
-            instruction.trim() &&
-            send({ type: "run", instruction: instruction.trim() })
-        ) {
+        if (instruction.trim() && send(instruction.trim())) {
             setInstruction("");
             setOpen(false);
         }
@@ -81,7 +78,6 @@ export default function App() {
                 <Popover.Trigger asChild>
                     <Button
                         className="fixed right-5 bottom-5 size-12 rounded-full shadow-lg"
-                        size="icon"
                         aria-label="Open chat"
                     >
                         <MessageCircle />
@@ -103,7 +99,6 @@ export default function App() {
                             <Popover.Close asChild>
                                 <Button
                                     variant="outline"
-                                    size="icon"
                                     aria-label="Close chat"
                                 >
                                     <X />
@@ -145,7 +140,6 @@ export default function App() {
                                 />
                                 <Button
                                     type="submit"
-                                    size="icon"
                                     aria-label="Send instruction"
                                     disabled={
                                         !connected ||

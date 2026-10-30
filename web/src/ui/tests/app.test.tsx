@@ -41,10 +41,7 @@ test("workspace submits widget instructions", () => {
     const input = screen.getByRole("textbox", { name: "Instruction" });
     fireEvent.change(input, { target: { value: "Show revenue" } });
     fireEvent.click(screen.getByRole("button", { name: "Send instruction" }));
-    expect(state.send).toHaveBeenCalledWith({
-        type: "run",
-        instruction: "Show revenue",
-    });
+    expect(state.send).toHaveBeenCalledWith("Show revenue");
     expect(screen.queryByRole("textbox")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");

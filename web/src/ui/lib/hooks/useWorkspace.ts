@@ -110,14 +110,14 @@ export function useWorkspace() {
     }, []);
 
     const send = useCallback(
-        (command: { type: "run"; instruction: string }) => {
+        (instruction: string) => {
             if (
                 socket.current?.readyState !== WebSocket.OPEN ||
                 !connected ||
                 busy
             )
                 return false;
-            socket.current.send(JSON.stringify(command));
+            socket.current.send(JSON.stringify({ type: "run", instruction }));
             setBusy(true);
             return true;
         },

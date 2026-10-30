@@ -176,7 +176,6 @@ export function Voice({
     return (
         <div className="fixed bottom-5 left-5 z-20 flex max-w-xs items-center gap-3">
             <Button
-                size="icon"
                 className="size-12 rounded-full shadow-lg"
                 disabled={!connected || phase === "stopping"}
                 aria-label={

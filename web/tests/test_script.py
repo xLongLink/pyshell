@@ -4,10 +4,12 @@ import pytest
 import asyncio
 from contextlib import asynccontextmanager
 from pydantic_ai import Agent as PydanticAgent
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import AsyncMock, patch
 from web.src.shell import RemoteShell
+from pydantic_ai.usage import RunUsage, UsageLimits
 from importlib.metadata import version
-from web.src.agents.script import Agent, stream_response
+from web.src.agents.script import Agent, generate_response
+from pydantic_ai.exceptions import UsageLimitExceeded
 
 
 @asynccontextmanager
@@ -37,7 +39,7 @@ def test_closed_transport_prevents_requests(model_for, remote_shell, inventory_l
         with (
             patch.object(remote_shell, "inventory") as inventory,
             patch.object(remote_shell, "stream") as execute,
-            patch.object(agent.agent, "run_stream") as response,
+            patch.object(agent.agent, "run") as response,
         ):
             with pytest.raises(RuntimeError, match="Execution transport is closed"):
                 await agent.arun("work", events.append)
@@ -135,7 +137,7 @@ def test_execution_transport_failure_is_not_retried(model_for):
 
 def test_consumes_complete_model_response_without_console_logs(model_for, capsys):
     agent = PydanticAgent(model_for(["print(", "'hello')"]))
-    code, history = asyncio.run(stream_response(agent, "say hello", []))
+    code, history = asyncio.run(generate_response(agent, "say hello", []))
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
@@ -187,13 +189,30 @@ done()
     assert feedback[2]["messages"][0]["updateComponents"]["components"][0]["data"][0]["y"] == [2]
 
 
-def test_stream_failure_propagates_without_timing(model_for, capsys):
+def test_model_failure_propagates_without_console_logs(model_for, capsys):
     agent = PydanticAgent(model_for(["value = 42", ConnectionError("disconnected")]))
     with pytest.raises(ConnectionError, match="disconnected"):
-        asyncio.run(stream_response(agent, "set value", []))
+        asyncio.run(generate_response(agent, "set value", []))
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""
+
+
+def test_generation_shares_usage_limits_across_requests(model_for):
+    requests = []
+    agent = PydanticAgent(model_for(["done()"], requests=requests))
+    usage = RunUsage()
+    limits = UsageLimits(request_limit=1)
+
+    async def run():
+        code, history = await generate_response(agent, "finish", [], usage=usage, usage_limits=limits)
+        assert code == "done()"
+        assert usage.requests == 1
+        with pytest.raises(UsageLimitExceeded, match="request_limit"):
+            await generate_response(agent, "continue", history, usage=usage, usage_limits=limits)
+
+    asyncio.run(run())
+    assert len(requests) == 1
 
 
 def test_model_imports_persist_between_requests(model_for, remote_shell):
@@ -259,15 +278,16 @@ def test_continues_until_done_and_sends_execution_feedback(model_for, remote_she
     assert json.loads(agent.pending_feedback)["stdout"] == "fixed\n"
 
 
-def test_failed_stream_never_executes_code(model_for, remote_shell, api_client):
-    model = model_for(["value = 42\n", ConnectionError("disconnected")])
+@pytest.mark.parametrize("error_type", [ConnectionError, asyncio.CancelledError])
+def test_failed_model_request_never_executes_code(model_for, remote_shell, api_client, error_type):
+    model = model_for(["value = 42\n", error_type("disconnected")])
     agent = Agent(model, shell=remote_shell)
     agent.pending_feedback = "previous feedback"
 
     async def run():
         async with opened_shell(remote_shell):
             with patch.object(remote_shell, "stream", wraps=remote_shell.stream) as execute:
-                with pytest.raises(ConnectionError, match="disconnected"):
+                with pytest.raises(error_type, match="disconnected"):
                     await agent.arun("set value")
                 execute.assert_not_awaited()
 
@@ -275,24 +295,23 @@ def test_failed_stream_never_executes_code(model_for, remote_shell, api_client):
     assert "NameError" in api_client.post("/", json={"code": "print(value)"}).json()["exception"]
     assert agent.pending_feedback.startswith("previous feedback\n")
     assert '"executed": false' in agent.pending_feedback
+    assert '"model_error":' in agent.pending_feedback
     assert agent.message_history == []
 
 
-def test_incomplete_response_never_executes(model_for, remote_shell, api_client):
-    agent = Agent(model_for(["value = 42\n"]), shell=remote_shell)
-    stream = Mock()
-    stream.get_output = AsyncMock(return_value="value = 42\n")
-    stream.response.finish_reason = "length"
+@pytest.mark.parametrize("finish_reason", ["length", "content_filter", None])
+def test_incomplete_response_never_executes(model_for, remote_shell, api_client, finish_reason):
+    requests = []
+    agent = Agent(model_for(["value = 42\n"], finish_reason=finish_reason, requests=requests), shell=remote_shell)
 
     async def run():
         async with opened_shell(remote_shell):
-            with patch.object(agent.agent, "run_stream") as response, patch.object(remote_shell, "stream") as execute:
-                response.return_value.__aenter__ = AsyncMock(return_value=stream)
-                response.return_value.__aexit__ = AsyncMock(return_value=False)
-                with pytest.raises(RuntimeError, match="Model response length"):
+            with patch.object(remote_shell, "stream") as execute:
+                with pytest.raises(RuntimeError, match=f"Model response {finish_reason}"):
                     await agent.arun("set value")
                 execute.assert_not_awaited()
 
     asyncio.run(run())
     assert "NameError" in api_client.post("/", json={"code": "print(value)"}).json()["exception"]
     assert agent.message_history == []
+    assert len(requests) == 1

@@ -95,19 +95,28 @@ test("reconnect snapshots replace widget history and keep commands blocked until
     const socket = sockets[0];
     let sent = false;
     act(() => {
-        sent = result.current.send({ type: "run", instruction: "Create" });
+        sent = result.current.send("Create");
     });
     expect(sent).toBe(false);
+    expect(socket.send).not.toHaveBeenCalled();
     socket.receive({
         type: "snapshot",
         events: [],
         busy: false,
     });
     act(() => {
-        sent = result.current.send({ type: "run", instruction: "Create" });
+        sent = result.current.send("Create");
     });
     expect(sent).toBe(true);
     expect(result.current.busy).toBe(true);
+    expect(socket.send).toHaveBeenCalledExactlyOnceWith(
+        JSON.stringify({ type: "run", instruction: "Create" }),
+    );
+    act(() => {
+        sent = result.current.send("Wait");
+    });
+    expect(sent).toBe(false);
+    expect(socket.send).toHaveBeenCalledOnce();
     act(() => socket.onclose?.());
     expect(result.current.connected).toBe(false);
     act(() => vi.advanceTimersByTime(1500));
@@ -122,6 +131,13 @@ test("reconnect snapshots replace widget history and keep commands blocked until
     expect(result.current.busy).toBe(false);
     expect(result.current.error).toBe("");
     expect(result.current.uiMessages).toHaveLength(2);
+    reconnected.readyState = 3;
+    act(() => {
+        sent = result.current.send("Disconnected");
+    });
+    expect(sent).toBe(false);
+    expect(result.current.busy).toBe(false);
+    expect(reconnected.send).not.toHaveBeenCalled();
     unmount();
     reconnected.receive({ type: "state", busy: true });
     expect(reconnected.close).toHaveBeenCalledOnce();

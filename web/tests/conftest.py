@@ -2,11 +2,11 @@ import os
 import httpx
 import pytest
 from main import create_app
-from contextlib import asynccontextmanager
 from src.ui.plot import geography
 from unittest.mock import patch
 from web.src.shell import RemoteShell
 from fastapi.testclient import TestClient
+from pydantic_ai.messages import TextPart, ModelResponse
 from pydantic_ai.models.function import FunctionModel
 
 with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
@@ -68,29 +68,22 @@ def remote_shell(api_client, monkeypatch):
     return shell
 
 
-class CompletedFunctionModel(FunctionModel):
-    @asynccontextmanager
-    async def request_stream(self, *args, **kwargs):
-        async with super().request_stream(*args, **kwargs) as response:
-            response.finish_reason = "stop"
-            yield response
-
-
 @pytest.fixture
 def model_for():
-    def build(*responses, requests=None):
+    def build(*responses, requests=None, finish_reason="stop"):
         responses = iter(responses)
 
-        async def stream(messages, info):
+        async def respond(messages, info):
             if requests is not None:
                 requests.append((list(messages), info))
 
-            # Responses may fail after yielding partial code.
+            content = []
             for chunk in next(responses):
                 if isinstance(chunk, BaseException):
                     raise chunk
-                yield chunk
+                content.append(chunk)
+            return ModelResponse(parts=[TextPart("".join(content))], finish_reason=finish_reason)
 
-        return CompletedFunctionModel(stream_function=stream)
+        return FunctionModel(function=respond)
 
     return build

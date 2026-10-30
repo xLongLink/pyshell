@@ -82,7 +82,7 @@ images, inputs, and arbitrary UI actions are unsupported. Do not call ui.text(),
 """
 
 
-async def stream_response(
+async def generate_response(
     agent: PydanticAgent[None, str],
     message: str,
     message_history: list[ModelMessage],
@@ -90,14 +90,13 @@ async def stream_response(
     usage: RunUsage | None = None,
     usage_limits: UsageLimits | None = None,
 ) -> tuple[str, list[ModelMessage]]:
-    """Consume the model stream and return only a completed response."""
+    """Generate code and return only a completed response."""
 
-    async with agent.run_stream(message, message_history=message_history, usage=usage, usage_limits=usage_limits) as stream:
-        # Truncated responses must never reach execution.
-        code = await stream.get_output()
-        if stream.response.finish_reason != "stop":
-            raise RuntimeError(f"Model response {stream.response.finish_reason}; code was not executed.")
-        return code, stream.all_messages()
+    result = await agent.run(message, message_history=message_history, usage=usage, usage_limits=usage_limits)
+    # Truncated responses must never reach execution.
+    if result.response.finish_reason != "stop":
+        raise RuntimeError(f"Model response {result.response.finish_reason}; code was not executed.")
+    return result.output, result.all_messages()
 
 
 class Agent:
@@ -109,9 +108,7 @@ class Agent:
         self._libraries: list[dict[str, str]] | None = None
 
         # Resolve the execution environment's package inventory on the first turn.
-        self.agent = PydanticAgent(
-            model, instructions=self._instructions, model_settings={"openai_reasoning_effort": "low"}
-        )
+        self.agent = PydanticAgent(model, instructions=self._instructions, model_settings={"openai_reasoning_effort": "low"})
 
         # Conversation state is committed only after execution succeeds.
         self.message_history = []
@@ -149,11 +146,11 @@ class Agent:
                 emit({"type": "code_start"})
 
                 # Finish generation before executing any code.
-                code, history = await stream_response(self.agent, prompt, self.message_history, usage=usage, usage_limits=limits)
+                code, history = await generate_response(self.agent, prompt, self.message_history, usage=usage, usage_limits=limits)
 
             # Record that the interrupted response never reached the container.
             except (Exception, KeyboardInterrupt, asyncio.CancelledError) as error:
-                feedback = json.dumps({"stream_error": f"{type(error).__name__}: {error}", "executed": False})
+                feedback = json.dumps({"model_error": f"{type(error).__name__}: {error}", "executed": False})
 
                 # Keep prior execution feedback alongside this unexecuted request.
                 if self.pending_feedback is not None:

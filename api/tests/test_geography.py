@@ -29,6 +29,10 @@ def test_metadata_and_all_boundaries_are_downloaded_once_and_cached_together(api
     data = response.json()
     assert [feature["id"] for feature in data["features"]] == codes
     assert data["source"]["license"]
+    assert "downloadUrl" not in data["source"]
+    assert "count" not in data["source"]
+    if country != "world":
+        assert data["source"]["boundaryID"] == metadata(geography_provider, country)["boundaryID"]
     expected = (
         [geography.WORLD_URL]
         if country == "world"
@@ -57,6 +61,22 @@ def test_failed_download_can_be_retried_without_cached_error(api_client, geograp
     assert not list(geography_provider["cache"].glob("*"))
     monkeypatch.setattr(geography, "download", geography_provider["download"])
     assert api_client.get("/geographies/CHE").status_code == 200
+
+
+def test_existing_cache_with_download_bookkeeping_remains_readable(api_client, geography_provider, monkeypatch):
+    path = geography.geography_path("CHE")
+    data = json.loads(path.read_text())
+    data["source"].update(downloadUrl=metadata(geography_provider)["simplifiedGeometryGeoJSON"], count=2)
+    path.write_text(json.dumps(data))
+
+    def offline(url):
+        raise URLError("offline")
+
+    monkeypatch.setattr(geography, "download", offline)
+    response = api_client.get("/geographies/CHE")
+    assert response.status_code == 200
+    assert response.json() == data
+    assert geography.geography_info("CHE")["locations"] == {"CH-ZH": "Zürich", "CH-BE": "Bern"}
 
 
 @pytest.mark.parametrize("invalid", ["root", "missing", "wrong-country", "duplicate", "geometry", "coordinates"])
