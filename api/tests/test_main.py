@@ -1,6 +1,6 @@
 from types import SimpleNamespace
-from importlib.metadata import version
 from concurrent.futures import ThreadPoolExecutor
+from importlib.metadata import version
 
 
 def test_health_without_model_credentials(api_client):

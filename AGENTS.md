@@ -13,7 +13,7 @@
 │   │   └── ui/        # One module per UI element
 │   ├── tests/         # Server tests
 │   ├── Dockerfile     # Execution container image
-│   ├── Dockerfile.dockerignore
+│   ├── .dockerignore
 │   ├── pyproject.toml # API dependencies
 │   ├── uv.lock
 │   └── compose.yaml   # Execution environment configuration

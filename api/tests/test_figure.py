@@ -14,6 +14,8 @@ def test_figure_contract(case):
         plot = ui.plot(**case["figure"])
         assert plot.component == "Figure"
         assert len(ui.messages) == 2
+
+    # Rejected contract cases must not create protocol or session state.
     else:
         with pytest.raises(ValidationError):
             ui.plot(**case["figure"])

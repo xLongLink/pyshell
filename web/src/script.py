@@ -1,5 +1,3 @@
-"""An agent that executes Python through the container API for the web interface."""
-
 import json
 import httpx
 from typing import Literal, TypedDict
@@ -115,10 +113,13 @@ def stream_response(
 ) -> tuple[str, list[ModelMessage]]:
     """Stream generated code to the UI and return only a completed response."""
     stream = agent.run_stream_sync(message, message_history=message_history)
+
+    # Partial code is display-only until the model finishes successfully.
     for text in stream.stream_text(delta=True, debounce_by=None):
         if on_code is not None:
             on_code(text)
 
+    # Only a normally completed model response may reach execution.
     code = stream.get_output()
     if stream.response.finish_reason != "stop":
         raise RuntimeError(f"Model response {stream.response.finish_reason}; code was not executed.")
@@ -136,6 +137,8 @@ class Agent:
         self.service_tier = service_tier
         self.shell = shell if shell is not None else RemoteShell()
         self._libraries: list[dict[str, str]] | None = None
+
+        # Resolve the execution environment's package inventory on the first turn.
         self.agent = PydanticAgent(
             model, instructions=self._instructions, model_settings={"openai_service_tier": service_tier, "openai_reasoning_effort": "low"}
         )
@@ -148,7 +151,8 @@ class Agent:
         if self._libraries is None:
             self._libraries = self.shell.libraries()
         return (
-            INSTRUCTIONS + "\nInstalled packages in the execution environment (distribution names may differ from import names):\n"
+            INSTRUCTIONS
+            + "\nInstalled packages in the execution environment (distribution names may differ from import names):\n"
             + json.dumps(self._libraries)
         )
 
@@ -171,6 +175,8 @@ class Agent:
             try:
                 if on_event is not None:
                     on_event({"type": "code_start"})
+
+                # Stream code for display without executing incomplete responses.
                 code, history = stream_response(
                     self.agent,
                     prompt,
@@ -178,6 +184,7 @@ class Agent:
                     on_code=(lambda text: on_event({"type": "code_delta", "text": text})) if on_event is not None else None,
                 )
 
+            # Record that the interrupted response never reached the container.
             except (Exception, KeyboardInterrupt) as error:
                 feedback = json.dumps({"stream_error": f"{type(error).__name__}: {error}", "executed": False})
 
@@ -200,20 +207,32 @@ class Agent:
             self.pending_feedback = None
             self.message_history = history
             message = json.dumps(result)
+
+            # Preserve content and placement ordering from the execution API.
             if on_event is not None:
                 on_event({"type": "result", **{key: value for key, value in result.items() if key != "ui"}})
-                if result.get("ui"):
-                    messages = []
-                    for item in result["ui"]:
-                        if item.get("type") == "widget":
-                            if messages:
-                                on_event({"type": "a2ui", "messages": messages})
-                                messages = []
-                            on_event(item)
-                        else:
-                            messages.append(item)
+
+                messages = []
+
+                # Batch adjacent content without crossing a placement command.
+                for item in result.get("ui", []):
+                    if item.get("type") != "widget":
+                        messages.append(item)
+
+                        # Defer content until the next placement boundary or batch end.
+                        continue
+
+                    # Emit placement only after the preceding content batch.
                     if messages:
                         on_event({"type": "a2ui", "messages": messages})
+                        messages = []
+                    on_event(item)
+
+                # Publish any content left after the final placement command.
+                if messages:
+                    on_event({"type": "a2ui", "messages": messages})
+
+            # Carry final execution feedback into the next user turn.
             if result["done"]:
                 self.pending_feedback = message
                 return

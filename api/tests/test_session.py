@@ -35,6 +35,8 @@ def test_widgets_publish_a2ui_messages_and_preserve_python_state(api_client):
         },
     ]
     assert execute(api_client, "print(amount)")["ui"] == []
+
+    # Replacing a named surface deletes its old protocol state first.
     replacement = execute(api_client, "ui.plot([{'type': 'scatter', 'x': ['Revenue'], 'y': [50]}], surface_id='revenue')")["ui"]
     assert replacement[0] == {"version": "v0.9", "deleteSurface": {"surfaceId": "revenue"}}
     assert replacement[1]["createSurface"]["surfaceId"] == "revenue"
@@ -47,6 +49,7 @@ def test_a_figure_can_be_published_from_its_wire_model(api_client):
     assert result["ui"][1]["updateComponents"]["components"][0]["component"] == "Figure"
 
 
+# Unsupported components and malformed figures must fail before publication.
 @pytest.mark.parametrize(
     "components",
     [
@@ -57,6 +60,7 @@ def test_a_figure_can_be_published_from_its_wire_model(api_client):
         [{"id": "root", "component": "Row", "children": ["root"]}],
         [{"id": "root", "component": "Card", "children": ["root"]}],
         [{"id": "root", "component": "Table", "columns": ["Name"], "rows": [["One"]]}],
+        # Known figures still reject extra fields, wrong roots, and multiple roots.
         [{"id": "root", "component": "BarChart", "points": [{"label": "A", "value": 1}], "html": "<script>"}],
         [{"id": "root", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}], "html": "<script>"}],
         [{"id": "other", "component": "Figure", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}],
@@ -117,6 +121,8 @@ def test_trace_types_preserve_missing_values(api_client, kind):
         **({"labels": ["Sales", "Missing"], "values": [42, None]} if kind == "pie" else {"x": ["Sales", "Missing"], "y": [42, None]}),
     }
     result = execute(api_client, f"ui.plot([{trace!r}])")
+
+    # Missing values survive validation and serialization for every trace type.
     assert result["exception"] is None
     chart = result["ui"][1]["updateComponents"]["components"][0]
     assert chart["component"] == "Figure"
@@ -132,6 +138,7 @@ def test_chart_type_can_change_without_duplicating_surface(api_client):
     assert result["ui"][2]["updateComponents"]["components"][0]["data"][0]["type"] == "scatter"
 
 
+# Chart validation failures must not leave a partially created surface.
 @pytest.mark.parametrize(
     "code",
     [

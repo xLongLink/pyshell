@@ -21,6 +21,8 @@ def test_factories_return_typed_widgets_with_common_methods(path, attributes, co
     assert isinstance(widget, Widget)
     assert widget.component == component
     assert widget.surface_id == "surface_1"
+
+    # All typed widgets use the same ordered placement commands.
     ui.messages = []
     widget.focus()
     widget.unfocus()
@@ -39,6 +41,8 @@ def test_update_keeps_the_handle_and_surface_identity():
     assert chart.layout.title.text == "After"
     assert chart.data[0].y == [50]
     assert chart.surface_id == "sales"
+
+    # Updates publish once without replacing the original handle.
     assert len(ui.messages) == 1
     assert ui.messages[0]["updateComponents"]["surfaceId"] == "sales"
     assert ui.messages[0]["updateComponents"]["components"][0]["layout"]["title"]["text"] == "After"
@@ -62,6 +66,8 @@ def test_rejected_update_preserves_attributes_and_published_state(attributes):
     ui.messages = []
     with pytest.raises((ValueError, ValidationError)):
         chart.update(**attributes)
+
+    # Rejection is atomic and leaves the handle usable for a later valid update.
     assert chart.layout.title.text == "Original"
     assert chart.data[0].values == [42]
     assert chart.id == "root"
@@ -75,6 +81,8 @@ def test_widget_attributes_cannot_be_assigned_without_publishing():
     widget = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}})
     with pytest.raises(ValidationError, match="frozen"):
         widget.layout = {"title": {"text": "Unpublished"}}
+
+    # Nested models must not bypass publication through direct assignment.
     with pytest.raises(ValidationError, match="frozen"):
         widget.layout.title.text = "Unpublished"
     assert widget.layout.title.text == "Original"
@@ -85,12 +93,16 @@ def test_widget_attributes_cannot_be_assigned_without_publishing():
 def test_removed_replaced_and_reset_handles_cannot_mutate_new_widgets(invalidate):
     ui = UI()
     original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="notice")
+
+    # Each invalidation path must reject mutations through the old handle.
     if invalidate == "remove":
         original.remove()
     elif invalidate == "replace":
         ui.plot([{"type": "scatter", "x": ["A"], "y": [2]}], surface_id="notice")
     else:
         ui.close()
+
+    # Stale operations must not append messages to the replacement session.
     previous = list(ui.messages)
     for operation in (original.pin, original.focus, original.remove, lambda: original.update(layout={"title": {"text": "Stale"}})):
         with pytest.raises(RuntimeError, match="removed, replaced, or reset"):
@@ -117,6 +129,8 @@ def test_failed_publication_does_not_change_widget_attributes():
     with pytest.raises(ValueError, match="100 messages"):
         widget.update(layout={"title": {"text": "Not published"}})
     assert widget.layout.title.text == "Original"
+
+    # Once the output budget is cleared, the same handle can publish again.
     ui.messages = []
     widget.update(layout={"title": {"text": "Now published"}})
     assert widget.layout.title.text == "Now published"

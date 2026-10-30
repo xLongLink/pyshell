@@ -26,10 +26,14 @@ class Factory(Generic[T]):
         """Validate constructor arguments without repeating component schemas."""
         if len(values) > len(self.model.arguments):
             raise TypeError(f"{self.model.__name__} accepts at most {len(self.model.arguments)} positional arguments")
+
+        # Merge positional arguments before validating the component model.
         for name, value in zip(self.model.arguments, values):
             if name in attributes:
                 raise TypeError(f"Multiple values for '{name}'")
             attributes[name] = value
+
+        # Publish only after all constructor arguments have been validated.
         widget = self.model.model_validate(attributes)
         self.owner.show(widget, surface_id=surface_id)
         return widget
@@ -79,6 +83,8 @@ class UI:
         combined = self.messages + messages
         if len(combined) > 100 or len(json.dumps(combined, allow_nan=False).encode()) > 1048576:
             raise ValueError("UI output must not exceed 100 messages or 1 MiB per execution")
+
+        # Bound nesting and node count before handing messages to the processor.
         pending = [(combined, 0)]
         count = 0
         while pending:
@@ -86,10 +92,14 @@ class UI:
             count += 1
             if count > 20000 or depth > 24:
                 raise ValueError("UI output exceeds the display complexity limit")
+
+            # Walk only containers; scalar values contribute a single node.
             if isinstance(item, dict):
                 pending.extend((value, depth + 1) for value in item.values())
             elif isinstance(item, list):
                 pending.extend((value, depth + 1) for value in item)
+
+        # Placement commands are workspace events, not A2UI protocol messages.
         protocol = [message for message in messages if message.get("type") != "widget"]
         if protocol:
             self._processor.process_messages(protocol)
@@ -101,11 +111,15 @@ class UI:
             if component._owner is not None:
                 raise RuntimeError("Use update() to change an already published widget")
             widget = component
+
+        # Wire models must describe exactly one known root component.
         else:
             if not isinstance(component, list) or len(component) != 1:
                 raise ValueError("A surface requires exactly one figure")
             if len(json.dumps(component, allow_nan=False).encode()) > 262144:
                 raise ValueError("A surface must not exceed 256 KiB")
+
+            # Resolve the catalog adapter only after checking the discriminator.
             attributes = component[0]
             if not isinstance(attributes, dict) or attributes.get("component") not in CATALOG_MODEL.components:
                 raise ValueError("Unknown UI component")
@@ -113,12 +127,16 @@ class UI:
             widget = model.type_adapter.validate_python(attributes)
         if widget.id != "root":
             raise ValueError("A figure requires the component ID 'root'")
+
+        # Automatic IDs must not replace explicitly named surfaces.
         if surface_id is None:
             self._sequence += 1
             surface_id = f"surface_{self._sequence}"
             while surface_id in self._widgets:
                 self._sequence += 1
                 surface_id = f"surface_{self._sequence}"
+
+        # Validate the entire replacement before publishing or changing handles.
         identifier = TypeAdapter(Identifier).validate_python(surface_id)
         if identifier not in self._widgets and len(self._widgets) >= 20:
             raise ValueError("At most 20 surfaces may be displayed; remove an existing surface first")
@@ -126,6 +144,8 @@ class UI:
         messages = [self._create(identifier), self._content(identifier, widget)]
         if identifier in self._widgets:
             messages.insert(0, self._delete(identifier))
+
+        # Bind the handle only after publication succeeds.
         self._publish(messages)
         widget._owner = self
         widget._surface_id = identifier
@@ -144,6 +164,8 @@ class UI:
         candidate = type(widget).model_validate({**widget.model_dump(mode="json"), **attributes})
         self._validate(widget.surface_id, candidate)
         self._publish([self._content(widget.surface_id, candidate)])
+
+        # Commit validated attributes only after the update has been published.
         for name in type(widget).model_fields:
             object.__setattr__(widget, name, getattr(candidate, name))
 

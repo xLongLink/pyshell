@@ -25,6 +25,8 @@ class Widget(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     arguments: ClassVar[tuple[str, ...]] = ()
     id: Identifier = "root"
+
+    # Publication metadata is private and excluded from the wire model.
     _owner: Publisher | None = PrivateAttr(default=None)
     _surface_id: str | None = PrivateAttr(default=None)
 

@@ -21,11 +21,12 @@ class ExecutionRequest(BaseModel):
 class ExecutionResult(BaseModel):
     """Captured output and completion state of an execution."""
 
+    # Match the response fields to the captured execution state.
+    ui: list[dict[str, JsonValue]] = Field(default_factory=list)
     done: bool
     stderr: str
     stdout: str
     exception: str | None
-    ui: list[dict[str, JsonValue]] = Field(default_factory=list)
 
 
 def create_app() -> FastAPI:

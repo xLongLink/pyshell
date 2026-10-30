@@ -34,6 +34,8 @@ def test_web_server_serves_website_and_assets(browser_api, monkeypatch, tmp_path
     monkeypatch.setattr(server.frontend, "directory", str(tmp_path))
     monkeypatch.setattr(server.frontend, "all_directories", [str(tmp_path)])
     response = client.get("/")
+
+    # The HTML mount must serve real assets without masking missing files.
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "PyShell" in response.text
@@ -56,6 +58,8 @@ def test_browser_executes_and_reconnects_without_replaying(browser_api):
         assert "print('browser result')" in "".join(event.get("text", "") for event in events if event["type"] == "code_delta")
         assert any(event["type"] == "result" and event["stdout"] == "browser result\n" for event in events)
         assert {"type": "done"} in events
+
+    # Reconnection restores history without another model request.
     with client.websocket_connect("/ws", headers={"origin": "http://127.0.0.1:5180"}) as socket:
         snapshot = socket.receive_json()
         assert snapshot["busy"] is False
@@ -70,6 +74,8 @@ def test_browser_rejects_reset_without_changing_shared_state(browser_api, remote
         socket.receive_json()
         socket.send_json({"type": "reset"})
         events = receive_until_idle(socket)
+
+        # Unsupported reset commands must not clear execution or agent state.
         assert events[0]["type"] == "error"
         assert not any(event["type"] == "reset" for event in events)
         assert remote_shell.execute("print(value)")["stdout"] == "42\n"
@@ -89,6 +95,8 @@ def test_browser_reuses_the_provider_event_loop(browser_api, monkeypatch):
     monkeypatch.setattr(agent, "run", tracked_run)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         socket.receive_json()
+
+        # Consecutive turns must reuse the provider's worker thread and loop.
         for instruction in ("first", "second"):
             socket.send_json({"type": "run", "instruction": instruction})
             assert {"type": "done"} in receive_until_idle(socket)
@@ -106,6 +114,8 @@ def test_browser_reports_model_failure_without_executing(browser_api, model_for,
         socket.send_json({"type": "run", "instruction": "set value"})
         events = receive_until_idle(socket)
         assert any(event["type"] == "error" and "stream interrupted" in event["text"] for event in events)
+
+        # An incomplete model stream must never reach execution.
         assert not any(event["type"] in {"result", "done"} for event in events)
     assert "NameError" in remote_shell.execute("print(value)")["exception"]
 
@@ -116,11 +126,15 @@ def test_python_widgets_stream_and_replay(browser_api, model_for, remote_shell):
         model_for(["ui.plot([{'type': 'bar', 'x': ['Apples'], 'y': [42]}], surface_id='sales')\nprint('Sales ready')\ndone()"]),
         shell=remote_shell,
     )
+
+    # Widget content must be streamed and retained for reconnecting tabs.
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "show sales"})
         events = receive_until_idle(socket)
         ui = next(event for event in events if event["type"] == "a2ui")
+
+        # The replayed payload must match the Python figure's serialized content.
         assert ui["messages"][1]["updateComponents"]["components"][0]["data"] == [{"type": "bar", "name": "", "x": ["Apples"], "y": [42]}]
         assert any(event["type"] == "result" and event["stdout"] == "Sales ready\n" for event in events)
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
@@ -143,6 +157,8 @@ def test_python_placement_snapshot_survives_updates(browser_api, model_for, remo
         requests=requests,
     )
     client.app.state.workspace.agent = server.Agent(model, shell=remote_shell)
+
+    # Content changes must retain the placement established by Python actions.
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "show sales"})
@@ -151,6 +167,8 @@ def test_python_placement_snapshot_survives_updates(browser_api, model_for, remo
         assert placements[-1]["widgets"] == {"sales": {"pinned": False}}
         initial = placements[0]["widgets"]
         assert initial == {"sales": {"pinned": False}}
+
+        # Placement snapshots must not alias later mutations or content updates.
         assert any(event["widgets"] == {"sales": {"pinned": True}} for event in placements)
         assert len(requests) == 1
         socket.send_json({"type": "run", "instruction": "update the title"})
@@ -158,6 +176,8 @@ def test_python_placement_snapshot_survives_updates(browser_api, model_for, remo
         updates = [message for event in events if event["type"] == "a2ui" for message in event["messages"]]
         assert len(updates) == 1
         assert updates[0]["updateComponents"]["components"][0]["layout"]["title"]["text"] == "Updated revenue"
+
+    # A fresh tab sees the current placement alongside retained content history.
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert socket.receive_json()["placements"] == {"sales": {"pinned": False}}
 
@@ -172,6 +192,8 @@ def test_placement_history_is_not_retained_but_reconnect_and_live_events_are_cur
         ),
         shell=remote_shell,
     )
+
+    # The initial turn emits content before applying its placement command.
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "create and pin sales"})
@@ -181,12 +203,16 @@ def test_placement_history_is_not_retained_but_reconnect_and_live_events_are_cur
             {"sales": {"pinned": False}},
             {"sales": {"pinned": True}},
         ]
+
+    # Placement is sent live but kept out of retained transcript history.
     history = [event for event in events if event["type"] not in {"state", "placement"}]
     assert workspace.events == history
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         snapshot = socket.receive_json()
         assert snapshot["events"] == history
         assert snapshot["placements"] == {"sales": {"pinned": True}}
+
+        # Removal must preserve the ordering of preceding placement commands.
         socket.send_json({"type": "run", "instruction": "unpin, unfocus, and remove sales"})
         events = receive_until_idle(socket)
         assert [event["type"] for event in events if event["type"] in {"a2ui", "placement"}] == [
@@ -200,6 +226,8 @@ def test_placement_history_is_not_retained_but_reconnect_and_live_events_are_cur
             {"sales": {"pinned": True}},
             {},
         ]
+
+    # Reconnection uses the latest placement map, not obsolete placement events.
     history += [event for event in events if event["type"] not in {"state", "placement"}]
     assert workspace.events == history
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
@@ -218,6 +246,8 @@ def test_control_order_is_preserved_when_a_named_widget_is_replaced(browser_api,
         ),
         shell=remote_shell,
     )
+
+    # Replacing a named surface must not inherit its old pinned state.
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "replace the result"})
@@ -249,6 +279,8 @@ def test_focusing_another_widget_and_unfocusing_the_old_one_preserves_new_focus(
         ),
         shell=remote_shell,
     )
+
+    # Unfocusing the old widget must not displace the newly focused widget.
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "focus second"})
@@ -273,6 +305,8 @@ def test_python_placement_remains_available_during_agent_work(browser_api, model
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "create a result"})
         receive_until_idle(socket)
+
+        # Block the next run while checking that its placement event arrives live.
         monkeypatch.setattr(agent, "run", work)
         socket.send_json({"type": "run", "instruction": "keep working"})
         assert socket.receive_json() == {"type": "state", "busy": True}
@@ -280,6 +314,8 @@ def test_python_placement_remains_available_during_agent_work(browser_api, model
         try:
             assert started.wait(timeout=5)
             assert socket.receive_json() == {"type": "placement", "widgets": {"notice": {"pinned": True}}}
+
+        # Always release the worker so a failed assertion cannot hang teardown.
         finally:
             release.set()
         assert {"type": "done"} in receive_until_idle(socket)
@@ -295,6 +331,8 @@ def test_center_capacity_eviction_and_return_from_sidebar(browser_api, model_for
         ),
         shell=remote_shell,
     )
+
+    # Creating a fifth centered widget moves the oldest one into the sidebar.
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "create five widgets"})
@@ -303,11 +341,15 @@ def test_center_capacity_eviction_and_return_from_sidebar(browser_api, model_for
         assert all(sum(not value["pinned"] for value in state.values()) <= 4 for state in placements)
         assert placements[-1]["chart_0"] == {"pinned": True}
         assert all(placements[-1][f"chart_{n}"] == {"pinned": False} for n in range(1, 5))
+
+        # Refocusing a sidebar widget evicts the next oldest centered widget.
         socket.send_json({"type": "run", "instruction": "focus the first chart"})
         events = receive_until_idle(socket)
         state = [event["widgets"] for event in events if event["type"] == "placement"][-1]
         assert state["chart_0"] == {"pinned": False}
         assert state["chart_1"] == {"pinned": True}
+
+        # Explicit unpin and removal must also be reflected in reconnect snapshots.
         socket.send_json({"type": "run", "instruction": "unpin a chart and remove another"})
         events = receive_until_idle(socket)
         state = [event["widgets"] for event in events if event["type"] == "placement"][-1]
@@ -343,6 +385,8 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
     with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
         socket.receive_json()
         socket.send_json({"type": "run", "instruction": "work"})
+
+        # Wait until work is active before disconnecting its originating tab.
         assert started.wait(timeout=5)
     try:
         with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
@@ -350,6 +394,8 @@ def test_disconnect_does_not_cancel_work_or_allow_overlap(browser_api, monkeypat
             socket.send_json({"type": "run", "instruction": "overlapping work"})
             assert socket.receive_json()["type"] == "error"
             assert socket.receive_json() == {"type": "state", "busy": True}
+
+            # The disconnected tab's work must finish without accepting overlap.
             release.set()
             events = receive_until_idle(socket)
             assert {"type": "done"} in events

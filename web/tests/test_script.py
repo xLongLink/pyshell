@@ -1,8 +1,10 @@
 import json
 import httpx
 import pytest
+from pydantic_ai import Agent as PydanticAgent
 from unittest.mock import Mock, patch
-from web.src.script import Agent
+from web.src.script import Agent, RemoteShell, stream_response
+from importlib.metadata import version
 
 
 def test_installed_libraries_are_in_model_context(model_for, remote_shell):
@@ -14,6 +16,8 @@ def test_installed_libraries_are_in_model_context(model_for, remote_shell):
         agent.run("work")
         agent.run("continue")
         libraries.assert_called_once_with()
+
+        # Reset invalidates the inventory cache for the next model turn.
         agent.reset()
         agent.run("start again")
         assert libraries.call_count == 2
@@ -27,10 +31,59 @@ def test_library_discovery_failure_prevents_model_request(model_for, remote_shel
     with patch.object(remote_shell, "libraries", side_effect=httpx.ConnectError("unavailable")):
         with pytest.raises(httpx.ConnectError, match="unavailable"):
             agent.run("work")
+
+    # Failed discovery must not commit a model request or conversation history.
     assert requests == []
     assert agent.message_history == []
+
+    # A discovery failure must leave the agent able to retry the same turn.
     agent.run("retry")
     assert len(requests) == 1
+
+
+def test_remote_libraries(remote_shell):
+    assert {"name": "fastapi", "version": version("fastapi")} in remote_shell.libraries()
+
+
+def test_remote_execution_and_reset(remote_shell):
+    assert remote_shell.execute("value = 42")["exception"] is None
+    assert remote_shell.execute("print(value)")["stdout"] == "42\n"
+    remote_shell.reset()
+    assert "NameError" in remote_shell.execute("print(value)")["exception"]
+
+
+def test_execution_transport_failure_is_not_retried(monkeypatch):
+    calls = []
+
+    def post(*args, **kwargs):
+        calls.append(args)
+        raise httpx.ReadError("disconnected")
+
+    monkeypatch.setattr("web.src.script.httpx.post", post)
+    with pytest.raises(RuntimeError, match="may already have run"):
+        RemoteShell().execute("value = 42")
+    assert len(calls) == 1
+
+
+def test_streams_code_to_callback_without_console_logs(model_for, capsys):
+    agent = PydanticAgent(model_for(["print(", "'hello')"]))
+    chunks = []
+    code, history = stream_response(agent, "say hello", [], on_code=chunks.append)
+    output = capsys.readouterr()
+    assert "".join(chunks) == "print('hello')"
+    assert output.out == ""
+    assert output.err == ""
+    assert code == "print('hello')"
+    assert history[-1].parts[0].content == code
+
+
+def test_stream_failure_propagates_without_timing(model_for, capsys):
+    agent = PydanticAgent(model_for(["value = 42", ConnectionError("disconnected")]))
+    with pytest.raises(ConnectionError, match="disconnected"):
+        stream_response(agent, "set value", [])
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
 
 
 def test_reset_clears_remote_session_and_conversation(model_for, remote_shell):
