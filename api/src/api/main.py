@@ -13,10 +13,10 @@ class ExecutionRequest(BaseModel):
 class ExecutionResult(BaseModel):
     """Captured output and completion state of an execution."""
 
-    stdout: str
-    stderr: str
-    exception: str | None
     done: bool
+    stderr: str
+    stdout: str
+    exception: str | None
 
 
 def create_app() -> FastAPI:
@@ -25,7 +25,7 @@ def create_app() -> FastAPI:
     shell = PythonShell()
     lock = Lock()
 
-    @app.get("/")
+    @app.get("/", response_model=dict[str, str])
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
@@ -34,7 +34,7 @@ def create_app() -> FastAPI:
         with lock:
             return shell.execute(request.code)
 
-    @app.post("/reset")
+    @app.post("/reset", response_model=dict[str, str])
     def reset() -> dict[str, str]:
         nonlocal shell
         with lock:

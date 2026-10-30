@@ -39,6 +39,8 @@ def model_for():
         async def stream(messages, info):
             if requests is not None:
                 requests.append((list(messages), info))
+
+            # Responses may fail after yielding partial code.
             for chunk in next(responses):
                 if isinstance(chunk, BaseException):
                     raise chunk

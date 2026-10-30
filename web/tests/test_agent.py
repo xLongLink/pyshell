@@ -53,6 +53,8 @@ def test_failed_stream_never_executes_code(model_for, remote_shell):
     agent.pending_feedback = "previous feedback"
     with pytest.raises(ConnectionError, match="disconnected"):
         agent.run("set value")
+
+    # A failed stream must preserve feedback without committing code or history.
     assert "NameError" in remote_shell.execute("print(value)")["exception"]
     assert agent.pending_feedback.startswith("previous feedback\n")
     assert '"executed": false' in agent.pending_feedback
@@ -65,6 +67,8 @@ def test_incomplete_response_never_executes(model_for, remote_shell):
     stream.stream_text.return_value = iter(["value = 42\n"])
     stream.get_output.return_value = "value = 42\n"
     stream.response.finish_reason = "length"
+
+    # A truncated response must not reach the execution API.
     with patch.object(agent.agent, "run_stream_sync") as run:
         run.return_value = stream
         with pytest.raises(RuntimeError, match="Model response length"):

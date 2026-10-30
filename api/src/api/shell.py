@@ -20,9 +20,13 @@ class PythonShell:
         stdout, stderr = io.StringIO(), io.StringIO()
         self.finished = False
         error = None
+
+        # Keep partial namespace updates even when execution raises.
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
                 exec(compile(source, "<agent>", "exec"), self.namespace)
+
+            # Completion is valid only if the entire response finishes.
             except (Exception, SystemExit, KeyboardInterrupt):
                 self.finished = False
                 error = traceback.format_exc()
