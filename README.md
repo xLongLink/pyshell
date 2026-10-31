@@ -20,7 +20,7 @@ Give instructions in your browser. Watch the agent write and run Python inside D
 - 🧠 **Persistent sessions:** Variables, imports, and conversation context carry over between instructions.
 - 🔄 **Execution feedback:** Output and errors go back to the model so it can continue or correct mistakes.
 - 📊 **Rich results:** A2UI renders Plotly-style figures with lines, markers, bars, and pies alongside code and printed output.
-- 🎙️ **Voice and text:** Speak to the voice assistant or submit text instructions. Both use the same persistent workspace.
+- 🎙️ **Voice instructions:** Speak to the voice assistant to work in the persistent workspace.
 
 
 <br />
@@ -42,11 +42,11 @@ Open http://127.0.0.1:8010. The execution container serves the widget interface 
 <img src="architecture.png" alt="PyShell architecture" />
 
 
-The browser connects to the web server over `/ws` for task events and voice signaling. A sandboxed iframe loads the widget frontend from the execution container and receives current widget snapshots directly over `/ui/ws`. Text instructions and voice-delegated tasks share one execution agent, Python namespace, and container-owned widget layout. Only one task runs at a time; closing a tab or ending a call does not cancel submitted work. Reconnecting restores the widgets without resubmitting work.
+The browser connects to the web server over `/ws` for task events and voice signaling. A sandboxed iframe loads the widget frontend from the execution container and receives current widget snapshots directly over `/ui/ws`. Voice-delegated tasks share one execution agent, Python namespace, and container-owned widget layout. Only one task runs at a time; closing a tab or ending a call does not cancel submitted work. Reconnecting restores the widgets without resubmitting work.
 
 Generated code executes only after the model response completes successfully. The Docker execution API returns a result and terminal confirmation over `/execute/stream`. The embedded frontend receives container-owned widget snapshots independently over `/ui/ws`; widget events are not included in the execution stream. Execution feedback goes back to the agent until it calls `done()` or reaches its task budget.
 
-The sample loads an HTML document with a voice orb and the container-owned workspace iframe using Python; it needs no frontend build. Voice uses a small browser JavaScript module for microphone audio over WebRTC and server-side OpenAI Realtime signaling. Allow microphone access on localhost or HTTPS. Provider credentials stay on the server. Voice conversation lasts for the call; Python state and the execution agent's history persist across calls and text turns.
+The sample loads an HTML document with a voice orb and the container-owned workspace iframe using Python; it needs no frontend build. Voice uses a small browser JavaScript module for microphone audio over WebRTC and server-side OpenAI Realtime signaling. Allow microphone access on localhost or HTTPS. Provider credentials stay on the server. Voice conversation lasts for the call; Python state and the execution agent's history persist across calls.
 
 The voice assistant can check the current task and execution phase, inspect chart titles and types, and recall the last eight task summaries across calls. Ask “what are you doing?” or “change the sales chart to a bar chart.” Say “end the call” to hang up without cancelling submitted work. Steering or stopping running Python is not supported.
 

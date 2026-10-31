@@ -6,7 +6,6 @@ from a2ui.core.catalog import Catalog, ModelComponentApi
 from api.ui.plot.figure import Figure
 from a2ui.core.processing import MessageProcessor, MessageProcessorOptions
 from a2ui.core.validation import STRICT_VALIDATION
-from a2ui.core.schema.v0_9 import server_to_client
 from src.api.tests.ui_helpers import RecordingUIState
 
 
@@ -18,9 +17,9 @@ def ui():
 @pytest.mark.parametrize(
     "trace",
     [
-        {"type": "bar", "x": ["A", "B"], "y": [42, None]},
+        {"type": "bar", "name": "Revenue", "x": ["Sales", "Missing"], "y": [-42, None]},
         *[{"type": "scatter", "mode": mode, "x": [1, 2], "y": [42, None]} for mode in ("lines", "markers", "lines+markers")],
-        {"type": "pie", "labels": ["A", "B"], "values": [42, None]},
+        {"type": "pie", "name": "Revenue", "labels": ["Sales", "Zero", "Missing"], "values": [42, 0, None]},
         {"type": "choropleth", "locations": ["CHE", "FRA"], "values": [42, None]},
     ],
     ids=["bar", "lines", "markers", "lines+markers", "pie", "choropleth"],
@@ -33,18 +32,13 @@ def test_widget_lifecycle_round_trips_through_the_protocol(ui, trace, monkeypatc
         [Catalog(CATALOG, "v0.9", [ModelComponentApi(Figure)])], options=MessageProcessorOptions(validation_config=STRICT_VALIDATION)
     )
     chart = ui.plot([trace], id="root", surface_id="sales")
-    creation = server_to_client.CreateSurfaceMessage(
-        createSurface=server_to_client.CreateSurface(surfaceId="sales", catalogId=CATALOG, theme=None, sendDataModel=None)
-    ).model_dump(mode="json", by_alias=True, exclude_none=True)
+    assert chart.data[0].model_dump(mode="json", include=set(trace)) == trace
+    creation = {"version": "v0.9", "createSurface": {"surfaceId": "sales", "catalogId": CATALOG}}
 
     def content(widget):
-        return server_to_client.UpdateComponentsMessage(
-            updateComponents=server_to_client.UpdateComponents(surfaceId="sales", components=[widget.model_dump(mode="json")])
-        ).model_dump(mode="json", by_alias=True, exclude_none=True)
+        return {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [widget.model_dump(mode="json")]}}
 
-    deletion = server_to_client.DeleteSurfaceMessage(deleteSurface=server_to_client.DeleteSurface(surfaceId="sales")).model_dump(
-        mode="json", by_alias=True, exclude_none=True
-    )
+    deletion = {"version": "v0.9", "deleteSurface": {"surfaceId": "sales"}}
     assert json.dumps(ui.state.messages) == json.dumps([creation, content(chart)])
     processor.process_messages(ui.state.messages)
     ui.state.messages.clear()
@@ -53,7 +47,8 @@ def test_widget_lifecycle_round_trips_through_the_protocol(ui, trace, monkeypatc
     assert chart.id == "root"
     surface = processor.model.get_surface("sales")
     assert surface.components_model.get("root").component_tree == chart.model_dump(mode="json")
-    updated_trace = {**trace, "values" if "values" in trace else "y": [43, None]}
+    field = "values" if "values" in trace else "y"
+    updated_trace = {**trace, field: [43, *trace[field][1:]]}
     chart.update(data=[updated_trace], layout={"title": {"text": "Updated"}, "showlegend": False})
     assert json.dumps(ui.state.messages) == json.dumps([content(chart)])
     processor.process_messages(ui.state.messages)

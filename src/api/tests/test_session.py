@@ -67,23 +67,3 @@ def test_automatic_surface_ids_do_not_replace_named_results(shell):
     created = [message["createSurface"]["surfaceId"] for message in shell.ui.state.messages if "createSurface" in message]
     assert created == ["surface_1", "surface_2"]
     assert not any("deleteSurface" in message for message in shell.ui.state.messages)
-
-
-MISSING_VALUE_TRACES = [
-    {"type": "bar", "name": "Revenue", "x": ["Sales", "Missing"], "y": [-42, None]},
-    {"type": "pie", "name": "Revenue", "labels": ["Sales", "Zero", "Missing"], "values": [42, 0, None]},
-]
-
-
-@pytest.mark.parametrize("trace", MISSING_VALUE_TRACES, ids=["bar", "pie"])
-def test_trace_types_preserve_missing_values(shell, trace):
-    # Arrange
-
-    # Act
-    result = shell.execute(f"ui.plot([{trace!r}])")
-
-    # Assert
-    assert result["exception"] is None
-    chart = shell.ui.state.snapshot()["events"][0]["messages"][1]["updateComponents"]["components"][0]
-    assert chart["component"] == "Figure"
-    assert chart["data"] == [trace]

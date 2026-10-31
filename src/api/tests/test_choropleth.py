@@ -46,18 +46,6 @@ def test_wrong_boundary_level_preserves_an_existing_plot(monkeypatch, name, leve
     chart.update(layout={"title": {"text": "Still valid"}})
 
 
-@pytest.mark.parametrize("level", ["country", "region", "district"])
-@pytest.mark.parametrize("name", ["world", "CHE"])
-def test_trace_level_is_rejected_without_fetching(monkeypatch, level, name):
-    def unexpected_lookup(geography):
-        pytest.fail("Old trace fields must be rejected before geography lookup")
-
-    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", unexpected_lookup)
-    with pytest.raises(ValidationError) as error:
-        Choropleth(geography=name, level=level, locations=["CHE"], values=[1])
-    assert [(item["loc"], item["type"]) for item in error.value.errors()] == [(("level",), "extra_forbidden")]
-
-
 def test_location_membership_refreshes_when_cached_file_changes(monkeypatch, tmp_path):
     monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
     path = tmp_path / "world-v2.json"
@@ -88,8 +76,10 @@ def test_validation_checks_input_structure_before_geography_lookup(monkeypatch, 
 
     # Act
     # Assert
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as error:
         UI().plot([{"type": "choropleth", "geography": "CHE", **trace}])
+    if "level" in trace:
+        assert [(item["loc"], item["type"]) for item in error.value.errors()] == [(("data", 0, "choropleth", "level"), "extra_forbidden")]
 
 
 def test_failed_first_lookup_preserves_an_existing_plot(monkeypatch, tmp_path):

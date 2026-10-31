@@ -46,19 +46,6 @@ def test_node_budget_counts_one_combined_root_and_accumulates_batches():
     assert len(state.messages) == 3
 
 
-def test_depth_budget_includes_combined_list_root():
-    state = RecordingUIState()
-    ui = UI(state)
-    nested = 0
-    for _ in range(22):
-        nested = [nested]
-    with pytest.raises(ValueError, match="complexity"):
-        ui._publish([{"value": [nested]}])
-    assert state.messages == []
-    ui._publish([{"value": nested}])
-    assert state.messages == [{"value": nested}]
-
-
 def test_message_budget_accepts_exact_limit_after_rejected_batch():
     state = RecordingUIState()
     ui = UI(state)

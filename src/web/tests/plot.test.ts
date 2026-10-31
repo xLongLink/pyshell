@@ -187,14 +187,19 @@ test.each([
     },
 );
 
-test.each(["v2", "v3"])("old catalog %s is rejected", (version) => {
+test.each([
+    ["urn:pyshell:catalog:v2", false],
+    ["urn:pyshell:catalog:v3", false],
+    [catalogId, true],
+] as const)("catalog %s acceptance is %s", (catalog, accepted) => {
+    assert.equal(catalogId, "urn:pyshell:catalog:v4");
     assert.equal(
         a2uiBatchSchema.safeParse([
             {
                 version: "v0.9",
                 createSurface: {
                     surfaceId: "sales",
-                    catalogId: `urn:pyshell:catalog:${version}`,
+                    catalogId: catalog,
                 },
             },
             {
@@ -211,33 +216,7 @@ test.each(["v2", "v3"])("old catalog %s is rejected", (version) => {
                 },
             },
         ]).success,
-        false,
-    );
-});
-
-test("the current catalog is v4 and is accepted", () => {
-    assert.equal(catalogId, "urn:pyshell:catalog:v4");
-    assert.equal(
-        a2uiBatchSchema.safeParse([
-            {
-                version: "v0.9",
-                createSurface: { surfaceId: "sales", catalogId },
-            },
-            {
-                version: "v0.9",
-                updateComponents: {
-                    surfaceId: "sales",
-                    components: [
-                        {
-                            id: "root",
-                            component: "Figure",
-                            data: [{ type: "bar", x: [0], y: [1] }],
-                        },
-                    ],
-                },
-            },
-        ]).success,
-        true,
+        accepted,
     );
 });
 

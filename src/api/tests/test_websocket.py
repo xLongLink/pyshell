@@ -93,8 +93,12 @@ def test_first_failure_survives_peer_cleanup_failure():
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("disconnect", [False, True])
-def test_peer_cleanup_failure_is_not_suppressed(disconnect):
+@pytest.mark.parametrize(
+    ("disconnect", "cleanup_error"),
+    [(False, ValueError("cleanup failure")), (True, ValueError("cleanup failure")), (False, WebSocketDisconnect())],
+    ids=["normal-finish-cleanup-fails", "disconnect-cleanup-fails", "cleanup-disconnects"],
+)
+def test_peer_cleanup_outcomes(disconnect, cleanup_error):
     async def scenario():
         started = asyncio.Event()
 
@@ -108,9 +112,12 @@ def test_peer_cleanup_failure_is_not_suppressed(disconnect):
             try:
                 await asyncio.Future()
             finally:
-                raise ValueError("cleanup failure")
+                raise cleanup_error
 
-        with pytest.raises(ValueError, match="cleanup failure"):
+        if isinstance(cleanup_error, ValueError):
+            with pytest.raises(ValueError, match="cleanup failure"):
+                await run_websocket(finish(), peer())
+        else:
             await run_websocket(finish(), peer())
         assert asyncio.all_tasks() == {asyncio.current_task()}
 
@@ -127,26 +134,6 @@ def test_simultaneous_disconnect_does_not_hide_failure():
 
         with pytest.raises(ValueError, match="socket failed"):
             await run_websocket(disconnect(), fail())
-        assert asyncio.all_tasks() == {asyncio.current_task()}
-
-    asyncio.run(scenario())
-
-
-def test_disconnect_during_peer_cleanup_is_normal():
-    async def scenario():
-        started = asyncio.Event()
-
-        async def finish():
-            await started.wait()
-
-        async def peer():
-            started.set()
-            try:
-                await asyncio.Future()
-            finally:
-                raise WebSocketDisconnect()
-
-        await run_websocket(finish(), peer())
         assert asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(scenario())

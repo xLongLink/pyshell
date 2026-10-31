@@ -75,20 +75,20 @@ class UI:
         if message_count > 100 or byte_count > 1048576:
             raise ValueError("UI output must not exceed 100 messages or 1 MiB per execution")
 
-        # Bound nesting and node count before publishing messages.
-        pending = [(message, 1) for message in messages]
+        # Bound node count before publishing messages.
+        pending = list(messages)
         count = self._node_count
         while pending:
-            item, depth = pending.pop()
+            item = pending.pop()
             count += 1
-            if count > 20000 or depth > 24:
+            if count > 20000:
                 raise ValueError("UI output exceeds the display complexity limit")
 
             # Walk only containers; scalar values contribute a single node.
             if isinstance(item, dict):
-                pending.extend((value, depth + 1) for value in item.values())
+                pending.extend(item.values())
             elif isinstance(item, list):
-                pending.extend((value, depth + 1) for value in item)
+                pending.extend(item)
 
         self.state.publish(messages)
         self._message_count = message_count

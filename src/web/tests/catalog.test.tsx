@@ -13,10 +13,6 @@ import type { Surface } from "../lib/workspace";
 
 afterEach(cleanup);
 
-function surface(surfaceId = "sales"): Surface[] {
-    return bar("", surfaceId);
-}
-
 function figure(
     data: unknown[],
     layout?: unknown,
@@ -561,7 +557,7 @@ test("explicit figure updates replace traces in one widget and retain sidebar pl
 });
 
 test("backend placement moves widgets between center and sidebar without controls or visible IDs", () => {
-    const surfaces = [...surface("first"), ...surface("second")];
+    const surfaces = [...bar("", "first"), ...bar("", "second")];
     const { rerender } = render(
         <Results
             surfaces={surfaces}
@@ -605,7 +601,7 @@ test("backend placement moves widgets between center and sidebar without control
 
 test("backend-pinned overflow stays visible on the side", () => {
     const surfaces = [1, 2, 3, 4, 5].flatMap((index) =>
-        surface(`chart_${index}`),
+        bar("", `chart_${index}`),
     );
     const placements = Object.fromEntries(
         surfaces.map(({ id }, index) => [id, { pinned: index === 0 }]),
@@ -628,7 +624,7 @@ test("backend-pinned overflow stays visible on the side", () => {
 
 test("the sidebar renders every backend-pinned widget in surface order", () => {
     const surfaces = [1, 2, 3, 4, 5, 6].flatMap((index) =>
-        surface(`chart_${index}`),
+        bar("", `chart_${index}`),
     );
     const placements = Object.fromEntries(
         surfaces.map(({ id }) => [id, { pinned: true }]),

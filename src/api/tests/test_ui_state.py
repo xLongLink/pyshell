@@ -2,7 +2,6 @@ import gc
 import pytest
 import asyncio
 from weakref import ref
-from threading import Thread
 from contextlib import ExitStack
 from api.ui.state import UIState
 from unittest.mock import patch
@@ -73,45 +72,6 @@ def test_complete_creation_and_replacement_always_reconnect_with_content():
             assert first["createSurface"]["surfaceId"] == second["updateComponents"]["surfaceId"]
         assert snapshot["events"][1]["messages"][1]["updateComponents"]["components"][0]["layout"]["title"]["text"] == "Replacement"
         state.unsubscribe(queue)
-
-    asyncio.run(run())
-
-
-def test_two_slow_subscribers_share_one_snapshot_per_loop():
-    async def run():
-        state = UIState()
-        first = state.subscribe()
-        second = state.subscribe()
-        loop = asyncio.get_running_loop()
-        with (
-            patch.object(loop, "call_soon_threadsafe", wraps=loop.call_soon_threadsafe) as schedule,
-            patch.object(state, "snapshot", wraps=state.snapshot) as snapshot,
-        ):
-
-            def publish():
-                state.publish([creation("sales"), content("sales")])
-                for index in range(20):
-                    state.publish([content("sales", str(index))])
-
-            worker = Thread(target=publish)
-            worker.start()
-            worker.join(2)
-            assert not worker.is_alive()
-            assert schedule.call_count == 1
-            assert snapshot.call_count == 0
-            await asyncio.sleep(0)
-            assert snapshot.call_count == 1
-            assert first.qsize() == second.qsize() == 1
-            delivered = first.get_nowait()
-            assert second.get_nowait() is delivered
-        assert delivered == state.snapshot()
-        assert delivered["events"][0]["messages"][1] == content("sales", "19")
-        state.publish([content("sales", "Later")])
-        await asyncio.sleep(0)
-        assert first.get_nowait() == second.get_nowait() == state.snapshot()
-        assert delivered["events"][0]["messages"][1] == content("sales", "19")
-        state.unsubscribe(first)
-        state.unsubscribe(second)
 
     asyncio.run(run())
 

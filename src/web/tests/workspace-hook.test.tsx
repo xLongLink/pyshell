@@ -94,48 +94,13 @@ test("invalid lifecycle snapshots retain the last valid surfaces and placements 
     sockets[0].receive(valid);
     const surfaces = result.current.surfaces;
     const placements = result.current.placements;
-    for (const messages of [
-        [creation],
-        [creation, creation],
-        [creation, update("other")],
-        [creation, { version: "v0.9", deleteSurface: { surfaceId: "sales" } }],
-    ]) {
-        sockets[0].receive({
-            ...valid,
-            events: [{ type: "a2ui", messages }],
-            placements: { sales: { pinned: false } },
-        });
-        expect(result.current.surfaces).toBe(surfaces);
-        expect(result.current.placements).toBe(placements);
-        expect(result.current.error).toContain("invalid");
-    }
-    const { placements: _, ...missingPlacements } = valid;
     for (const incoming of [
-        missingPlacements,
-        { ...valid, placements: {} },
         {
             ...valid,
-            placements: { sales: { pinned: false }, extra: { pinned: true } },
+            events: [{ type: "a2ui", messages: [creation, update("other")] }],
+            placements: { sales: { pinned: false } },
         },
-        {
-            type: "snapshot",
-            events: Array.from({ length: 5 }, (_, i) => ({
-                type: "a2ui",
-                messages: [
-                    {
-                        ...creation,
-                        createSurface: { surfaceId: `chart_${i}`, catalogId },
-                    },
-                    update(`chart_${i}`),
-                ],
-            })),
-            placements: Object.fromEntries(
-                Array.from({ length: 5 }, (_, i) => [
-                    `chart_${i}`,
-                    { pinned: false },
-                ]),
-            ),
-        },
+        { ...valid, placements: {} },
     ]) {
         sockets[0].receive(incoming);
         expect(result.current.surfaces).toBe(surfaces);

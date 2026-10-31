@@ -56,7 +56,7 @@ class VoiceSession:
     """Own a browser call without owning its submitted workspace operations."""
 
     def __init__(self, model: OpenAIRealtimeModel, workspace: Workspace, emit: Callable[[dict[str, object]], Awaitable[None]]) -> None:
-        """Bind voice delegation to the same workspace used by text input."""
+        """Bind voice delegation to the shared persistent workspace."""
         self.model = model
         self.workspace = workspace
         self.emit = emit
@@ -80,8 +80,9 @@ class VoiceSession:
         try:
             async with asyncio.timeout(5):
                 libraries = await self.workspace.agent.shell.inventory()
-            inventory = "Installed packages in the worker's execution environment (distribution names may differ from import names):\n" + json.dumps(
-                libraries
+            inventory = (
+                "Installed packages in the worker's execution environment (distribution names may differ from import names):\n"
+                + json.dumps(libraries)
             )
         except Exception:
             logger.exception("Could not load voice package inventory")

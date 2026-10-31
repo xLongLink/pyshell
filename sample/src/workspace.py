@@ -97,7 +97,7 @@ class Workspace:
             listener.publish(event)
 
     def start(self, instruction: str) -> asyncio.Task[None]:
-        """Submit text or voice work once, outside the socket's lifetime."""
+        """Submit work once, outside the socket's lifetime."""
         instruction = instruction_adapter.validate_python(instruction)
         if self.closing:
             raise RuntimeError("The workspace is shutting down.")

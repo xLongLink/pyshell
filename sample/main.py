@@ -1,16 +1,15 @@
 import httpx
 import asyncio
 from httpx import AsyncClient
-from typing import Literal
 from fastapi import FastAPI, WebSocket
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+from pydantic import ValidationError
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from sample.src.shell import RemoteShell
 from fastapi.staticfiles import StaticFiles
 from sample.src.settings import settings
-from sample.src.workspace import Workspace, Instruction, Subscription
+from sample.src.workspace import Workspace, Subscription
 from sample.src.agents.voice import VoiceCommand, VoiceSession
 from sample.src.agents.script import Agent
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
@@ -18,17 +17,6 @@ from src.api.src.api.websocket import run_websocket
 from pydantic_ai.realtime.openai import OpenAIRealtimeModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-
-
-class Command(BaseModel):
-    """Validate browser text commands before allocating work."""
-
-    model_config = ConfigDict(extra="forbid", strict=True)
-    type: Literal["run"]
-    instruction: Instruction = ""
-
-
-command_adapter = TypeAdapter(Command | VoiceCommand)
 
 
 @asynccontextmanager
@@ -79,13 +67,8 @@ async def workspace_socket(socket: WebSocket) -> None:
 
             # Reject invalid commands without interrupting the subscription.
             try:
-                command = command_adapter.validate_json(text)
-                if isinstance(command, VoiceCommand):
-                    await voice.handle(command)
-
-                # Text tasks belong to the workspace, not this connection.
-                else:
-                    workspace.start(command.instruction)
+                command = VoiceCommand.model_validate_json(text)
+                await voice.handle(command)
             except (ValidationError, ValueError, RuntimeError) as error:
                 subscription.publish({"type": "error", "text": str(error)})
 

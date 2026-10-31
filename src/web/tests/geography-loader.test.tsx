@@ -84,30 +84,25 @@ test("successful geography requests are shared only until settlement", async () 
     expect(fetch).toHaveBeenCalledTimes(2);
 });
 
-test.each([
-    undefined,
-    null,
-    "unused metadata",
-    { source: 123, url: "invalid", license: false },
-])(
-    "rendering does not require or retain attribution metadata: %j",
-    async (source) => {
-        vi.resetModules();
-        vi.stubGlobal(
-            "fetch",
-            vi
-                .fn()
-                .mockResolvedValue(
-                    new Response(JSON.stringify({ ...boundaries, source })),
-                ),
-        );
-        const { loadGeography } = await import("../components/plot/geography");
+test("rendering does not retain malformed attribution metadata", async () => {
+    vi.resetModules();
+    vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+            new Response(
+                JSON.stringify({
+                    ...boundaries,
+                    source: { source: 123, url: "invalid", license: false },
+                }),
+            ),
+        ),
+    );
+    const { loadGeography } = await import("../components/plot/geography");
 
-        const loaded = await loadGeography("CHE");
-        expect(loaded).toEqual(boundaries);
-        expect(loaded).not.toHaveProperty("source");
-    },
-);
+    const loaded = await loadGeography("CHE");
+    expect(loaded).toEqual(boundaries);
+    expect(loaded).not.toHaveProperty("source");
+});
 
 test.each([
     { ...boundaries, geography: "USA" },

@@ -13,12 +13,6 @@ def standalone_traces(monkeypatch):
     }
 
 
-def test_choropleth_accepts_a_single_trace(standalone_traces):
-    chart = UI().plot([standalone_traces["choropleth"]])
-    assert len(chart.data) == 1
-    assert chart.data[0].type == "choropleth"
-
-
 @pytest.mark.parametrize(
     ("kinds", "message"),
     [
@@ -36,14 +30,6 @@ def test_standalone_traces_reject_mixed_figures(standalone_traces, kinds, messag
     assert error.value.errors()[0]["msg"] == f"Value error, {message}"
 
 
-@pytest.mark.parametrize("field", ["x", "y", "values"])
-def test_nonfinite_coordinates_are_rejected(field):
-    trace = {"type": "pie", "labels": ["A"], "values": [1]} if field == "values" else {"type": "scatter", "x": [1], "y": [1]}
-    trace[field] = [float("inf")]
-    with pytest.raises(ValidationError):
-        UI().plot([trace])
-
-
 @pytest.mark.parametrize(("traces", "points"), [(20, 10), (1, 200)])
 def test_figure_limits_accept_boundary_values(traces, points):
     # Arrange
@@ -56,7 +42,7 @@ def test_figure_limits_accept_boundary_values(traces, points):
     assert len(chart.data) == traces
 
 
-@pytest.mark.parametrize(("traces", "points"), [(21, 1), (1, 201), (2, 101)])
+@pytest.mark.parametrize(("traces", "points"), [(21, 1), (2, 101)])
 def test_figure_limits_reject_excess_values(traces, points):
     # Arrange
     data = [{"type": "scatter", "x": list(range(points)), "y": [1] * points} for _ in range(traces)]

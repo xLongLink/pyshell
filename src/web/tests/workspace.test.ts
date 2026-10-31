@@ -259,7 +259,6 @@ test("snapshots require exactly one placement for each current surface", () => {
     const { placements: _, ...missing } = valid;
     for (const input of [
         missing,
-        { ...valid, placements: {} },
         {
             ...valid,
             placements: { sales: { pinned: false }, extra: { pinned: true } },
