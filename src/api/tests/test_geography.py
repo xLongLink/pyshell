@@ -222,31 +222,24 @@ def test_public_geography_info_does_not_expose_cached_mutable_data(monkeypatch, 
         Choropleth(locations=["FRA"], values=[1])
 
 
-def test_failed_download_does_not_cache_or_expose_upstream_details(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    ("failure", "status", "detail"),
+    [
+        pytest.param(lambda url: URLError("private upstream address"), 503, "Map data is unavailable", id="unavailable"),
+        pytest.param(lambda url: HTTPError(url, 404, "not found", None, None), 404, "Unsupported geography", id="unsupported"),
+    ],
+)
+def test_failed_download_does_not_cache_or_expose_upstream_details(monkeypatch, tmp_path, failure, status, detail):
     monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
 
     def unavailable(url):
-        raise URLError("private upstream address")
+        raise failure(url)
 
     monkeypatch.setattr(geography, "download", unavailable)
     with TestClient(create_app()) as client:
         response = client.get("/geographies/CHE")
-    assert response.status_code == 503
-    assert response.json() == {"detail": "Map data is unavailable"}
-    assert not list(tmp_path.iterdir())
-
-
-def test_missing_provider_metadata_is_an_unsupported_geography(monkeypatch, tmp_path):
-    monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
-
-    def missing(url):
-        raise HTTPError(url, 404, "not found", None, None)
-
-    monkeypatch.setattr(geography, "download", missing)
-    with TestClient(create_app()) as client:
-        response = client.get("/geographies/CHE")
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Unsupported geography"}
+    assert response.status_code == status
+    assert response.json() == {"detail": detail}
     assert not list(tmp_path.iterdir())
 
 

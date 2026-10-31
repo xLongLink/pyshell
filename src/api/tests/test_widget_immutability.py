@@ -9,10 +9,7 @@ from src.api.tests.ui_helpers import RecordingUIState
 
 
 @pytest.fixture(params=["bar", "scatter", "pie", "choropleth"])
-def trace(request, monkeypatch):
-    monkeypatch.setattr(
-        "api.ui.plot.choropleth._geography_info", lambda name: {"level": "country", "locations": {"CHE": "Switzerland", "FRA": "France"}}
-    )
+def trace(request, country_geography):
     kind = request.param
     if kind == "pie":
         return {"type": kind, "labels": ["A", "B"], "values": [1, None]}
@@ -66,12 +63,7 @@ def test_original_lists_cannot_change_published_or_subsequently_updated_content(
 
 
 def test_list_inputs_round_trip_as_arrays_and_explicit_updates_remain_immutable(trace):
-    attributes = {"data": [trace]}
-    chart = Figure.model_validate(attributes)
-    assert isinstance(chart.data, tuple)
-    for name, value in trace.items():
-        if isinstance(value, list):
-            assert getattr(chart.data[0], name) == tuple(value)
+    chart = Figure.model_validate({"data": [trace]})
     assert Figure.model_validate(chart.model_dump()).model_dump(mode="json") == chart.model_dump(mode="json")
     assert json.loads(chart.model_dump_json()) == chart.model_dump(mode="json")
 

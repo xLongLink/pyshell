@@ -2,10 +2,10 @@ import json
 import pytest
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 from pydantic import ValidationError
-from sample.src.events import Result
+from unittest.mock import AsyncMock
 from sample.src.shell import EXECUTION_UNCERTAIN
+from sample.src.events import Result
 from sample.src.workspace import Workspace, Subscription
 from pydantic_ai.models.test import TestModel
 from sample.src.agents.script import Agent
@@ -55,17 +55,19 @@ def test_generation_failure_never_reports_or_starts_execution(generated, message
     agent.shell.stream.assert_not_awaited()
 
 
-def test_agent_retains_execution_feedback_across_generation_failure():
+@pytest.mark.parametrize("text", ["first", 'caf\u00e9\n"quoted"'])
+def test_agent_retains_execution_feedback_across_generation_failure(text):
     agent = make_agent(
         [response("print('first')"), RuntimeError("generation failed"), response("done()")],
-        [result("first", done=True), result("finished", done=True)],
+        [result(text, done=True), result("finished", done=True)],
     )
 
-    assert asyncio.run(agent.arun("work", lambda phase: None)) == "first"
+    assert asyncio.run(agent.arun("work", lambda phase: None)) == text
     with pytest.raises(RuntimeError, match="generation failed"):
         asyncio.run(agent.arun("next", lambda phase: None))
 
-    feedback = json.dumps(result("first", done=True).model_dump(exclude={"type"}))
+    feedback = result(text, done=True).model_dump_json(exclude={"type"})
+    assert json.loads(feedback) == {"stdout": text, "stderr": "", "exception": None, "done": True}
     error = json.dumps({"model_error": "RuntimeError: generation failed", "executed": False})
     retained = feedback + "\n" + error
     assert agent.pending_feedback == retained
@@ -77,30 +79,38 @@ def test_agent_retains_execution_feedback_across_generation_failure():
     assert [call.args[0] for call in agent.shell.stream.await_args_list] == ["print('first')", "done()"]
 
 
-@pytest.mark.parametrize("instruction", [None, 1, "x" * 8001, " " * 8001])
-def test_workspace_rejects_invalid_instructions_before_changing_state(instruction):
-    workspace = Workspace(SimpleNamespace())
+@pytest.mark.parametrize("error", [RuntimeError("stream failed"), asyncio.CancelledError()])
+def test_agent_retains_history_when_execution_is_not_confirmed(error):
+    agent = make_agent([response("print('first')")], [error])
+
+    with pytest.raises(type(error)):
+        asyncio.run(agent.arun("work", lambda phase: None))
+
+    assert agent.message_history == ["print('first')"]
+    assert json.loads(agent.pending_feedback) == {
+        "execution_error": "Execution was not confirmed; earlier changes may have applied. Do not replay."
+    }
+
+
+@pytest.mark.parametrize(
+    ("instruction", "uncertain", "error", "message"),
+    [
+        (None, False, ValidationError, "valid string"),
+        (1, False, ValidationError, "valid string"),
+        ("x" * 8001, False, ValidationError, "at most 8000 characters"),
+        (" " * 8001, False, ValidationError, "at most 8000 characters"),
+        ("work", True, RuntimeError, EXECUTION_UNCERTAIN),
+    ],
+)
+def test_workspace_rejects_instructions_before_changing_state(instruction, uncertain, error, message):
+    workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=uncertain)))
     subscription = Subscription(workspace)
     subscription.queue.get_nowait()
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(error) as raised:
         workspace.start(instruction)
 
-    assert workspace.current_instruction is None
-    assert workspace.phase == "idle"
-    assert workspace.task is None
-    assert subscription.queue.empty()
-
-
-def test_workspace_rejects_uncertain_execution_before_changing_state():
-    workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=True)))
-    subscription = Subscription(workspace)
-    subscription.queue.get_nowait()
-
-    with pytest.raises(RuntimeError) as error:
-        workspace.start("work")
-
-    assert str(error.value) == EXECUTION_UNCERTAIN
+    assert message in str(raised.value)
     assert workspace.current_instruction is None
     assert workspace.phase == "idle"
     assert workspace.task is None
@@ -135,7 +145,7 @@ def test_workspace_returns_to_idle_and_only_publishes_browser_messages(fail):
             assert instruction == "work"
             for phase in ("generating_code", "executing_python"):
                 on_phase(phase)
-                observed.append(workspace.status())
+                observed.append((workspace.phase, workspace.busy, workspace.current_instruction))
             if fail:
                 raise RuntimeError("execution failed")
             return "finished"
@@ -145,9 +155,8 @@ def test_workspace_returns_to_idle_and_only_publishes_browser_messages(fail):
         assert workspace.phase == "starting"
         await workspace.task
 
-        assert [status["phase"] for status in observed] == ["generating_code", "executing_python"]
-        assert all(status["busy"] and status["instruction"] == "work" for status in observed)
-        assert workspace.status() == {"busy": False, "phase": "idle", "instruction": None, "execution_uncertain": False}
+        assert observed == [("generating_code", True, "work"), ("executing_python", True, "work")]
+        assert (await workspace.context())["status"] == {"busy": False, "phase": "idle", "instruction": None, "execution_uncertain": False}
         events = []
         while not subscription.queue.empty():
             events.append(subscription.queue.get_nowait())
@@ -160,7 +169,46 @@ def test_workspace_returns_to_idle_and_only_publishes_browser_messages(fail):
         assert record["result"] == (
             "Task failed: execution failed. Earlier changes may have applied; do not automatically resubmit." if fail else "finished"
         )
-        assert [json.loads(report) for report in reports] == [record]
+        assert reports == [record]
+
+    asyncio.run(run())
+
+
+def test_workspace_shutdown_waits_for_accepted_work_and_rejects_new_submissions():
+    async def run():
+        working = asyncio.Event()
+        release = asyncio.Event()
+
+        async def arun(instruction, on_phase):
+            working.set()
+            await release.wait()
+            return "finished"
+
+        workspace = Workspace(SimpleNamespace(arun=arun, shell=SimpleNamespace(uncertain=False)))
+        workspace.start("accepted")
+        task = workspace.task
+        await asyncio.wait_for(working.wait(), 1)
+        closing = asyncio.create_task(workspace.close())
+        try:
+            await asyncio.sleep(0)
+            assert workspace.closing
+            assert not closing.done()
+            assert not task.done()
+            with pytest.raises(RuntimeError, match="shutting down"):
+                workspace.start("rejected")
+            assert workspace.task is task
+            assert workspace.current_instruction == "accepted"
+        finally:
+            release.set()
+            await asyncio.wait_for(closing, 1)
+
+        assert task.done()
+        assert not task.cancelled()
+        assert not workspace.busy
+        assert workspace.recent_tasks == [{"instruction": "accepted", "outcome": "completed", "result": "finished"}]
+        await workspace.close()
+        with pytest.raises(RuntimeError, match="shutting down"):
+            workspace.start("still rejected")
 
     asyncio.run(run())
 
@@ -168,7 +216,7 @@ def test_workspace_returns_to_idle_and_only_publishes_browser_messages(fail):
 @pytest.mark.parametrize("unavailable", [False, True])
 def test_context_snapshots_history_before_fetching_charts(unavailable):
     async def run():
-        agent = SimpleNamespace(shell=SimpleNamespace())
+        agent = SimpleNamespace(shell=SimpleNamespace(uncertain=False))
         workspace = Workspace(agent)
         workspace.recent_tasks.append({"instruction": "first", "outcome": "completed", "result": "finished"})
         fetching = asyncio.Event()
@@ -184,10 +232,14 @@ def test_context_snapshots_history_before_fetching_charts(unavailable):
         agent.shell.context = context
         pending = asyncio.create_task(workspace.context())
         await asyncio.wait_for(fetching.wait(), 1)
+        workspace.current_instruction = "second"
+        workspace.phase = "executing_python"
+        agent.shell.uncertain = True
         workspace.recent_tasks.append({"instruction": "second", "outcome": "completed", "result": "new result"})
         release.set()
         snapshot = await asyncio.wait_for(pending, 1)
 
+        assert snapshot["status"] == {"busy": False, "phase": "idle", "instruction": None, "execution_uncertain": False}
         assert snapshot["recent_tasks"] == [{"instruction": "first", "outcome": "completed", "result": "finished"}]
         assert snapshot["charts"] == ([] if unavailable else [{"surface_id": "sales"}])
         assert snapshot.get("charts_unavailable", False) is unavailable

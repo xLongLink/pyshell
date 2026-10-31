@@ -6,10 +6,15 @@ from api.ui.plot.figure import Figure
 from src.api.tests.ui_helpers import RecordingUIState
 
 
-@pytest.mark.parametrize("split", [False, True])
-def test_byte_budget_matches_default_json_encoding_at_exact_limit(split):
+@pytest.fixture
+def recorded_ui():
     state = RecordingUIState()
-    ui = UI(state)
+    return state, UI(state)
+
+
+@pytest.mark.parametrize("split", [False, True])
+def test_byte_budget_matches_default_json_encoding_at_exact_limit(split, recorded_ui):
+    state, ui = recorded_ui
     first = {"text": 'plainé雪😀\n\t"\\\ud800'}
     last = {"text": ""}
     last["text"] = "a" * (1048576 - len(json.dumps([first, last], allow_nan=False).encode()))
@@ -31,9 +36,8 @@ def test_byte_budget_matches_default_json_encoding_at_exact_limit(split):
     assert state.messages == [first, last]
 
 
-def test_node_budget_counts_one_combined_root_and_accumulates_batches():
-    state = RecordingUIState()
-    ui = UI(state)
+def test_node_budget_counts_one_combined_root_and_accumulates_batches(recorded_ui):
+    state, ui = recorded_ui
     ui._publish([{"items": [0] * 9997}])
     ui._publish([{"items": [0] * 9996}])
     with pytest.raises(ValueError, match="complexity"):
@@ -45,9 +49,8 @@ def test_node_budget_counts_one_combined_root_and_accumulates_batches():
     assert len(state.messages) == 3
 
 
-def test_message_budget_accepts_exact_limit_after_rejected_batch():
-    state = RecordingUIState()
-    ui = UI(state)
+def test_message_budget_accepts_exact_limit_after_rejected_batch(recorded_ui):
+    state, ui = recorded_ui
     ui._publish([{}] * 99)
     with pytest.raises(ValueError, match="100 messages"):
         ui._publish([{}, {}])
@@ -57,9 +60,8 @@ def test_message_budget_accepts_exact_limit_after_rejected_batch():
         ui._publish([{}])
 
 
-def test_failed_state_publication_does_not_spend_any_budget(monkeypatch):
-    state = RecordingUIState()
-    ui = UI(state)
+def test_failed_state_publication_does_not_spend_any_budget(monkeypatch, recorded_ui):
+    state, ui = recorded_ui
     message = {"items": ["a" * 900000] + [0] * 19000}
 
     def fail(messages):
@@ -74,9 +76,8 @@ def test_failed_state_publication_does_not_spend_any_budget(monkeypatch):
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_nonfinite_serialization_does_not_spend_budget(value):
-    state = RecordingUIState()
-    ui = UI(state)
+def test_nonfinite_serialization_does_not_spend_budget(value, recorded_ui):
+    state, ui = recorded_ui
     with pytest.raises(ValueError, match="JSON"):
         ui._publish([{"value": value}])
     ui._publish([{}] * 100)

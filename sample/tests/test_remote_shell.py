@@ -6,6 +6,37 @@ from sample.src.shell import RemoteShell
 
 
 @pytest.mark.parametrize(
+    "payload",
+    [
+        '{"type":"execution_finished","extra":true}\n',
+        '{"type":"result","stdout":"","stderr":"","exception":null,"done":true,"extra":true}\n',
+        '{"type":"result","stdout":"","stderr":"","exception":null,"done":"true"}\n',
+        '{"type":"result"}\n',
+        '{"type":"unknown"}\n',
+        "not json\n",
+    ],
+)
+def test_malformed_stream_marks_execution_uncertain_and_prevents_resubmission(payload):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx2.Response(200, text=payload)
+
+    async def run():
+        async with httpx2.AsyncClient(base_url="http://execution", transport=httpx2.MockTransport(handle)) as client:
+            shell = RemoteShell(client)
+            with pytest.raises(RuntimeError, match="Execution was not confirmed"):
+                await shell.stream("print('once')")
+            assert shell.uncertain
+            with pytest.raises(RuntimeError, match="Execution state is uncertain"):
+                await shell.stream("print('once')")
+
+    asyncio.run(run())
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
     ("method", "path", "payload", "expected_timeout"),
     [
         ("inventory", "/libraries", [{"name": "numpy", "version": "2.0"}], {"connect": 1, "read": 2, "write": 3, "pool": 4}),

@@ -124,8 +124,7 @@ export function mountVoice(page = window) {
         if (peer.connectionState === "connected") {
           page.clearTimeout(current.timer);
           setPhase("on");
-        }
-        if (["failed", "disconnected"].includes(peer.connectionState)) {
+        } else if (["failed", "disconnected"].includes(peer.connectionState)) {
           failVoice("Voice connection lost.");
         }
       };

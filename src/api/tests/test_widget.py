@@ -20,10 +20,7 @@ def ui():
     ],
     ids=["bar", "scatter", "pie", "choropleth"],
 )
-def test_widget_creation_and_updates_publish_protocol_messages(ui, trace, monkeypatch):
-    monkeypatch.setattr(
-        "api.ui.plot.choropleth._geography_info", lambda name: {"level": "country", "locations": {"CHE": "Switzerland", "FRA": "France"}}
-    )
+def test_widget_creation_and_updates_publish_protocol_messages(ui, trace, country_geography):
     chart = ui.plot([trace], id="root", surface_id="sales")
     assert chart.data[0].model_dump(mode="json", include=set(trace)) == trace
     creation = {"version": "v0.9", "createSurface": {"surfaceId": "sales"}}

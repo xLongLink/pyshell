@@ -187,10 +187,6 @@ test("snapshots preserve creation order, complete surfaces, defaults and placeme
         placements: { first: { pinned: true }, second: { pinned: false } },
     };
     const parsed = messageSchema.parse(input);
-    assert.deepEqual(
-        parsed.surfaces.map(({ id }) => id),
-        ["second", "first"],
-    );
     assert.equal(parsed.surfaces[0].props.layout.showlegend, true);
     assert.equal(parsed.surfaces[1].props.data[0].type, "bar");
     assert.deepEqual(

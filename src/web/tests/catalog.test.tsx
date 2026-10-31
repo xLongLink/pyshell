@@ -41,7 +41,7 @@ test("appending another surface preserves an existing chart and its keyboard foc
     const chart = await screen.findByRole("application");
     chart.focus();
     rerender(<Results surfaces={[...surfaces, ...bar("Second", "second")]} />);
-    await waitFor(() => expect(screen.getByText("Second")).toBeTruthy());
+    await screen.findByText("Second");
     expect(document.activeElement).toBe(chart);
     expect(
         screen
@@ -52,9 +52,9 @@ test("appending another surface preserves an existing chart and its keyboard foc
 
 test("replacement snapshots replace surfaces even when their count is unchanged", async () => {
     const { rerender } = render(<Results surfaces={bar("Old", "old")} />);
-    await waitFor(() => expect(screen.getByText("Old")).toBeTruthy());
+    await screen.findByText("Old");
     rerender(<Results surfaces={bar("New", "new")} />);
-    await waitFor(() => expect(screen.getByText("New")).toBeTruthy());
+    await screen.findByText("New");
     expect(screen.queryByText("Old")).toBeNull();
     expect(screen.getAllByRole("article")).toHaveLength(1);
 });
@@ -62,7 +62,7 @@ test("replacement snapshots replace surfaces even when their count is unchanged"
 test("chart titles remain inert even when they contain HTML", async () => {
     const text = '<img src=x onerror="alert(1)">';
     const { container } = render(<Results surfaces={bar(text)} />);
-    await waitFor(() => expect(screen.getByText(text)).toBeTruthy());
+    await screen.findByText(text);
     expect(container.querySelector("img")).toBeNull();
 });
 
@@ -81,7 +81,7 @@ test("pie rendering preserves missing slice positions and colors", async () => {
             )}
         />,
     );
-    await waitFor(() => expect(screen.getByText("Revenue")).toBeTruthy());
+    await screen.findByText("Revenue");
     await waitFor(() =>
         expect(container.querySelector(".recharts-pie")).not.toBeNull(),
     );
@@ -205,7 +205,7 @@ test("explicit figure updates replace traces in one widget and retain sidebar pl
     rerender(<Results surfaces={[]} />);
     await waitFor(() => expect(screen.queryByText("After")).toBeNull());
     rerender(<Results surfaces={surfaces} />);
-    await waitFor(() => expect(screen.getByText("Before")).toBeTruthy());
+    await screen.findByText("Before");
     expect(screen.getAllByRole("article")).toHaveLength(1);
     rerender(<Results surfaces={[]} />);
     await waitFor(() => expect(screen.queryByLabelText("Results")).toBeNull());

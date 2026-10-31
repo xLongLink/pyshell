@@ -94,6 +94,11 @@ function setup({ gatherIce = false } = {}) {
     const lifecycle = (type: string) =>
         page.dispatchEvent(new PageTransitionEvent(type, { persisted: true }));
     const connect = () => sockets.at(-1)!.receive({ type: "snapshot" });
+    const startVoice = async () => {
+        connect();
+        button.click();
+        await vi.advanceTimersByTimeAsync(0);
+    };
     return {
         page,
         button,
@@ -107,6 +112,7 @@ function setup({ gatherIce = false } = {}) {
         getUserMedia,
         lifecycle,
         connect,
+        startVoice,
     };
 }
 
@@ -129,9 +135,7 @@ test("BFCache suspension releases voice resources and resumes only once", async 
     expect(app.button.disabled).toBe(true);
     app.lifecycle("pageshow");
     expect(app.sockets).toHaveLength(1);
-    app.connect();
-    app.button.click();
-    await vi.advanceTimersByTimeAsync(0);
+    await app.startVoice();
     const peer = app.peers[0];
     peer.ontrack?.({ streams: [app.stream] });
     peer.connectionState = "connected";
@@ -215,9 +219,7 @@ test.each(["stop", "pagehide"])(
     "%s cancels pending ICE without a timeout or stale offer",
     async (action) => {
         const app = setup({ gatherIce: true });
-        app.connect();
-        app.button.click();
-        await vi.advanceTimersByTimeAsync(0);
+        await app.startVoice();
         expect(vi.getTimerCount()).toBe(1);
         if (action === "stop") app.button.click();
         else app.lifecycle("pagehide");
@@ -235,9 +237,7 @@ test.each(["stop", "pagehide"])(
 
 test("stale peer and answer callbacks cannot stop a new voice session", async () => {
     const app = setup();
-    app.connect();
-    app.button.click();
-    await vi.advanceTimersByTimeAsync(0);
+    await app.startVoice();
     const oldPeer = app.peers[0];
     const answer = deferred<void>();
     oldPeer.setRemoteDescription.mockReturnValueOnce(answer.promise);
@@ -261,9 +261,7 @@ test("stale peer and answer callbacks cannot stop a new voice session", async ()
 
 test("completed ICE submits once without retaining a gathering timeout", async () => {
     const app = setup();
-    app.connect();
-    app.button.click();
-    await vi.advanceTimersByTimeAsync(0);
+    await app.startVoice();
     const peer = app.peers[0];
     peer.connectionState = "connected";
     peer.onconnectionstatechange?.();
@@ -286,9 +284,7 @@ test.each([
     "%s failure reports an error and stops submitted voice",
     async (failure, message) => {
         const app = setup();
-        app.connect();
-        app.button.click();
-        await vi.advanceTimersByTimeAsync(0);
+        await app.startVoice();
         const peer = app.peers[0];
         if (failure === "playback") {
             app.audios[0].play.mockRejectedValueOnce(new Error("blocked"));

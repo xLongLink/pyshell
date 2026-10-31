@@ -1,5 +1,23 @@
+import pytest
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [None, "null", "https://evil.example", "http://localhost:8011", "http://localhost:8010.evil.example", "https://localhost:8010"],
+)
+def test_socket_rejects_untrusted_origins_before_accepting(monkeypatch, origin):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    from sample import main
+
+    socket = SimpleNamespace(headers={} if origin is None else {"origin": origin}, accept=AsyncMock(), close=AsyncMock())
+
+    asyncio.run(main.workspace_socket(socket))
+
+    socket.accept.assert_not_awaited()
+    socket.close.assert_awaited_once_with(code=1008)
 
 
 def test_overloaded_socket_stops_voice_without_cancelling_accepted_work(monkeypatch):

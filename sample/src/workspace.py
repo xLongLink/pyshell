@@ -1,11 +1,10 @@
-import json
 import asyncio
 from uuid import uuid4
 from typing import Annotated
 from pydantic import Field, TypeAdapter
 from collections.abc import Callable
-from sample.src.agents.script import Agent
 from sample.src.shell import EXECUTION_UNCERTAIN
+from sample.src.agents.script import Agent
 
 instruction_adapter = TypeAdapter(Annotated[str, Field(strict=True, max_length=8000)])
 
@@ -47,7 +46,7 @@ class Workspace:
         self.task: asyncio.Task[None] | None = None
 
         self.closing = False
-        self.results: set[Callable[[str], None]] = set()
+        self.results: set[Callable[[dict[str, object]], None]] = set()
         self.current_instruction: str | None = None
         self.phase = "idle"
         self.recent_tasks: list[dict[str, object]] = []
@@ -57,23 +56,21 @@ class Workspace:
         """Whether an accepted instruction is still running."""
         return self.current_instruction is not None
 
-    def status(self) -> dict[str, object]:
-        """Describe current work without submitting Python or changing state."""
-        return {
+    async def context(self) -> dict[str, object]:
+        """Snapshot work status and history, then fetch current chart metadata."""
+        status = {
             "busy": self.busy,
             "phase": self.phase,
             "instruction": self.current_instruction,
             "execution_uncertain": self.agent.shell.uncertain,
         }
 
-    async def context(self) -> dict[str, object]:
-        """Summarize recent work and current charts without copying their datasets."""
         recent_tasks = list(self.recent_tasks)
         try:
             charts = (await self.agent.shell.context())["charts"]
         except Exception:
-            return {"recent_tasks": recent_tasks, "charts": [], "charts_unavailable": True}
-        return {"recent_tasks": recent_tasks, "charts": charts}
+            return {"status": status, "recent_tasks": recent_tasks, "charts": [], "charts_unavailable": True}
+        return {"status": status, "recent_tasks": recent_tasks, "charts": charts}
 
     def update_phase(self, phase: str) -> None:
         """Update execution progress only while work is active."""
@@ -122,10 +119,8 @@ class Workspace:
         record = {"instruction": instruction[:2000], "outcome": outcome, "result": result[-4000:]}
         self.recent_tasks.append(record)
         self.recent_tasks = self.recent_tasks[-8:]
-        if self.results:
-            message = json.dumps(record)
-            for report in self.results:
-                report(message)
+        for report in self.results:
+            report(record)
 
     async def close(self) -> None:
         """Stop submissions and finish accepted work."""

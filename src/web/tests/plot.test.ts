@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 import { figureProps, a2uiBatchSchema } from "../lib/a2ui.ts";
 
+const defaultLayout = {
+    title: { text: "" },
+    xaxis: { title: { text: "" } },
+    showlegend: true,
+};
+
 test("figure defaults match the Python wire model", () => {
     assert.deepEqual(
         figureProps.parse({ data: [{ type: "scatter", x: [1], y: [2] }] }),
@@ -9,11 +15,7 @@ test("figure defaults match the Python wire model", () => {
             data: [
                 { type: "scatter", name: "", mode: "lines", x: [1], y: [2] },
             ],
-            layout: {
-                title: { text: "" },
-                xaxis: { title: { text: "" } },
-                showlegend: true,
-            },
+            layout: defaultLayout,
         },
     );
 });
@@ -26,11 +28,7 @@ test.each([{}, { title: {} }, { xaxis: {} }, { xaxis: { title: {} } }])(
                 data: [{ type: "bar", x: [0], y: [null] }],
                 layout,
             }).layout,
-            {
-                title: { text: "" },
-                xaxis: { title: { text: "" } },
-                showlegend: true,
-            },
+            defaultLayout,
         );
     },
 );
@@ -103,12 +101,11 @@ test("batch complexity limits stop validation before message parsing", () => {
         [Array.from({ length: 500 }, () => Array(41).fill(null))],
     ]) {
         const parsed = a2uiBatchSchema.safeParse(payload);
-        assert.equal(parsed.success, false);
-        if (!parsed.success)
-            assert.deepEqual(
-                parsed.error.issues.map(({ message }) => message),
-                ["UI payload exceeds the display limits"],
-            );
+        assert(!parsed.success);
+        assert.deepEqual(
+            parsed.error.issues.map(({ message }) => message),
+            ["UI payload exceeds the display limits"],
+        );
     }
 });
 
@@ -144,12 +141,11 @@ test("snapshot batches retain message-count and UTF-8 byte limits", () => {
     assert.ok(new TextEncoder().encode(serialized).length > 1048576);
     for (const payload of [Array(101).fill(create), oversized]) {
         const parsed = a2uiBatchSchema.safeParse(payload);
-        assert.equal(parsed.success, false);
-        if (!parsed.success)
-            assert.deepEqual(
-                parsed.error.issues.map(({ message }) => message),
-                ["UI batch exceeds the display limits"],
-            );
+        assert(!parsed.success);
+        assert.deepEqual(
+            parsed.error.issues.map(({ message }) => message),
+            ["UI batch exceeds the display limits"],
+        );
     }
 });
 
@@ -162,12 +158,25 @@ test.each([
     assert.equal(figureProps.safeParse({ data: [trace] }).success, false);
 });
 
-test("map defaults match Python", () => {
-    const trace = { type: "choropleth", locations: ["FRA"], values: [0] };
+test.each([
+    {
+        trace: { type: "choropleth", locations: ["FRA"], values: [0] },
+        geography: "world",
+    },
+    {
+        trace: {
+            type: "choropleth",
+            geography: "FRA",
+            locations: ["FR-IDF"],
+            values: [7],
+        },
+        geography: "FRA",
+    },
+])("map defaults preserve $geography geography", ({ trace, geography }) => {
     assert.deepEqual(figureProps.parse({ data: [trace] }).data[0], {
         ...trace,
         name: "",
-        geography: "world",
+        geography,
     });
 });
 
@@ -188,16 +197,3 @@ test.each([
         assert.equal(figureProps.safeParse({ data }).success, valid);
     },
 );
-
-test("regional maps need only geography, locations and values", () => {
-    const trace = {
-        type: "choropleth",
-        geography: "FRA",
-        locations: ["FR-IDF"],
-        values: [7],
-    };
-    assert.deepEqual(figureProps.parse({ data: [trace] }).data[0], {
-        ...trace,
-        name: "",
-    });
-});

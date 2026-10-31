@@ -4,9 +4,11 @@ from api.main import create_app
 from threading import Thread
 from api.ui.state import UIState
 from api.ui.session import UI
+from starlette.routing import Mount
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from src.api.tests.helpers import execute
+from starlette.staticfiles import StaticFiles
 from src.api.tests.ui_helpers import content, creation
 
 
@@ -14,7 +16,9 @@ def test_container_serves_widget_frontend_with_restricted_framing(tmp_path):
     (tmp_path / "index.html").write_text("<!doctype html><title>Widgets</title>")
     (tmp_path / "app.js").write_text("console.log('widgets')")
     app = create_app()
-    frontend = app.routes[-1].app
+    frontend = next(
+        route.app for route in app.routes if isinstance(route, Mount) and route.path == "" and isinstance(route.app, StaticFiles)
+    )
     frontend.directory = str(tmp_path)
     frontend.all_directories = [str(tmp_path)]
     with TestClient(app) as client:

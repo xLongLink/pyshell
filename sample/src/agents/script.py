@@ -42,7 +42,6 @@ class Agent:
         # Resolve the execution environment's package inventory on the first turn.
         self.agent = PydanticAgent(model, instructions=self._instructions)
 
-        # Conversation state is committed only after execution succeeds.
         self.message_history = []
         self.pending_feedback = None
 
@@ -98,16 +97,16 @@ class Agent:
 
             # Preserve history without allowing an ambiguous execution to replay.
             except BaseException:
-                self.message_history = history
                 self.pending_feedback = json.dumps(
                     {"execution_error": "Execution was not confirmed; earlier changes may have applied. Do not replay."}
                 )
                 raise
+            finally:
+                self.message_history = history
 
             # Retain the completed exchange before deciding whether to continue.
             self.pending_feedback = None
-            self.message_history = history
-            message = json.dumps(result.model_dump(exclude={"type"}))
+            message = result.model_dump_json(exclude={"type"})
             for text in ("\n" if step else "", result.stdout, result.stderr, result.exception or ""):
                 output = (output + text[-4000:])[-4000:]
 
