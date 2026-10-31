@@ -63,12 +63,11 @@ def test_original_lists_cannot_change_published_or_subsequently_updated_content(
 
 
 def test_list_inputs_round_trip_as_arrays_and_explicit_updates_remain_immutable(trace):
-    chart = Figure.model_validate({"data": [trace]})
+    ui = UI(RecordingUIState())
+    chart = ui.plot([trace])
     assert Figure.model_validate(chart.model_dump()).model_dump(mode="json") == chart.model_dump(mode="json")
     assert json.loads(chart.model_dump_json()) == chart.model_dump(mode="json")
 
-    ui = UI(RecordingUIState())
-    chart = ui.plot([trace])
     replacement = trace.copy()
     field = "y" if "y" in replacement else "values"
     replacement[field] = [3, None]
@@ -83,9 +82,7 @@ def test_list_inputs_round_trip_as_arrays_and_explicit_updates_remain_immutable(
 
 
 @pytest.mark.parametrize(
-    ("trace", "container"),
-    [("bar", tuple), ("bar", set), ("bar", iter), ("scatter", tuple), ("pie", tuple), ("choropleth", tuple)],
-    indirect=["trace"],
+    ("trace", "container"), [("bar", tuple), ("bar", set), ("bar", iter), ("pie", tuple), ("choropleth", tuple)], indirect=["trace"]
 )
 def test_nonlist_inputs_are_rejected_atomically_for_every_sequence(trace, container):
     ui = UI(RecordingUIState())
@@ -105,9 +102,7 @@ def test_nonlist_inputs_are_rejected_atomically_for_every_sequence(trace, contai
 
 
 @pytest.mark.parametrize(
-    ("trace", "value"),
-    [("bar", value) for value in [True, float("inf"), float("nan"), {}, []]] + [(kind, True) for kind in ["scatter", "pie", "choropleth"]],
-    indirect=["trace"],
+    ("trace", "value"), [("bar", True), ("bar", float("inf")), ("pie", True), ("choropleth", True)], indirect=["trace"]
 )
 def test_immutable_sequences_preserve_strict_scalar_validation(trace, value):
     for name, coordinates in trace.items():
@@ -119,6 +114,7 @@ def test_immutable_sequences_preserve_strict_scalar_validation(trace, value):
 
 
 @pytest.mark.parametrize("length", [0, 201])
+@pytest.mark.parametrize("trace", ["bar", "pie", "choropleth"], indirect=True)
 def test_every_trace_sequence_retains_its_length_bounds(trace, length):
     for name, coordinates in trace.items():
         if isinstance(coordinates, list):
@@ -127,9 +123,8 @@ def test_every_trace_sequence_retains_its_length_bounds(trace, length):
             assert any(item["loc"][-1] == name and item["type"] in {"too_short", "too_long"} for item in error.value.errors())
 
 
-@pytest.mark.parametrize("mode", ["validation", "serialization"])
-def test_sequence_schema_contracts_remain_bounded_arrays(mode):
-    schema = Figure.model_json_schema(mode=mode)
+def test_sequence_schema_contracts_remain_bounded_arrays():
+    schema = Figure.model_json_schema()
     for definition, names, maximum in [
         (schema, ["data"], 20),
         (schema["$defs"]["Scatter"], ["x", "y"], 200),

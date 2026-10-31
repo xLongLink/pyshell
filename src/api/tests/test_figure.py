@@ -4,8 +4,7 @@ from api.ui.session import UI
 
 
 @pytest.fixture
-def standalone_traces(monkeypatch):
-    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", lambda name: {"level": "country", "locations": {"CHE": "Switzerland"}})
+def standalone_traces(country_geography):
     return {
         "pie": {"type": "pie", "labels": ["A"], "values": [1]},
         "choropleth": {"type": "choropleth", "locations": ["CHE"], "values": [1]},

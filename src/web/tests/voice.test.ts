@@ -17,6 +17,9 @@ function setup({ gatherIce = false } = {}) {
     const sockets: Socket[] = [];
     const peers: Peer[] = [];
     const audios: Audio[] = [];
+    const contexts: AudioContext[] = [];
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
     const track = { stop: vi.fn() };
     const stream = { getTracks: () => [track] };
     const getUserMedia = vi.fn().mockResolvedValue(stream);
@@ -71,12 +74,39 @@ function setup({ gatherIce = false } = {}) {
         }
     }
 
+    class AudioContext {
+        level = 0;
+        source = { connect: vi.fn(), disconnect: vi.fn() };
+        analyser = {
+            fftSize: 256,
+            getFloatTimeDomainData: (samples: Float32Array) =>
+                samples.fill(this.level),
+        };
+        resume = vi.fn().mockResolvedValue(undefined);
+        close = vi.fn().mockResolvedValue(undefined);
+        createAnalyser = () => this.analyser;
+        createMediaStreamSource = vi.fn(() => this.source);
+        constructor() {
+            contexts.push(this);
+        }
+    }
+
     const document = window.document.implementation.createHTMLDocument();
     document.body.innerHTML = `
-        <button id="voice"></button>
+        <button id="voice"><particles-orb id="voice-orb"></particles-orb></button>
         <p id="voice-error" hidden></p>
         <p id="workspace-error" hidden></p>
     `;
+    const setLevel = vi.fn();
+    const orb = document.getElementById("voice-orb")!;
+    let level = 0;
+    Object.defineProperty(orb, "level", {
+        get: () => level,
+        set: (value: number) => {
+            level = value;
+            setLevel(value);
+        },
+    });
     const page = Object.assign(new EventTarget(), {
         document,
         location: { protocol: "https:", host: "workspace.test" },
@@ -84,6 +114,12 @@ function setup({ gatherIce = false } = {}) {
         WebSocket: Socket,
         RTCPeerConnection: Peer,
         Audio,
+        AudioContext,
+        requestAnimationFrame: (callback: FrameRequestCallback) => {
+            frames.set(++frameId, callback);
+            return frameId;
+        },
+        cancelAnimationFrame: (id: number) => frames.delete(id),
         setTimeout: window.setTimeout.bind(window),
         clearTimeout: window.clearTimeout.bind(window),
     });
@@ -102,11 +138,21 @@ function setup({ gatherIce = false } = {}) {
     return {
         page,
         button,
+        orb: orb as HTMLElement & { state: string; level: number },
         voiceError,
         workspaceError,
         sockets,
         peers,
         audios,
+        contexts,
+        setLevel,
+        frames,
+        drawFrame: () => {
+            for (const [id, callback] of [...frames]) {
+                frames.delete(id);
+                callback(0);
+            }
+        },
         track,
         stream,
         getUserMedia,
@@ -127,6 +173,65 @@ test("instruction events clear workspace errors without instruction text", () =>
     app.sockets[0].receive({ type: "instruction" });
     expect(app.workspaceError.hidden).toBe(true);
     expect(app.workspaceError.textContent).toBe("");
+});
+
+test("orb state follows connection and assistant speech volume", async () => {
+    const app = setup();
+    expect(app.orb.state).toBe("disabled");
+    app.connect();
+    expect(app.orb.state).toBe("idle");
+    await app.startVoice();
+    expect(app.orb.state).toBe("connecting");
+    const peer = app.peers[0];
+    peer.connectionState = "connected";
+    peer.onconnectionstatechange?.();
+    expect(app.orb.state).toBe("listening");
+    const context = app.contexts[0];
+    context.level = 0.08;
+    peer.ontrack?.({ streams: [app.stream] });
+    expect(app.orb.level).toBeCloseTo(0.6);
+    expect(app.orb.state).toBe("speaking");
+    context.level = 0;
+    app.drawFrame();
+    expect(app.orb.level).toBe(0);
+    expect(app.orb.state).toBe("listening");
+    peer.connectionState = "failed";
+    peer.onconnectionstatechange?.();
+    expect(app.orb.state).toBe("error");
+    expect(app.orb.level).toBe(0);
+});
+
+test.each(["stop", "pagehide", "disconnect"])(
+    "%s releases audio analysis and resets the orb",
+    async (action) => {
+        const app = setup();
+        await app.startVoice();
+        const context = app.contexts[0];
+        context.level = 0.1;
+        app.peers[0].ontrack?.({ streams: [app.stream] });
+        expect(app.frames.size).toBe(1);
+        if (action === "stop") app.button.click();
+        else if (action === "pagehide") app.lifecycle("pagehide");
+        else app.sockets[0].close();
+        expect(app.frames.size).toBe(0);
+        expect(context.source.disconnect).toHaveBeenCalledOnce();
+        expect(context.close).toHaveBeenCalledOnce();
+        expect(app.setLevel).toHaveBeenLastCalledWith(0);
+        const updates = app.setLevel.mock.calls.length;
+        app.drawFrame();
+        expect(app.setLevel).toHaveBeenCalledTimes(updates);
+    },
+);
+
+test("voice playback works without Web Audio support", async () => {
+    const app = setup();
+    Reflect.deleteProperty(app.page, "AudioContext");
+    await app.startVoice();
+    app.peers[0].ontrack?.({ streams: [app.stream] });
+    expect(app.audios[0].play).toHaveBeenCalledOnce();
+    expect(app.contexts).toHaveLength(0);
+    expect(app.frames.size).toBe(0);
+    expect(app.voiceError.hidden).toBe(true);
 });
 
 test("BFCache suspension releases voice resources and resumes only once", async () => {
@@ -167,7 +272,8 @@ test("disconnects retry, suspension cancels retries, and old sockets stay ignore
     const app = setup();
     app.connect();
     app.sockets[0].close();
-    expect(app.workspaceError.textContent).toContain("Reconnecting");
+    expect(app.workspaceError.hidden).toBe(true);
+    expect(app.workspaceError.textContent).toBe("");
     await vi.advanceTimersByTimeAsync(1499);
     expect(app.sockets).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);

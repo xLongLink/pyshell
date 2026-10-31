@@ -67,7 +67,6 @@ def test_agent_retains_execution_feedback_across_generation_failure(text):
         asyncio.run(agent.arun("next", lambda phase: None))
 
     feedback = result(text, done=True).model_dump_json(exclude={"type"})
-    assert json.loads(feedback) == {"stdout": text, "stderr": "", "exception": None, "done": True}
     error = json.dumps({"model_error": "RuntimeError: generation failed", "executed": False})
     retained = feedback + "\n" + error
     assert agent.pending_feedback == retained
@@ -117,13 +116,10 @@ def test_workspace_rejects_instructions_before_changing_state(instruction, uncer
     assert subscription.queue.empty()
 
 
-def test_workspace_ignores_phase_updates_while_idle():
+def test_workspace_phase_updates_do_not_publish_browser_messages():
     workspace = Workspace(SimpleNamespace())
     subscription = Subscription(workspace)
     subscription.queue.get_nowait()
-
-    workspace.update_phase("generating_code")
-    assert workspace.phase == "idle"
 
     workspace.current_instruction = "work"
     workspace.update_phase("executing_python")

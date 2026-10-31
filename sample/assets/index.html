@@ -13,11 +13,12 @@
     </main>
     <div class="voice">
         <button id="voice" type="button" data-state="off" aria-label="Start voice" aria-pressed="false" disabled>
-            <span aria-hidden="true"></span>
+            <particles-orb id="voice-orb" size="128" color-from="#fde047" color-to="#f59e0b" state="disabled" aria-hidden="true"></particles-orb>
         </button>
         <p id="voice-error" role="alert" hidden></p>
     </div>
     <script type="module">
+        import "/particles-orb.mjs";
         import { mountVoice } from "/voice.mjs";
         const widgets = new URL("/", window.location.href);
         widgets.port = "8000";

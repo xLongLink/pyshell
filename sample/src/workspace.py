@@ -12,10 +12,10 @@ instruction_adapter = TypeAdapter(Annotated[str, Field(strict=True, max_length=8
 class Subscription:
     """Bound one browser's pending events without delaying shared work."""
 
-    def __init__(self, workspace: "Workspace", *, maxsize: int = 256) -> None:
+    def __init__(self, workspace: "Workspace") -> None:
         """Register a connection and its initial readiness event."""
         self.workspace = workspace
-        self.queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=maxsize)
+        self.queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=256)
         self.closed = asyncio.Event()
         workspace.listeners.add(self)
         self.publish({"type": "snapshot"})
@@ -73,9 +73,8 @@ class Workspace:
         return {"status": status, "recent_tasks": recent_tasks, "charts": charts}
 
     def update_phase(self, phase: str) -> None:
-        """Update execution progress only while work is active."""
-        if self.busy:
-            self.phase = phase
+        """Update progress for the active execution."""
+        self.phase = phase
 
     def publish(self, event: dict[str, object]) -> None:
         """Broadcast browser messages without waiting on slow tabs."""

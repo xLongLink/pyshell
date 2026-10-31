@@ -4,7 +4,7 @@ import pytest
 import asyncio
 from types import SimpleNamespace
 from pydantic import ValidationError
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pydantic_ai import Agent as RealtimeAgent
 from sample.src.shell import RemoteShell
 from pydantic_ai.messages import TextPart, ModelResponse
@@ -17,7 +17,7 @@ from pydantic_ai.models.function import FunctionModel
 @pytest.fixture
 def call_factory(monkeypatch):
     @asynccontextmanager
-    async def create(*, phase=None, outcome="complete", hold_cleanup=False):
+    async def create(*, phase=None, outcome="complete", hold_cleanup=False, integrated=False):
         entered = asyncio.Event()
         release = asyncio.Event()
         working = asyncio.Event()
@@ -36,10 +36,21 @@ def call_factory(monkeypatch):
                 entered.set()
                 await release.wait()
 
+        async def inventory():
+            await checkpoint("inventory")
+            return []
+
+        async def context():
+            return {"charts": []}
+
+        async def arun(instruction, on_phase):
+            working.set()
+            await finish_work.wait()
+            return "accepted"
+
         async def request(request):
             if request.url.path == "/libraries":
-                await checkpoint("inventory")
-                return httpx2.Response(200, json=[])
+                return httpx2.Response(200, json=await inventory())
             if request.url.path == "/execute/stream":
                 working.set()
                 await finish_work.wait()
@@ -48,7 +59,7 @@ def call_factory(monkeypatch):
                     text='{"type":"result","stdout":"accepted","stderr":"","exception":null,"done":true}\n{"type":"execution_finished"}\n',
                 )
             assert request.url.path == "/ui/context"
-            return httpx2.Response(200, json={"charts": []})
+            return httpx2.Response(200, json=await context())
 
         class Session:
             def enqueue(self, text):
@@ -91,13 +102,20 @@ def call_factory(monkeypatch):
             return Realtime()
 
         monkeypatch.setattr(RealtimeAgent, "realtime", realtime)
-        model = FunctionModel(lambda messages, info: ModelResponse(parts=[TextPart("done()")], finish_reason="stop"))
-        async with httpx2.AsyncClient(base_url="http://execution", transport=httpx2.MockTransport(request)) as client:
-            workspace = Workspace(Agent(model, shell=RemoteShell(client)))
+        async with AsyncExitStack() as stack:
+            agent = SimpleNamespace(shell=SimpleNamespace(uncertain=False, inventory=inventory, context=context), arun=arun)
+            if integrated:
+                client = await stack.enter_async_context(
+                    httpx2.AsyncClient(base_url="http://execution", transport=httpx2.MockTransport(request))
+                )
+                model = FunctionModel(lambda messages, info: ModelResponse(parts=[TextPart("done()")], finish_reason="stop"))
+                agent = Agent(model, shell=RemoteShell(client))
+            workspace = Workspace(agent)
             voice = VoiceSession(None, workspace, events.append)
             try:
                 yield SimpleNamespace(
                     voice=voice,
+                    task=lambda: voice._call.task if voice._call is not None else None,
                     workspace=workspace,
                     events=events,
                     entered=entered,
@@ -146,7 +164,7 @@ def test_valid_start_and_stop_without_offer(call_factory):
             assert call.offers == ["offer"]
             assert [event["name"] for event in call.events] == ["answer", "closed"]
             assert call.hangups == ["provider-call"]
-            assert call.voice.task is None
+            assert call.task() is None
             assert not call.workspace.results
 
     asyncio.run(scenario())
@@ -158,7 +176,7 @@ def test_stop_notifies_once_in_every_phase(call_factory, phase, notify):
     async def scenario():
         async with call_factory(phase=phase) as call:
             await call.voice.handle(VoiceCommand(type="voice", action="start", sdp="offer"))
-            task = call.voice.task
+            task = call.task()
             if phase is not None:
                 await asyncio.wait_for(call.entered.wait(), 1)
             await call.voice.stop(notify=notify)
@@ -168,7 +186,7 @@ def test_stop_notifies_once_in_every_phase(call_factory, phase, notify):
             assert [event["name"] for event in call.events].count("closed") == int(notify)
             assert not any(event["name"] == "error" for event in call.events)
             assert call.hangups == (["provider-call"] if phase in {"sideband", "active"} else [])
-            assert call.voice.task is None
+            assert call.task() is None
             assert not call.workspace.results
             assert asyncio.all_tasks() == {asyncio.current_task()}
 
@@ -180,7 +198,7 @@ def test_completion_and_errors_notify_once(call_factory, outcome):
     async def scenario():
         async with call_factory(outcome=outcome) as call:
             await call.voice.handle(VoiceCommand(type="voice", action="start", sdp="offer"))
-            task = call.voice.task
+            task = call.task()
             await task
             await call.voice.stop()
             await call.voice.stop()
@@ -198,7 +216,7 @@ def test_direct_task_cancellation_notifies_once(call_factory):
     async def scenario():
         async with call_factory(phase="inventory") as call:
             await call.voice.handle(VoiceCommand(type="voice", action="start", sdp="offer"))
-            task = call.voice.task
+            task = call.task()
             await asyncio.wait_for(call.entered.wait(), 1)
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -210,7 +228,7 @@ def test_direct_task_cancellation_notifies_once(call_factory):
 
 def test_hangup_preserves_accepted_workspace_work(call_factory):
     async def scenario():
-        async with call_factory(phase="active") as call:
+        async with call_factory(phase="active", integrated=True) as call:
             await call.voice.handle(VoiceCommand(type="voice", action="start", sdp="offer"))
             await asyncio.wait_for(call.entered.wait(), 1)
             assert await call.tools["worker"].function("print('accepted')") == "Task accepted; completion will arrive separately."
@@ -258,7 +276,7 @@ def test_old_completion_cannot_close_restarted_call(call_factory, stopped):
         async with call_factory(phase="active") as call:
             start = VoiceCommand(type="voice", action="start", sdp="offer")
             await call.voice.handle(start)
-            old_task = call.voice.task
+            old_task = call.task()
             await asyncio.wait_for(call.entered.wait(), 1)
 
             async def restart():
@@ -266,10 +284,10 @@ def test_old_completion_cannot_close_restarted_call(call_factory, stopped):
                 assert old_task.done()
                 call.release.clear()
                 await call.voice.handle(start)
-                new_task = call.voice.task
+                new_task = call.task()
                 assert new_task is not old_task
                 await asyncio.sleep(0)
-                assert call.voice.task is new_task
+                assert call.task() is new_task
                 assert not any(event["name"] == "closed" for event in call.events)
                 await call.voice.stop()
 
@@ -291,14 +309,14 @@ def test_concurrent_stop_keeps_guard_through_cleanup(call_factory, silent):
         async with call_factory(phase="active", hold_cleanup=True) as call:
             start = VoiceCommand(type="voice", action="start", sdp="offer")
             await call.voice.handle(start)
-            task = call.voice.task
+            task = call.task()
             await asyncio.wait_for(call.entered.wait(), 1)
             first = asyncio.create_task(call.voice.stop())
             await asyncio.wait_for(call.cleanup_started.wait(), 1)
             second = asyncio.create_task(call.voice.stop(notify=not silent))
             await asyncio.sleep(0)
             assert not task.done()
-            assert call.voice.task is task
+            assert call.task() is task
             assert call.hangups == ["provider-call"]
             with pytest.raises(RuntimeError, match="already active"):
                 await call.voice.handle(start)
@@ -306,6 +324,6 @@ def test_concurrent_stop_keeps_guard_through_cleanup(call_factory, silent):
             await asyncio.gather(first, second)
             await call.voice.stop()
             assert [event["name"] for event in call.events].count("closed") == int(not silent)
-            assert call.voice.task is None
+            assert call.task() is None
 
     asyncio.run(scenario())

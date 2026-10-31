@@ -1,6 +1,7 @@
 import httpx2
 import asyncio
-from sample.src.events import Result, execution_event
+from typing import cast
+from sample.src.events import Result, Finished
 
 EXECUTION_UNCERTAIN = "Execution state is uncertain. Restart the execution container and web server before submitting more work."
 
@@ -12,12 +13,15 @@ class RemoteShell:
         """Use the application-owned execution transport."""
         self.client = client
         self.uncertain = False
+        self._inventory: list[dict[str, str]] | None = None
 
     async def inventory(self) -> list[dict[str, str]]:
-        """Read installed packages through the asynchronous transport."""
-        response = await self.client.get("/libraries")
-        response.raise_for_status()
-        return response.json()
+        """Cache successful package inventory reads for the application lifetime."""
+        if self._inventory is None:
+            response = await self.client.get("/libraries")
+            response.raise_for_status()
+            self._inventory = response.json()
+        return self._inventory
 
     async def context(self) -> dict[str, object]:
         """Read widget metadata without executing Python or retaining widget state."""
@@ -30,9 +34,7 @@ class RemoteShell:
         if self.uncertain:
             raise RuntimeError(EXECUTION_UNCERTAIN)
 
-        # Require both a result and the terminal marker before confirming success.
-        result = None
-        finished = False
+        events: list[Result | Finished] = []
         received = 0
 
         # Once submitted, a broken stream leaves execution state uncertain.
@@ -48,23 +50,12 @@ class RemoteShell:
                     if received > 16_777_216:
                         raise RuntimeError("Execution stream exceeded 16 MiB")
 
-                    # Validate each event before applying completion transitions.
-                    event = execution_event.validate_json(line)
-                    if finished or (result is not None and event.type != "execution_finished"):
+                    if len(events) == 2:
                         raise RuntimeError("Execution events arrived after the final result")
-
-                    # Remember the terminal marker until the transport reaches EOF.
-                    if event.type == "execution_finished":
-                        if result is None:
-                            raise RuntimeError("Execution finished without a result")
-                        finished = True
-
-                    else:
-                        result = event
-                    # Widgets are delivered directly to the container-hosted UI.
+                    events.append((Result, Finished)[len(events)].model_validate_json(line))
 
             # EOF alone does not confirm that execution finished.
-            if not finished:
+            if len(events) != 2:
                 raise RuntimeError("Execution stream ended without a confirmed result")
 
         # Cancellation is just as ambiguous as a transport or validation failure.
@@ -77,4 +68,4 @@ class RemoteShell:
             raise RuntimeError(
                 "Execution was not confirmed; code may already have run. Restart the execution container and web server before submitting more work."
             )
-        return result
+        return cast(Result, events[0])

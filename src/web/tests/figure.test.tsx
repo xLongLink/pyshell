@@ -5,11 +5,119 @@ import {
     render,
     screen,
     waitFor,
+    within,
 } from "@testing-library/react";
 import { Figure } from "../components/plot/figure";
 import { figureProps } from "../lib/a2ui";
 
 afterEach(cleanup);
+
+test("chart titles remain inert even when they contain HTML", async () => {
+    const text = '<img src=x onerror="alert(1)">';
+    const props = figureProps.parse({
+        data: [{ type: "bar", x: ["A"], y: [42] }],
+        layout: { title: { text } },
+    });
+    const { container } = render(<Figure {...props} />);
+    await screen.findByText(text);
+    expect(container.querySelector("img")).toBeNull();
+});
+
+test("pie rendering preserves missing slice positions and colors", async () => {
+    const props = figureProps.parse({
+        data: [
+            {
+                type: "pie",
+                labels: ["Apples", "Pears", "Oranges"],
+                values: [42, null, 84],
+            },
+        ],
+        layout: { title: { text: "Revenue" } },
+    });
+    const { container } = render(<Figure {...props} />);
+    await screen.findByText("Revenue");
+    await waitFor(() =>
+        expect(container.querySelector(".recharts-pie")).not.toBeNull(),
+    );
+    const chart = screen.getByRole("application");
+    expect(chart.getAttribute("tabindex")).toBe("0");
+    chart.focus();
+    expect(document.activeElement).toBe(chart);
+    const legend = within(
+        container.querySelector<HTMLElement>(".recharts-legend-wrapper")!,
+    );
+    expect(legend.getByText("Apples")).toBeTruthy();
+    expect(legend.getByText("Oranges")).toBeTruthy();
+    expect(legend.queryByText("Pears")).toBeNull();
+    expect(container.querySelectorAll(".recharts-pie-sector")).toHaveLength(2);
+    expect(
+        [...container.querySelectorAll(".recharts-pie-sector path")].map(
+            (slice) => slice.getAttribute("fill"),
+        ),
+    ).toEqual(["var(--chart-1)", "var(--chart-3)"]);
+});
+
+test("pie legends and tooltips resolve slice labels as inert text", async () => {
+    const label = '</style><img src=x onerror="alert(1)">';
+    const props = figureProps.parse({
+        data: [{ type: "pie", labels: [label], values: [42] }],
+    });
+    const { container } = render(<Figure {...props} />);
+    await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
+    expect(container.querySelector("img")).toBeNull();
+    const slice = container.querySelector(".recharts-pie-sector path")!;
+    expect(slice.getAttribute("fill")).toBe("var(--chart-1)");
+    fireEvent.mouseEnter(container.querySelector(".recharts-pie-sector")!);
+    await waitFor(() =>
+        expect(
+            container.querySelector(".recharts-tooltip-wrapper")?.textContent,
+        ).toBe(`${label}42`),
+    );
+    expect(
+        container.querySelector<HTMLElement>(
+            ".recharts-tooltip-wrapper [style]",
+        )?.style.backgroundColor,
+    ).toBe(slice.getAttribute("fill"));
+    expect(container.querySelector("img")).toBeNull();
+});
+
+test.each(["bar", "scatter"] as const)(
+    "%s legends and keyboard tooltips preserve user labels and default series names",
+    async (type) => {
+        const name = '<img src=x onerror="alert(1)">__proto__';
+        const props = figureProps.parse({
+            data: [
+                { type, name, x: ["A"], y: [1234.5] },
+                { type, x: ["B"], y: [10] },
+            ],
+        });
+        const { container } = render(<Figure {...props} />);
+        await screen.findByText(name);
+        expect(screen.getByText("Series 2")).toBeTruthy();
+        fireEvent.focus(screen.getByRole("application"));
+        await waitFor(() =>
+            expect(
+                container.querySelector(".recharts-tooltip-wrapper")
+                    ?.textContent,
+            ).toBe(`A${name}${(1234.5).toLocaleString()}`),
+        );
+        expect(
+            container.querySelector<HTMLElement>(
+                ".recharts-tooltip-wrapper [style]",
+            )?.style.backgroundColor,
+        ).toBe("var(--chart-1)");
+        fireEvent.keyDown(screen.getByRole("application"), {
+            key: "ArrowRight",
+        });
+        await waitFor(() =>
+            expect(
+                container.querySelector(".recharts-tooltip-wrapper")
+                    ?.textContent,
+            ).toBe("BSeries 210"),
+        );
+        expect(container.querySelector("img")).toBeNull();
+    },
+);
 
 test.each([
     {

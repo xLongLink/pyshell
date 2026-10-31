@@ -2,6 +2,7 @@ export function mountVoice(page = window) {
   const button = page.document.getElementById("voice");
   const voiceError = page.document.getElementById("voice-error");
   const workspaceError = page.document.getElementById("workspace-error");
+  const orb = page.document.getElementById("voice-orb");
   let socket;
   let reconnect;
   let connected = false;
@@ -27,6 +28,15 @@ export function mountVoice(page = window) {
           ? "Stopping voice"
           : "Stop voice",
     );
+    if (orb) {
+      orb.state = !connected
+        ? "disabled"
+        : value === "off"
+          ? "idle"
+          : value === "on"
+            ? orb.level > 0.02 ? "speaking" : "listening"
+            : "connecting";
+    }
   }
 
   function send(action, sdp) {
@@ -37,9 +47,49 @@ export function mountVoice(page = window) {
     return true;
   }
 
+  function setLevel(level) {
+    if (!orb) return;
+    orb.level = level;
+    if (phase === "on") orb.state = level > 0.02 ? "speaking" : "listening";
+  }
+
+  function animateSpeech(current, stream) {
+    if (!current.audioContext) return;
+    try {
+      current.source?.disconnect();
+      page.cancelAnimationFrame(current.frame);
+      const analyser = current.audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      current.source = current.audioContext.createMediaStreamSource(stream);
+      current.source.connect(analyser);
+      const samples = new Float32Array(analyser.fftSize);
+
+      function draw() {
+        if (current !== resources) return;
+        analyser.getFloatTimeDomainData(samples);
+        const rms = Math.sqrt(
+          samples.reduce((sum, sample) => sum + sample * sample, 0) /
+            samples.length,
+        );
+        setLevel(Math.min(1, Math.max(0, rms - 0.005) * 8));
+        current.frame = page.requestAnimationFrame(draw);
+      }
+
+      draw();
+    } catch (failure) {
+      page.console?.warn("Voice visualization unavailable.", failure);
+    }
+  }
+
   function stop(closed = false) {
     const current = resources;
     resources = {};
+    page.cancelAnimationFrame(current.frame);
+    current.source?.disconnect();
+    void current.audioContext?.close().catch((failure) => {
+      page.console?.warn("Unable to close voice visualization.", failure);
+    });
+    setLevel(0);
     page.clearTimeout(current.timer);
     current.cancelIce?.();
     current.peer?.close();
@@ -54,6 +104,7 @@ export function mountVoice(page = window) {
   function failVoice(text) {
     error(voiceError, text);
     stop();
+    if (orb) orb.state = "error";
   }
 
   function waitForIce(current) {
@@ -94,6 +145,16 @@ export function mountVoice(page = window) {
     const current = {};
     resources = current;
     try {
+      if (page.AudioContext) {
+        current.audioContext = new page.AudioContext();
+        void current.audioContext.resume().catch((failure) => {
+          page.console?.warn("Voice visualization unavailable.", failure);
+        });
+      }
+    } catch (failure) {
+      page.console?.warn("Voice visualization unavailable.", failure);
+    }
+    try {
       if (!page.navigator.mediaDevices?.getUserMedia)
         throw new Error(
           "Voice requires localhost or HTTPS and microphone access.",
@@ -114,6 +175,7 @@ export function mountVoice(page = window) {
       peer.ontrack = ({ streams, track }) => {
         if (current !== resources) return;
         audio.srcObject = streams[0] ?? new page.MediaStream([track]);
+        animateSpeech(current, audio.srcObject);
         void audio.play().catch(() => {
           if (current !== resources) return;
           failVoice("Audio playback was blocked. Restart voice to try again.");
@@ -167,6 +229,7 @@ export function mountVoice(page = window) {
         error(voiceError, event.text);
         stop(true);
         setPhase("stopping");
+        if (orb) orb.state = "error";
       } else if (
         event.name === "answer" &&
         typeof event.sdp === "string" &&
@@ -203,10 +266,6 @@ export function mountVoice(page = window) {
       if (suspended || socket !== ws) return;
       connected = false;
       stop(true);
-      error(
-        workspaceError,
-        "Connection lost. Reconnecting; submitted work may still be running.",
-      );
       reconnect = page.setTimeout(connect, 1500);
     };
   }

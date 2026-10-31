@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from sample.src.shell import RemoteShell
 from fastapi.staticfiles import StaticFiles
-from sample.src.settings import settings
+from sample.src.settings import Settings
 from sample.src.workspace import Workspace, Subscription
 from sample.src.agents.voice import VoiceCommand, VoiceSession
 from sample.src.agents.script import Agent
@@ -20,6 +20,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Own provider and workspace resources for the application lifetime."""
+    settings = Settings()
     provider = OpenAIProvider(api_key=settings.openai_api_key.get_secret_value())
     try:
         async with httpx2.AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx2.Timeout(180, connect=10), trust_env=False) as client:

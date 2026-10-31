@@ -37,7 +37,6 @@ class Agent:
     def __init__(self, model: Model, *, shell: RemoteShell) -> None:
         """Create a model-backed agent for a remote Python session."""
         self.shell = shell
-        self._instruction_text: str | None = None
 
         # Resolve the execution environment's package inventory on the first turn.
         self.agent = PydanticAgent(model, instructions=self._instructions)
@@ -46,10 +45,8 @@ class Agent:
         self.pending_feedback = None
 
     async def _instructions(self) -> str:
-        if self._instruction_text is None:
-            libraries = await self.shell.inventory()
-            self._instruction_text = INSTRUCTIONS.format(libraries=json.dumps(libraries))
-        return self._instruction_text
+        libraries = await self.shell.inventory()
+        return INSTRUCTIONS.format(libraries=json.dumps(libraries))
 
     def _with_pending_feedback(self, message: str) -> str:
         if self.pending_feedback is None:

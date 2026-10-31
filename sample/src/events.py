@@ -1,5 +1,5 @@
-from typing import Literal, Annotated
-from pydantic import Field, BaseModel, ConfigDict, TypeAdapter
+from typing import Literal
+from pydantic import BaseModel, ConfigDict
 
 
 class Result(BaseModel):
@@ -21,6 +21,3 @@ class Finished(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     type: Literal["execution_finished"]
-
-
-execution_event = TypeAdapter(Annotated[Result | Finished, Field(discriminator="type")])
