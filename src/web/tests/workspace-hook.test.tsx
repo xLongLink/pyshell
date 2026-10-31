@@ -4,6 +4,21 @@ import { useWorkspace } from "../lib/hooks/useWorkspace";
 import { catalogId } from "../lib/a2ui";
 
 const sockets: Socket[] = [];
+function update(surfaceId: string) {
+    return {
+        version: "v0.9",
+        updateComponents: {
+            surfaceId,
+            components: [
+                {
+                    id: "root",
+                    component: "Figure",
+                    data: [{ type: "bar", x: ["A"], y: [1] }],
+                },
+            ],
+        },
+    };
+}
 class Socket {
     onmessage: ((message: { data: string }) => void) | null = null;
     onclose: (() => void) | null = null;
@@ -30,15 +45,20 @@ test("widget snapshots replace state and restore it after reconnect without subm
     expect(sockets[0].url).toMatch(/\/ui\/ws$/);
     const messages = [
         { version: "v0.9", createSurface: { surfaceId: "sales", catalogId } },
+        update("sales"),
     ];
     sockets[0].receive({
         type: "snapshot",
         events: [{ type: "a2ui", messages }],
         placements: { sales: { pinned: true } },
     });
-    expect(result.current.surfaces).toEqual([
-        { id: "sales", props: undefined },
-    ]);
+    expect(result.current.surfaces).toHaveLength(1);
+    expect(result.current.surfaces[0].props.data[0]).toEqual({
+        type: "bar",
+        name: "",
+        x: ["A"],
+        y: [1],
+    });
     expect(result.current.placements.sales.pinned).toBe(true);
     sockets[0].receive({ type: "snapshot", events: [{ type: "unknown" }] });
     expect(result.current.surfaces).toHaveLength(1);
@@ -52,6 +72,7 @@ test("widget snapshots replace state and restore it after reconnect without subm
     sockets[0].receive({
         type: "snapshot",
         events: [{ type: "a2ui", messages }],
+        placements: { sales: { pinned: true } },
     });
     expect(result.current.surfaces).toEqual([]);
     unmount();
@@ -67,14 +88,16 @@ test("invalid lifecycle snapshots retain the last valid surfaces and placements 
     };
     const valid = {
         type: "snapshot",
-        events: [{ type: "a2ui", messages: [creation] }],
+        events: [{ type: "a2ui", messages: [creation, update("sales")] }],
         placements: { sales: { pinned: true } },
     };
     sockets[0].receive(valid);
     const surfaces = result.current.surfaces;
     const placements = result.current.placements;
     for (const messages of [
+        [creation],
         [creation, creation],
+        [creation, update("other")],
         [creation, { version: "v0.9", deleteSurface: { surfaceId: "sales" } }],
     ]) {
         sockets[0].receive({
@@ -82,6 +105,39 @@ test("invalid lifecycle snapshots retain the last valid surfaces and placements 
             events: [{ type: "a2ui", messages }],
             placements: { sales: { pinned: false } },
         });
+        expect(result.current.surfaces).toBe(surfaces);
+        expect(result.current.placements).toBe(placements);
+        expect(result.current.error).toContain("invalid");
+    }
+    const { placements: _, ...missingPlacements } = valid;
+    for (const incoming of [
+        missingPlacements,
+        { ...valid, placements: {} },
+        {
+            ...valid,
+            placements: { sales: { pinned: false }, extra: { pinned: true } },
+        },
+        {
+            type: "snapshot",
+            events: Array.from({ length: 5 }, (_, i) => ({
+                type: "a2ui",
+                messages: [
+                    {
+                        ...creation,
+                        createSurface: { surfaceId: `chart_${i}`, catalogId },
+                    },
+                    update(`chart_${i}`),
+                ],
+            })),
+            placements: Object.fromEntries(
+                Array.from({ length: 5 }, (_, i) => [
+                    `chart_${i}`,
+                    { pinned: false },
+                ]),
+            ),
+        },
+    ]) {
+        sockets[0].receive(incoming);
         expect(result.current.surfaces).toBe(surfaces);
         expect(result.current.placements).toBe(placements);
         expect(result.current.error).toContain("invalid");

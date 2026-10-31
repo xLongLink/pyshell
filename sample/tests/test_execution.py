@@ -136,3 +136,47 @@ def test_agent_preserves_feedback_shape_and_combines_outputs():
         assert json.loads(agent.pending_feedback) == {"stdout": "finished\n", "stderr": "", "exception": None, "done": True}
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("outputs", "expected"),
+    [
+        pytest.param([("A" * 6000, "B" * 800, None)], "A" * 3200 + "B" * 800, id="single-step-overflow"),
+        pytest.param(
+            [("A" * 4500, "B" * 1500, "error:" + "C" * 1500), ("D" * 2500, "E" * 800, None)],
+            "C" * 699 + "\n" + "D" * 2500 + "E" * 800,
+            id="multi-step-overflow",
+        ),
+        pytest.param([("A" * 4500, "", None), ("", "", None)], "A" * 3999 + "\n", id="trailing-separator"),
+        pytest.param([("", "", None)], "Task completed without printed output.", id="no-output"),
+        pytest.param([("", "", None), ("", "", None)], "\n", id="empty-step-separator"),
+    ],
+)
+def test_agent_returns_bounded_summary_without_truncating_model_feedback(outputs, expected):
+    results = [
+        {"type": "result", "stdout": stdout, "stderr": stderr, "exception": exception, "done": index == len(outputs) - 1}
+        for index, (stdout, stderr, exception) in enumerate(outputs)
+    ]
+    responses = iter(results)
+    prompts = []
+
+    def respond(messages, _info):
+        prompts.append(messages[-1].parts[0].content)
+        return ModelResponse(parts=[TextPart("done()")], finish_reason="stop")
+
+    def handle(request):
+        if request.url.path == "/libraries":
+            return httpx.Response(200, json=[])
+        return stream_response([next(responses), {"type": "execution_finished"}])
+
+    async def run():
+        async with httpx.AsyncClient(base_url="http://execution", transport=httpx.MockTransport(handle)) as client:
+            agent = Agent(FunctionModel(respond), shell=RemoteShell(client))
+            summary = await agent.arun("Finish the task")
+        assert summary == expected
+        assert len(summary) <= 4000
+        for prompt, result in zip(prompts[1:], results[:-1], strict=True):
+            assert json.loads(prompt) == {key: value for key, value in result.items() if key != "type"}
+        assert json.loads(agent.pending_feedback) == {key: value for key, value in results[-1].items() if key != "type"}
+
+    asyncio.run(run())

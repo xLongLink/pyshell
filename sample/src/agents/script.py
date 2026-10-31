@@ -115,15 +115,15 @@ class Agent:
         return self._instruction_text
 
     async def arun(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> str:
-        """Generate complete code and consume live execution feedback."""
+        """Generate code and return the last 4,000 characters of confirmed output."""
         emit = on_event if on_event is not None else lambda _event: None
         usage = RunUsage()
         limits = UsageLimits(request_limit=50, total_tokens_limit=200_000)
 
         # Share usage limits across every execution step in this task.
-        outputs = []
+        output = ""
         message = instruction
-        for _ in range(10):
+        for step in range(10):
             prompt = message
             if self.pending_feedback is not None:
                 prompt = self.pending_feedback + "\n" + message
@@ -170,12 +170,13 @@ class Agent:
             self.pending_feedback = None
             self.message_history = history
             message = json.dumps(result.model_dump(exclude={"type"}))
-            outputs.append(result.stdout + result.stderr + (result.exception or ""))
+            for text in ("\n" if step else "", result.stdout, result.stderr, result.exception or ""):
+                output = (output + text[-4000:])[-4000:]
 
             # Carry final execution feedback into the next user turn.
             if result.done:
                 self.pending_feedback = message
-                return "\n".join(outputs) or "Task completed without printed output."
+                return output or "Task completed without printed output."
         self.pending_feedback = (
             message + "\nTask stopped at the ten-execution limit; completion was not confirmed. Do not replay earlier mutations."
         )

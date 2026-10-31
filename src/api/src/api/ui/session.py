@@ -1,17 +1,12 @@
 import json
-from pydantic import BaseModel, TypeAdapter
+from pydantic import TypeAdapter
 from api.ui.state import UIState
 from api.ui.types import Action, Identifier
 from api.ui.plot.figure import Figure
-from a2ui.core.schema.v0_9 import server_to_client
 
 CATALOG = "urn:pyshell:catalog:v4"
 identifier_adapter = TypeAdapter(Identifier)
 action_adapter = TypeAdapter(Action)
-
-
-def _serialize(message: BaseModel) -> dict[str, object]:
-    return message.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 class UI:
@@ -59,22 +54,16 @@ class UI:
         self._node_count = 1
 
     def _create(self, surface_id: str) -> dict[str, object]:
-        body = server_to_client.CreateSurface(surfaceId=surface_id, catalogId=CATALOG)
-        message = server_to_client.CreateSurfaceMessage(createSurface=body)
-        return _serialize(message)
+        return {"version": "v0.9", "createSurface": {"surfaceId": surface_id, "catalogId": CATALOG}}
 
     def _content(self, surface_id: str, widget: Figure) -> dict[str, object]:
         component = widget.model_dump(mode="json")
         if len(json.dumps(component, allow_nan=False).encode()) > 262144:
             raise ValueError("A surface must not exceed 256 KiB")
-        body = server_to_client.UpdateComponents(surfaceId=surface_id, components=[component])
-        message = server_to_client.UpdateComponentsMessage(updateComponents=body)
-        return _serialize(message)
+        return {"version": "v0.9", "updateComponents": {"surfaceId": surface_id, "components": [component]}}
 
     def _delete(self, surface_id: str) -> dict[str, object]:
-        body = server_to_client.DeleteSurface(surfaceId=surface_id)
-        message = server_to_client.DeleteSurfaceMessage(deleteSurface=body)
-        return _serialize(message)
+        return {"version": "v0.9", "deleteSurface": {"surfaceId": surface_id}}
 
     def _publish(self, messages: list[dict[str, object]]) -> None:
         if self._closed:

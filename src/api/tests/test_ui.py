@@ -127,19 +127,13 @@ def test_container_state_preserves_focus_replacement_and_partial_updates():
 def test_surface_snapshots_preserve_creation_and_only_the_latest_update():
     state = UIState()
     creation = {"createSurface": {"surfaceId": "sales"}}
-    state.publish([creation])
-    initial = state.snapshot()
-    assert initial == {"type": "snapshot", "events": [{"type": "a2ui", "messages": [creation]}], "placements": {"sales": {"pinned": False}}}
-    assert state.context() == {"charts": []}
-
     updates = [
         {"updateComponents": {"surfaceId": "sales", "components": [{"layout": {"title": {"text": title}}, "data": []}]}}
         for title in ["First", "Latest"]
     ]
-    state.publish([updates[0]])
+    state.publish([creation, updates[0]])
     previous = state.snapshot()
     state.publish([updates[1]])
-    assert initial["events"][0]["messages"] == [creation]
     assert previous["events"][0]["messages"] == [creation, updates[0]]
     assert state.snapshot()["events"] == [{"type": "a2ui", "messages": [creation, updates[1]]}]
     assert state.context() == {"charts": [{"surface_id": "sales", "title": "Latest", "trace_types": [], "series": [], "pinned": False}]}
@@ -147,9 +141,8 @@ def test_surface_snapshots_preserve_creation_and_only_the_latest_update():
     snapshot["events"][0]["messages"].clear()
     assert state.snapshot()["events"][0]["messages"] == [creation, updates[1]]
 
-    state.publish([creation])
-    assert state.snapshot() == initial
-    assert state.context() == {"charts": []}
+    state.publish([creation, updates[0]])
+    assert state.snapshot() == previous
 
 
 def test_slow_widget_subscriber_receives_latest_snapshot_without_blocking_execution():

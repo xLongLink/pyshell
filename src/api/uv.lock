@@ -939,7 +939,6 @@ name = "pyshell"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "a2ui-core" },
     { name = "fastapi" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
@@ -947,6 +946,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pydantic" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -955,23 +955,25 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "a2ui-core" },
     { name = "httpx" },
     { name = "pytest" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "a2ui-core", specifier = "==0.4.0" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "openpyxl", specifier = ">=3.1,<4" },
     { name = "pandas", specifier = ">=2.2,<4" },
+    { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "scipy", specifier = ">=1.14,<2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "a2ui-core", specifier = "==0.4.0" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "pytest", specifier = ">=8,<10" },
 ]

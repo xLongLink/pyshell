@@ -18,9 +18,9 @@ export const messageSchema = z
                 }),
             )
             .max(20),
-        placements: placementsSchema.default({}),
+        placements: placementsSchema,
     })
-    .superRefine(({ events }, context) => {
+    .superRefine(({ events, placements }, context) => {
         const ids = events.map(
             ({ messages }) => messages[0].createSurface.surfaceId,
         );
@@ -29,13 +29,31 @@ export const messageSchema = z
                 code: "custom",
                 message: "Duplicate surface ID",
             });
+        const placementIds = Object.keys(placements);
+        if (
+            placementIds.length !== ids.length ||
+            ids.some((id) => !Object.hasOwn(placements, id)) ||
+            placementIds.some((id) => !ids.includes(id))
+        )
+            context.addIssue({
+                code: "custom",
+                message:
+                    "Placements must match the current surface IDs exactly",
+            });
+        if (
+            Object.values(placements).filter(({ pinned }) => !pinned).length > 4
+        )
+            context.addIssue({
+                code: "custom",
+                message: "At most four surfaces may be unpinned",
+            });
     })
     .transform(({ events, placements }) => ({
         surfaces: events.map(({ messages: [creation, update] }) => {
-            const component = update?.updateComponents.components[0];
+            const component = update.updateComponents.components[0];
             return {
                 id: creation.createSurface.surfaceId,
-                props: component && {
+                props: {
                     data: component.data,
                     layout: component.layout,
                 },

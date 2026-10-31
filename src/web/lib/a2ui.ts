@@ -107,12 +107,11 @@ const updateComponentsSchema = z.strictObject({
 });
 
 const surfaceBatchSchema = z
-    .tuple([createSurfaceSchema, updateComponentsSchema.optional()])
+    .tuple([createSurfaceSchema, updateComponentsSchema])
     .superRefine(([creation, update], context) => {
         if (
-            update &&
             update.updateComponents.surfaceId !==
-                creation.createSurface.surfaceId
+            creation.createSurface.surfaceId
         )
             context.addIssue({
                 code: "custom",

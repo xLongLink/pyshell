@@ -197,6 +197,19 @@ test.each(["v2", "v3"])("old catalog %s is rejected", (version) => {
                     catalogId: `urn:pyshell:catalog:${version}`,
                 },
             },
+            {
+                version: "v0.9",
+                updateComponents: {
+                    surfaceId: "sales",
+                    components: [
+                        {
+                            id: "root",
+                            component: "Figure",
+                            data: [{ type: "bar", x: [0], y: [1] }],
+                        },
+                    ],
+                },
+            },
         ]).success,
         false,
     );
@@ -209,6 +222,19 @@ test("the current catalog is v4 and is accepted", () => {
             {
                 version: "v0.9",
                 createSurface: { surfaceId: "sales", catalogId },
+            },
+            {
+                version: "v0.9",
+                updateComponents: {
+                    surfaceId: "sales",
+                    components: [
+                        {
+                            id: "root",
+                            component: "Figure",
+                            data: [{ type: "bar", x: [0], y: [1] }],
+                        },
+                    ],
+                },
             },
         ]).success,
         true,

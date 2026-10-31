@@ -14,7 +14,7 @@ import type { Surface } from "../lib/workspace";
 afterEach(cleanup);
 
 function surface(surfaceId = "sales"): Surface[] {
-    return [{ id: surfaceId, props: undefined }];
+    return bar("", surfaceId);
 }
 
 function figure(
@@ -35,10 +35,20 @@ function bar(title: string, surfaceId = "sales") {
 
 test("appending another surface preserves an existing chart and its keyboard focus", async () => {
     const surfaces = bar("First", "first");
-    const { rerender } = render(<Results surfaces={surfaces} />);
+    const { rerender } = render(
+        <Results
+            surfaces={surfaces}
+            placements={{ first: { pinned: false } }}
+        />,
+    );
     const chart = await screen.findByRole("application");
     chart.focus();
-    rerender(<Results surfaces={[...surfaces, ...bar("Second", "second")]} />);
+    rerender(
+        <Results
+            surfaces={[...surfaces, ...bar("Second", "second")]}
+            placements={{ first: { pinned: false }, second: { pinned: false } }}
+        />,
+    );
     await waitFor(() => expect(screen.getByText("Second")).toBeTruthy());
     expect(document.activeElement).toBe(chart);
     expect(
@@ -49,9 +59,19 @@ test("appending another surface preserves an existing chart and its keyboard foc
 });
 
 test("replacement snapshots replace surfaces even when their count is unchanged", async () => {
-    const { rerender } = render(<Results surfaces={bar("Old", "old")} />);
+    const { rerender } = render(
+        <Results
+            surfaces={bar("Old", "old")}
+            placements={{ old: { pinned: false } }}
+        />,
+    );
     await waitFor(() => expect(screen.getByText("Old")).toBeTruthy());
-    rerender(<Results surfaces={bar("New", "new")} />);
+    rerender(
+        <Results
+            surfaces={bar("New", "new")}
+            placements={{ new: { pinned: false } }}
+        />,
+    );
     await waitFor(() => expect(screen.getByText("New")).toBeTruthy());
     expect(screen.queryByText("Old")).toBeNull();
     expect(screen.getAllByRole("article")).toHaveLength(1);
@@ -59,22 +79,42 @@ test("replacement snapshots replace surfaces even when their count is unchanged"
 
 test("replacement, removal, and reset do not duplicate result surfaces", async () => {
     const surfaces = bar("Before");
-    const { rerender } = render(<Results surfaces={surfaces} />);
+    const { rerender } = render(
+        <Results
+            surfaces={surfaces}
+            placements={{ sales: { pinned: false } }}
+        />,
+    );
     await waitFor(() => expect(screen.getByText("Before")).toBeTruthy());
-    rerender(<Results surfaces={bar("After")} />);
+    rerender(
+        <Results
+            surfaces={bar("After")}
+            placements={{ sales: { pinned: false } }}
+        />,
+    );
     await waitFor(() => expect(screen.getByText("After")).toBeTruthy());
     expect(screen.queryByText("Before")).toBeNull();
-    rerender(<Results surfaces={[]} />);
+    rerender(<Results surfaces={[]} placements={{}} />);
     await waitFor(() => expect(screen.queryByText("After")).toBeNull());
-    rerender(<Results surfaces={surfaces} />);
+    rerender(
+        <Results
+            surfaces={surfaces}
+            placements={{ sales: { pinned: false } }}
+        />,
+    );
     await waitFor(() => expect(screen.getByText("Before")).toBeTruthy());
-    rerender(<Results surfaces={[]} />);
+    rerender(<Results surfaces={[]} placements={{}} />);
     await waitFor(() => expect(screen.queryByLabelText("Results")).toBeNull());
 });
 
 test("chart titles remain inert even when they contain HTML", async () => {
     const text = '<img src=x onerror="alert(1)">';
-    const { container } = render(<Results surfaces={bar(text)} />);
+    const { container } = render(
+        <Results
+            surfaces={bar(text)}
+            placements={{ sales: { pinned: false } }}
+        />,
+    );
     await waitFor(() => expect(screen.getByText(text)).toBeTruthy());
     expect(container.querySelector("img")).toBeNull();
 });
@@ -82,6 +122,7 @@ test("chart titles remain inert even when they contain HTML", async () => {
 test("pie rendering preserves missing slice positions and colors", async () => {
     const { container } = render(
         <Results
+            placements={{ sales: { pinned: false } }}
             surfaces={figure(
                 [
                     {
@@ -120,6 +161,7 @@ test("pie legends and tooltips resolve slice labels as inert text", async () => 
     const label = '</style><img src=x onerror="alert(1)">';
     const { container } = render(
         <Results
+            placements={{ sales: { pinned: false } }}
             surfaces={figure([{ type: "pie", labels: [label], values: [42] }])}
         />,
     );
@@ -147,6 +189,7 @@ test.each(["bar", "scatter"] as const)(
         const name = '<img src=x onerror="alert(1)">__proto__';
         const { container } = render(
             <Results
+                placements={{ sales: { pinned: false } }}
                 surfaces={figure([
                     { type, name, x: ["A"], y: [1234.5] },
                     { type, x: ["B"], y: [10] },
@@ -189,7 +232,10 @@ test("charts keep independent labels and colors when another chart changes", asy
         );
     const second = pie(["Other", "Shared"], "second");
     const { rerender } = render(
-        <Results surfaces={[...pie(["Shared"]), ...second]} />,
+        <Results
+            surfaces={[...pie(["Shared"]), ...second]}
+            placements={{ sales: { pinned: false }, second: { pinned: false } }}
+        />,
     );
     const widget = await screen.findByRole("article", {
         name: "Widget second",
@@ -205,7 +251,12 @@ test("charts keep independent labels and colors when another chart changes", asy
             widget.querySelector(".recharts-tooltip-wrapper")?.textContent,
         ).toBe("Shared42"),
     );
-    rerender(<Results surfaces={[...pie(["Changed", "Shared"]), ...second]} />);
+    rerender(
+        <Results
+            surfaces={[...pie(["Changed", "Shared"]), ...second]}
+            placements={{ sales: { pinned: false }, second: { pinned: false } }}
+        />,
+    );
     await screen.findByText("Changed");
     const updated = screen.getByRole("article", { name: "Widget second" });
     const updatedSlice = updated.querySelectorAll(
@@ -227,6 +278,7 @@ test("charts keep independent labels and colors when another chart changes", asy
 test("a pie with zero or missing values reports an empty plot", async () => {
     render(
         <Results
+            placements={{ sales: { pinned: false } }}
             surfaces={figure([
                 {
                     type: "pie",
@@ -244,6 +296,7 @@ test("a pie with zero or missing values reports an empty plot", async () => {
 test("independent lines and markers share numeric axes without adding gaps", async () => {
     const { container } = render(
         <Results
+            placements={{ sales: { pinned: false } }}
             surfaces={figure(
                 [
                     {
@@ -318,6 +371,7 @@ test("independent lines and markers share numeric axes without adding gaps", asy
 test("lines+markers preserves input order, repeated x values, and missing gaps", async () => {
     const { container } = render(
         <Results
+            placements={{ sales: { pinned: false } }}
             surfaces={figure(
                 [
                     {
@@ -360,6 +414,7 @@ test("lines+markers preserves input order, repeated x values, and missing gaps",
 test("bar and scatter traces render on shared categorical axes", async () => {
     const { container } = render(
         <Results
+            placements={{ sales: { pinned: false } }}
             surfaces={figure([
                 {
                     type: "bar",
@@ -421,6 +476,7 @@ test("bar and scatter traces render on shared categorical axes", async () => {
 test("all-missing mixed Cartesian traces report an empty plot", async () => {
     render(
         <Results
+            placements={{ sales: { pinned: false } }}
             surfaces={figure([
                 { type: "bar", x: [0, 1], y: [null, null] },
                 { type: "scatter", x: [0], y: [null] },
@@ -436,6 +492,7 @@ test("all-missing mixed Cartesian traces report an empty plot", async () => {
 test("numeric bars keep their spacing when overlaid with a line", async () => {
     const { container } = render(
         <Results
+            placements={{ sales: { pinned: false } }}
             surfaces={figure([
                 { type: "bar", x: [0, 2, 10], y: [2, -3, 4] },
                 {
@@ -470,13 +527,9 @@ test("explicit figure updates replace traces in one widget and retain sidebar pl
     );
     const placements = { sales: { pinned: true } };
     const { container, rerender } = render(
-        <Results surfaces={surface()} placements={placements} />,
+        <Results surfaces={surfaces} placements={placements} />,
     );
-    expect(
-        screen.getByRole("article", { name: "Widget sales" }).children,
-    ).toHaveLength(0);
     expect(screen.queryByRole("alert")).toBeNull();
-    rerender(<Results surfaces={surfaces} placements={placements} />);
     await waitFor(() =>
         expect(container.querySelector(".recharts-line-curve")).not.toBeNull(),
     );
@@ -509,7 +562,12 @@ test("explicit figure updates replace traces in one widget and retain sidebar pl
 
 test("backend placement moves widgets between center and sidebar without controls or visible IDs", () => {
     const surfaces = [...surface("first"), ...surface("second")];
-    const { rerender } = render(<Results surfaces={surfaces} />);
+    const { rerender } = render(
+        <Results
+            surfaces={surfaces}
+            placements={{ first: { pinned: false }, second: { pinned: false } }}
+        />,
+    );
     const second = screen.getByRole("article", { name: "Widget second" });
     expect(
         screen.getByRole("region", { name: "Center widgets" }).contains(second),
@@ -545,11 +603,14 @@ test("backend placement moves widgets between center and sidebar without control
     );
 });
 
-test("the center holds at most four widgets and overflow stays visible on the side", () => {
+test("backend-pinned overflow stays visible on the side", () => {
     const surfaces = [1, 2, 3, 4, 5].flatMap((index) =>
         surface(`chart_${index}`),
     );
-    render(<Results surfaces={surfaces} />);
+    const placements = Object.fromEntries(
+        surfaces.map(({ id }, index) => [id, { pinned: index === 0 }]),
+    );
+    render(<Results surfaces={surfaces} placements={placements} />);
     expect(
         screen
             .getByRole("region", { name: "Center widgets" })
@@ -563,4 +624,31 @@ test("the center holds at most four widgets and overflow stays visible on the si
             .getByRole("complementary")
             .contains(screen.getByRole("article", { name: "Widget chart_1" })),
     ).toBe(true);
+});
+
+test("the sidebar renders every backend-pinned widget in surface order", () => {
+    const surfaces = [1, 2, 3, 4, 5, 6].flatMap((index) =>
+        surface(`chart_${index}`),
+    );
+    const placements = Object.fromEntries(
+        surfaces.map(({ id }) => [id, { pinned: true }]),
+    );
+    render(<Results surfaces={surfaces} placements={placements} />);
+    expect(
+        [...screen.getByRole("complementary").querySelectorAll("article")].map(
+            (article) => article.getAttribute("aria-label"),
+        ),
+    ).toEqual([
+        "Widget chart_1",
+        "Widget chart_2",
+        "Widget chart_3",
+        "Widget chart_4",
+        "Widget chart_5",
+        "Widget chart_6",
+    ]);
+    expect(
+        screen
+            .getByRole("region", { name: "Center widgets" })
+            .querySelectorAll("article"),
+    ).toHaveLength(0);
 });

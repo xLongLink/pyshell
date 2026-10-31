@@ -4,17 +4,17 @@ version = "0.0.0"
 description = "Persistent Python execution API"
 requires-python = ">=3.10"
 dependencies = [
-    "a2ui-core==0.4.0",
     "fastapi>=0.115,<1",
     "numpy>=1.26,<3",
     "openpyxl>=3.1,<4",
     "pandas>=2.2,<4",
+    "pydantic>=2.10,<3",
     "scipy>=1.14,<2",
     "uvicorn[standard]>=0.34,<1",
 ]
 
 [dependency-groups]
-dev = ["httpx>=0.28,<1", "pytest>=8,<10"]
+dev = ["a2ui-core==0.4.0", "httpx>=0.28,<1", "pytest>=8,<10"]
 
 [build-system]
 requires = ["hatchling"]

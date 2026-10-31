@@ -4,17 +4,16 @@ import { cn } from "cn";
 
 export function Results({
     surfaces,
-    placements = {},
+    placements,
 }: {
     surfaces: Surface[];
-    placements?: Placements;
+    placements: Placements;
 }) {
     if (!surfaces.length) return null;
-    const centered = surfaces
-        .filter((surface) => !placements[surface.id]?.pinned)
-        .slice(-4);
-    const centerIds = new Set(centered.map((surface) => surface.id));
-    const sidebar = surfaces.filter((surface) => !centerIds.has(surface.id));
+    const centered = surfaces.filter(
+        (surface) => !placements[surface.id].pinned,
+    );
+    const sidebar = surfaces.filter((surface) => placements[surface.id].pinned);
 
     function widget(surface: Surface, index: number, center = false) {
         return (
@@ -28,10 +27,10 @@ export function Results({
                         index === 2 &&
                         "md:col-span-2",
                     !center &&
-                        "h-80 [&_.recharts-legend-wrapper]:hidden [&_.plot-xaxis-title]:hidden",
+                        "overflow-hidden [&_.recharts-legend-wrapper]:hidden [&_.plot-xaxis-title]:hidden",
                 )}
             >
-                {surface.props && <Figure {...surface.props} />}
+                <Figure {...surface.props} />
             </article>
         );
     }
@@ -41,7 +40,7 @@ export function Results({
             <div
                 className={cn(
                     "grid items-start gap-6",
-                    sidebar.length > 0 && "lg:grid-cols-[minmax(0,1fr)_20rem]",
+                    sidebar.length > 0 && "lg:grid-cols-[minmax(0,1fr)_16rem]",
                 )}
             >
                 <section
@@ -62,7 +61,7 @@ export function Results({
                 {sidebar.length > 0 && (
                     <aside
                         aria-label="Side widgets"
-                        className="min-w-0 space-y-4 lg:max-h-[calc(100dvh-4rem)] lg:overflow-y-auto"
+                        className="grid h-[calc(100dvh-2rem)] min-w-0 grid-rows-4 gap-3 overflow-hidden lg:h-[calc(100dvh-4rem)]"
                     >
                         {sidebar.map((surface, index) =>
                             widget(surface, index),

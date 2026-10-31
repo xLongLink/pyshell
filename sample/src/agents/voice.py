@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import Field, BaseModel, ConfigDict
 from pydantic_ai import Agent
 from collections.abc import Callable, Awaitable
+from pydantic_ai.messages import SpeechPart, PartEndEvent
 from pydantic_ai.realtime import RealtimeSessionErrorEvent
 from sample.src.workspace import Workspace
 from pydantic_ai.realtime.openai import OpenAIRealtimeModel, OpenAIRealtimeModelSettings
@@ -146,6 +147,8 @@ class VoiceSession:
                             # Provider errors arrive over the sideband, not browser WebRTC.
                             session
                         ):
+                            if isinstance(event, PartEndEvent) and isinstance(event.part, SpeechPart) and event.part.transcript:
+                                print(f"[voice:{event.part.speaker}] {event.part.transcript}", flush=True)
                             if isinstance(event, RealtimeSessionErrorEvent) and event.code != "conversation_already_has_active_response":
                                 raise RuntimeError(f"Voice provider error: {event.code}: {event.message}")
                     finally:

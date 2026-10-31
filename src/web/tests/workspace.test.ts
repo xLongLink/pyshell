@@ -7,7 +7,9 @@ test("snapshots use one pinned flag", () => {
     const widgets = { sales: { pinned: true } };
     const snapshot = messageSchema.parse({
         type: "snapshot",
-        events: [],
+        events: [
+            { type: "a2ui", messages: [creation("sales"), update("sales")] },
+        ],
         placements: widgets,
     });
     assert.deepEqual(snapshot.placements, widgets);
@@ -23,19 +25,15 @@ test("snapshots accept UI batches but reject live-only events", () => {
     const events = [
         {
             type: "a2ui",
-            messages: [
-                {
-                    version: "v0.9",
-                    createSurface: { surfaceId: "sales", catalogId },
-                },
-            ],
+            messages: [creation("sales"), update("sales")],
         },
     ];
-    const snapshot = { type: "snapshot", events, placements: {} };
-    assert.deepEqual(messageSchema.parse(snapshot), {
-        surfaces: [{ id: "sales", props: undefined }],
-        placements: {},
-    });
+    const snapshot = {
+        type: "snapshot",
+        events,
+        placements: { sales: { pinned: false } },
+    };
+    assert.equal(messageSchema.parse(snapshot).surfaces[0].id, "sales");
     assert.equal(
         messageSchema.safeParse({ ...snapshot, type: "done" }).success,
         false,
@@ -69,6 +67,7 @@ test("surface IDs and placement keys enforce the same boundaries", () => {
                     version: "v0.9",
                     createSurface: { surfaceId, catalogId },
                 },
+                update(surfaceId),
             ]).success,
             valid,
         );
@@ -157,11 +156,21 @@ function snapshot(batches: unknown[][]) {
     return {
         type: "snapshot",
         events: batches.map((messages) => ({ type: "a2ui", messages })),
+        placements: Object.fromEntries(
+            batches.flatMap((messages) => {
+                const first = messages[0] as
+                    ReturnType<typeof creation> | undefined;
+                return first?.createSurface
+                    ? [[first.createSurface.surfaceId, { pinned: true }]]
+                    : [];
+            }),
+        ),
     };
 }
 
 test.each([
     { name: "empty batch", batches: [[]] },
+    { name: "creation without content", batches: [[creation("sales")]] },
     { name: "update without creation", batches: [[update("sales")]] },
     {
         name: "update before creation",
@@ -177,7 +186,10 @@ test.each([
     },
     {
         name: "duplicate creation across batches",
-        batches: [[creation("sales")], [creation("sales")]],
+        batches: [
+            [creation("sales"), update("sales")],
+            [creation("sales"), update("sales")],
+        ],
     },
     {
         name: "second update",
@@ -200,18 +212,19 @@ test.each([
     "snapshots reject $name without producing partial surfaces",
     ({ batches }) => {
         assert.equal(
-            messageSchema.safeParse(snapshot([[creation("valid")], ...batches]))
-                .success,
+            messageSchema.safeParse(
+                snapshot([[creation("valid"), update("valid")], ...batches]),
+            ).success,
             false,
         );
     },
 );
 
-test("snapshots preserve creation order, empty surfaces, defaults and placements", () => {
+test("snapshots preserve creation order, complete surfaces, defaults and placements", () => {
     const input = {
         ...snapshot([
             [creation("second"), update("second")],
-            [creation("first")],
+            [creation("first"), update("first")],
         ]),
         placements: { first: { pinned: true }, second: { pinned: false } },
     };
@@ -220,8 +233,8 @@ test("snapshots preserve creation order, empty surfaces, defaults and placements
         parsed.surfaces.map(({ id }) => id),
         ["second", "first"],
     );
-    assert.equal(parsed.surfaces[0].props?.layout.showlegend, true);
-    assert.equal(parsed.surfaces[1].props, undefined);
+    assert.equal(parsed.surfaces[0].props.layout.showlegend, true);
+    assert.equal(parsed.surfaces[1].props.data[0].type, "bar");
     assert.deepEqual(parsed.placements, input.placements);
     assert.deepEqual(messageSchema.parse(snapshot([])), {
         surfaces: [],
@@ -232,10 +245,49 @@ test("snapshots preserve creation order, empty surfaces, defaults and placements
 test("snapshots accept at most 20 current surfaces", () => {
     const batches = Array.from({ length: 21 }, (_, i) => [
         creation(`surface_${i}`),
+        update(`surface_${i}`),
     ]);
     assert.equal(
         messageSchema.parse(snapshot(batches.slice(0, 20))).surfaces.length,
         20,
     );
     assert.equal(messageSchema.safeParse(snapshot(batches)).success, false);
+});
+
+test("snapshots require exactly one placement for each current surface", () => {
+    const valid = snapshot([[creation("sales"), update("sales")]]);
+    const { placements: _, ...missing } = valid;
+    for (const input of [
+        missing,
+        { ...valid, placements: {} },
+        {
+            ...valid,
+            placements: { sales: { pinned: false }, extra: { pinned: true } },
+        },
+        { ...valid, placements: { other: { pinned: true } } },
+    ]) {
+        assert.equal(messageSchema.safeParse(input).success, false);
+    }
+    const parsed = messageSchema.safeParse({ ...valid, placements: {} });
+    assert.equal(parsed.success, false);
+    if (!parsed.success)
+        assert.match(parsed.error.message, /Placements must match/);
+});
+
+test("snapshots reject unpinned overflow rather than reassigning placements", () => {
+    const input = snapshot(
+        Array.from({ length: 5 }, (_, i) => [
+            creation(`chart_${i}`),
+            update(`chart_${i}`),
+        ]),
+    );
+    input.placements = Object.fromEntries(
+        Object.keys(input.placements).map((id) => [id, { pinned: false }]),
+    );
+    const parsed = messageSchema.safeParse(input);
+    assert.equal(parsed.success, false);
+    if (!parsed.success)
+        assert.match(parsed.error.message, /At most four surfaces/);
+    input.placements.chart_0.pinned = true;
+    assert.equal(messageSchema.parse(input).surfaces.length, 5);
 });

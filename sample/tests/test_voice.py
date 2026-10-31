@@ -3,6 +3,7 @@ import asyncio
 from types import SimpleNamespace
 from contextlib import asynccontextmanager
 from sample.src.agents import voice
+from pydantic_ai.messages import TextPart, SpeechPart, PartEndEvent, PartDeltaEvent, SpeechPartDelta
 from sample.src.workspace import Workspace
 
 
@@ -13,6 +14,7 @@ def call(monkeypatch):
     messages = []
     teardown_subscribers = []
     hangups = []
+    provider_events = []
     state = SimpleNamespace(failure=None, reject_results=False, block_hangup=False)
 
     async def context():
@@ -42,6 +44,8 @@ def call(monkeypatch):
 
         async def __anext__(self):
             self.ready.set()
+            if provider_events:
+                return provider_events.pop(0)
             await self.finish.wait()
             if state.failure == "iteration":
                 raise RuntimeError("iteration failed")
@@ -104,6 +108,7 @@ def call(monkeypatch):
         session=session,
         tools=tools,
         events=events,
+        provider_events=provider_events,
         messages=messages,
         teardown_subscribers=teardown_subscribers,
         hangups=hangups,
@@ -126,6 +131,26 @@ def test_result_subscription_ends_before_session_teardown(call, failure):
         assert call.events[-1]["name"] == "closed"
 
     asyncio.run(run())
+
+
+def test_completed_voice_transcripts_are_printed_once(call, capsys):
+    call.provider_events.extend(
+        [
+            PartDeltaEvent(index=0, delta=SpeechPartDelta(speaker="user", transcript_delta="Calculate")),
+            PartEndEvent(index=0, part=SpeechPart(speaker="user", transcript="Calculate two plus two.")),
+            PartDeltaEvent(index=1, delta=SpeechPartDelta(speaker="assistant", transcript_delta="The answer")),
+            PartEndEvent(index=1, part=SpeechPart(speaker="assistant", transcript="The answer is four.")),
+            PartEndEvent(index=2, part=SpeechPart(speaker="assistant")),
+            PartEndEvent(index=3, part=SpeechPart(speaker="user", transcript="")),
+            PartEndEvent(index=4, part=TextPart(content="Not audio.")),
+        ]
+    )
+    call.session.finish.set()
+
+    asyncio.run(call.voice.connect("offer"))
+
+    assert capsys.readouterr().out == "[voice:user] Calculate two plus two.\n[voice:assistant] The answer is four.\n"
+    assert [event["name"] for event in call.events] == ["answer", "closed"]
 
 
 @pytest.mark.parametrize("state", ["idle", "busy", "uncertain", "closing"])

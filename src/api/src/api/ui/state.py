@@ -1,4 +1,5 @@
 import asyncio
+from weakref import WeakSet
 from threading import RLock
 from dataclasses import dataclass
 
@@ -8,7 +9,7 @@ class Surface:
     """Retain a widget's current content and placement."""
 
     creation: dict[str, object]
-    latest_update: dict[str, object] | None = None
+    latest_update: dict[str, object]
     pinned: bool = False
     focused_at: int = 0
 
@@ -22,20 +23,14 @@ class UIState:
         self.surfaces: dict[str, Surface] = {}
         self.sequence = 0
         self.listeners: dict[asyncio.Queue, asyncio.AbstractEventLoop] = {}
-        self.pending: set[asyncio.Queue] = set()
+        self.pending: WeakSet[asyncio.AbstractEventLoop] = WeakSet()
 
     def snapshot(self) -> dict[str, object]:
         """Copy the current widgets and their placement."""
         with self.lock:
             return {
                 "type": "snapshot",
-                "events": [
-                    {
-                        "type": "a2ui",
-                        "messages": [surface.creation] + ([surface.latest_update] if surface.latest_update is not None else []),
-                    }
-                    for surface in self.surfaces.values()
-                ],
+                "events": [{"type": "a2ui", "messages": [surface.creation, surface.latest_update]} for surface in self.surfaces.values()],
                 "placements": {key: {"pinned": surface.pinned} for key, surface in self.surfaces.items()},
             }
 
@@ -51,22 +46,24 @@ class UIState:
         """Detach a browser without affecting Python execution."""
         with self.lock:
             self.listeners.pop(queue, None)
-            self.pending.discard(queue)
 
-    def _deliver(self, queue: asyncio.Queue) -> None:
+    def _deliver(self, loop: asyncio.AbstractEventLoop) -> None:
         with self.lock:
-            self.pending.discard(queue)
-            if queue not in self.listeners:
+            self.pending.discard(loop)
+            queues = [queue for queue, owner in self.listeners.items() if owner is loop]
+            if not queues:
                 return
-            if queue.full():
-                queue.get_nowait()
-            queue.put_nowait(self.snapshot())
+            snapshot = self.snapshot()
+            for queue in queues:
+                if queue.full():
+                    queue.get_nowait()
+                queue.put_nowait(snapshot)
 
     def _broadcast(self) -> None:
-        for queue, loop in self.listeners.items():
-            if queue not in self.pending:
-                self.pending.add(queue)
-                loop.call_soon_threadsafe(self._deliver, queue)
+        for loop in set(self.listeners.values()):
+            if loop not in self.pending:
+                self.pending.add(loop)
+                loop.call_soon_threadsafe(self._deliver, loop)
 
     def _focus(self, identifier: str) -> None:
         self.sequence += 1
@@ -80,7 +77,12 @@ class UIState:
     def publish(self, messages: list[dict[str, object]]) -> None:
         """Apply a validated widget mutation from the execution thread."""
         with self.lock:
-            for message in messages:
+            for index, message in enumerate(messages):
+                if "createSurface" in message:
+                    content = messages[index + 1].get("updateComponents", {}) if index + 1 < len(messages) else {}
+                    if content.get("surfaceId") != message["createSurface"]["surfaceId"] or "components" not in content:
+                        raise ValueError("Surface creation must be followed by matching content")
+            for index, message in enumerate(messages):
                 if message.get("type") == "widget":
                     identifier = message["surface_id"]
                     if message["action"] == "focus":
@@ -89,7 +91,7 @@ class UIState:
                         self.surfaces[identifier].pinned = True
                 elif "createSurface" in message:
                     identifier = message["createSurface"]["surfaceId"]
-                    self.surfaces[identifier] = Surface(message)
+                    self.surfaces[identifier] = Surface(message, messages[index + 1])
                     self._focus(identifier)
                 elif "updateComponents" in message:
                     surface = self.surfaces[message["updateComponents"]["surfaceId"]]
@@ -110,8 +112,6 @@ class UIState:
         with self.lock:
             charts = []
             for identifier, surface in self.surfaces.items():
-                if surface.latest_update is None:
-                    continue
                 charts.extend(
                     {
                         "surface_id": identifier,
