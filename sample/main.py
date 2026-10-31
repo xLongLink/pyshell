@@ -8,7 +8,7 @@ from sample.src.shell import RemoteShell
 from fastapi.staticfiles import StaticFiles
 from sample.src.settings import Settings
 from sample.src.workspace import Workspace, Subscription
-from sample.src.agents.voice import VoiceCommand, VoiceSession
+from sample.src.agents.voice import VoiceSession, voice_command_adapter
 from sample.src.agents.script import Agent
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from src.api.src.api.websocket import run_websocket
@@ -66,7 +66,7 @@ async def workspace_socket(socket: WebSocket) -> None:
 
             # Reject invalid commands without interrupting the subscription.
             try:
-                command = VoiceCommand.model_validate_json(text)
+                command = voice_command_adapter.validate_json(text)
                 await voice.handle(command)
             except (ValueError, RuntimeError) as error:
                 subscription.publish({"type": "error", "text": str(error)})

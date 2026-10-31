@@ -58,19 +58,22 @@ class Workspace:
 
     async def context(self) -> dict[str, object]:
         """Snapshot work status and history, then fetch current chart metadata."""
-        status = {
-            "busy": self.busy,
-            "phase": self.phase,
-            "instruction": self.current_instruction,
-            "execution_uncertain": self.agent.shell.uncertain,
+        snapshot: dict[str, object] = {
+            "status": {
+                "busy": self.busy,
+                "phase": self.phase,
+                "instruction": self.current_instruction,
+                "execution_uncertain": self.agent.shell.uncertain,
+            },
+            "recent_tasks": list(self.recent_tasks),
+            "charts": [],
         }
 
-        recent_tasks = list(self.recent_tasks)
         try:
-            charts = (await self.agent.shell.context())["charts"]
+            snapshot["charts"] = (await self.agent.shell.context())["charts"]
         except Exception:
-            return {"status": status, "recent_tasks": recent_tasks, "charts": [], "charts_unavailable": True}
-        return {"status": status, "recent_tasks": recent_tasks, "charts": charts}
+            snapshot["charts_unavailable"] = True
+        return snapshot
 
     def update_phase(self, phase: str) -> None:
         """Update progress for the active execution."""
