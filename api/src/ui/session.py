@@ -2,13 +2,10 @@ import json
 from pydantic import TypeAdapter
 from src.ui.types import Action, Identifier
 from collections.abc import Callable
-from a2ui.core.catalog import Catalog, ModelComponentApi
 from src.ui.plot.figure import Figure
-from a2ui.core.processing import MessageProcessor
 from a2ui.core.schema.v0_9 import server_to_client
 
 CATALOG = "urn:pyshell:catalog:v3"
-CATALOG_MODEL = Catalog(CATALOG, "v0.9", [ModelComponentApi(Figure)])
 
 
 class UI:
@@ -40,7 +37,7 @@ class UI:
         identifier = TypeAdapter(Identifier).validate_python(surface_id)
         if identifier not in self._widgets and len(self._widgets) >= 20:
             raise ValueError("At most 20 surfaces may be displayed; remove an existing surface first")
-        messages = self._validate(identifier, widget)
+        messages = [self._create(identifier), self._content(identifier, widget)]
         if identifier in self._widgets:
             messages.insert(0, self._delete(identifier))
 
@@ -62,7 +59,10 @@ class UI:
         return message.model_dump(mode="json", by_alias=True, exclude_none=True)
 
     def _content(self, surface_id: str, widget: Figure) -> dict[str, object]:
-        body = server_to_client.UpdateComponents(surfaceId=surface_id, components=[widget.model_dump(mode="json")])
+        component = widget.model_dump(mode="json")
+        if len(json.dumps(component, allow_nan=False).encode()) > 262144:
+            raise ValueError("A surface must not exceed 256 KiB")
+        body = server_to_client.UpdateComponents(surfaceId=surface_id, components=[component])
         message = server_to_client.UpdateComponentsMessage(updateComponents=body)
         return message.model_dump(mode="json", by_alias=True, exclude_none=True)
 
@@ -70,14 +70,6 @@ class UI:
         body = server_to_client.DeleteSurface(surfaceId=surface_id)
         message = server_to_client.DeleteSurfaceMessage(deleteSurface=body)
         return message.model_dump(mode="json", by_alias=True, exclude_none=True)
-
-    def _validate(self, surface_id: str, widget: Figure) -> list[dict[str, object]]:
-        if len(json.dumps(widget.model_dump(mode="json"), allow_nan=False).encode()) > 262144:
-            raise ValueError("A surface must not exceed 256 KiB")
-        processor = MessageProcessor([CATALOG_MODEL])
-        messages = [self._create(surface_id), self._content(surface_id, widget)]
-        processor.process_messages(messages)
-        return messages
 
     def _publish(self, messages: list[dict[str, object]]) -> None:
         if self._closed:
@@ -118,8 +110,7 @@ class UI:
         if {"id", "component"} & attributes.keys():
             raise ValueError("Widget identity and type cannot be changed by update()")
         candidate = Figure.model_validate({**widget.model_dump(mode="json"), **attributes})
-        messages = self._validate(widget.surface_id, candidate)
-        self._publish(messages[1:])
+        self._publish([self._content(widget.surface_id, candidate)])
 
         # Commit validated attributes only after the update has been published.
         for name in Figure.model_fields:

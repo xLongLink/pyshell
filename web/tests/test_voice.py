@@ -153,6 +153,30 @@ def test_reconnection_after_failure_keeps_old_tools_disconnected(monkeypatch):
     asyncio.run(run())
 
 
+def test_provider_hangup_failure_still_releases_the_call(monkeypatch, caplog):
+    async def run():
+        realtime = Realtime()
+        realtime.hang_up.side_effect = RuntimeError("Provider unavailable")
+        install_agent(monkeypatch, realtime, {})
+        workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False)))
+        events = []
+
+        async def emit(event):
+            events.append(event)
+
+        call = voice.VoiceSession(None, workspace, emit)
+        await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
+        await realtime.entered.wait()
+        await call.stop()
+        assert call.task is None
+        assert not workspace.results
+        assert events[-1] == {"type": "voice", "name": "closed"}
+        assert "Voice hangup failed" in caplog.text
+        realtime.hang_up.assert_awaited_once_with("provider")
+
+    asyncio.run(run())
+
+
 def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(monkeypatch):
     async def run():
         realtime = Realtime()

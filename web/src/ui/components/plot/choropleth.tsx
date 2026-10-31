@@ -24,8 +24,8 @@ export default function Choropleth(props: MapProps) {
         boundaries?: GeographyData;
         error?: boolean;
     }>();
-    const [attempt, setAttempt] = useState(0);
     useEffect(() => {
+        if (result !== undefined) return;
         let cancelled = false;
         loadGeography(geography).then(
             (boundaries) => {
@@ -38,17 +38,14 @@ export default function Choropleth(props: MapProps) {
         return () => {
             cancelled = true;
         };
-    }, [geography, attempt]);
+    }, [geography, result]);
     if (result?.error) {
         return (
             <div role="alert" className="py-8 text-sm text-muted-foreground">
                 Unable to load map boundaries.{" "}
                 <button
                     className="underline"
-                    onClick={() => {
-                        setResult(undefined);
-                        setAttempt(attempt + 1);
-                    }}
+                    onClick={() => setResult(undefined)}
                 >
                     Retry
                 </button>

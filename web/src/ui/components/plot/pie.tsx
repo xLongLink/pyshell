@@ -3,7 +3,6 @@ import {
     ChartContainer,
     ChartTooltipContent,
     ChartLegendContent,
-    type ChartConfig,
 } from "@/components/ui/chart";
 import { plotClassName, traceColor, type Trace } from "./common";
 
@@ -14,12 +13,6 @@ export function PiePlot({
     trace: Extract<Trace, { type: "pie" }>;
     showlegend: boolean;
 }) {
-    const config: ChartConfig = Object.fromEntries(
-        trace.labels.map((label, index) => [
-            `slice_${index}`,
-            { label, color: traceColor(index) },
-        ]),
-    );
     const slices = trace.labels.flatMap((label, index) => {
         const value = trace.values[index];
         return value === null
@@ -28,8 +21,7 @@ export function PiePlot({
                   {
                       label,
                       value,
-                      category: `slice_${index}`,
-                      fill: `var(--color-slice_${index})`,
+                      fill: traceColor(index),
                   },
               ];
     });
@@ -41,7 +33,7 @@ export function PiePlot({
         );
     }
     return (
-        <ChartContainer config={config} className={plotClassName}>
+        <ChartContainer className={plotClassName}>
             <PieChart accessibilityLayer>
                 <Pie
                     data={slices}
@@ -51,15 +43,8 @@ export function PiePlot({
                     strokeWidth={2}
                     isAnimationActive={false}
                 />
-                <Tooltip
-                    cursor={false}
-                    content={<ChartTooltipContent nameKey="category" />}
-                />
-                {showlegend && (
-                    <Legend
-                        content={<ChartLegendContent nameKey="category" />}
-                    />
-                )}
+                <Tooltip cursor={false} content={<ChartTooltipContent />} />
+                {showlegend && <Legend content={<ChartLegendContent />} />}
             </PieChart>
         </ChartContainer>
     );

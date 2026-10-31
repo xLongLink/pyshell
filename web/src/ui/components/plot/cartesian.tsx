@@ -12,7 +12,6 @@ import {
     ChartContainer,
     ChartLegendContent,
     ChartTooltipContent,
-    type ChartConfig,
 } from "@/components/ui/chart";
 import {
     plotClassName,
@@ -30,15 +29,6 @@ export function Cartesian({
     data: CartesianTrace[];
     layout: FigureProps["layout"];
 }) {
-    const config: ChartConfig = Object.fromEntries(
-        data.map((trace, index) => [
-            `trace_${index}`,
-            {
-                label: trace.name || `Series ${index + 1}`,
-                color: traceColor(index),
-            },
-        ]),
-    );
     const numeric = typeof data[0].x[0] === "number";
     const categories = [
         ...new Set(
@@ -83,7 +73,7 @@ export function Cartesian({
         });
     });
     return (
-        <ChartContainer config={config} className={plotClassName}>
+        <ChartContainer className={plotClassName}>
             <ComposedChart
                 data={bars}
                 accessibilityLayer
@@ -145,12 +135,13 @@ export function Cartesian({
                 )}
                 {data.map((trace, index) => {
                     const key = `trace_${index}`;
-                    const color = `var(--color-${key})`;
+                    const name = trace.name || `Series ${index + 1}`;
+                    const color = traceColor(index);
                     return trace.type === "bar" ? (
                         <Bar
                             key={key}
                             dataKey={key}
-                            name={key}
+                            name={name}
                             fill={color}
                             radius={4}
                             maxBarSize={48}
@@ -164,7 +155,7 @@ export function Cartesian({
                                 [key]: trace.y[point],
                             }))}
                             dataKey={key}
-                            name={key}
+                            name={name}
                             type="linear"
                             stroke={color}
                             strokeWidth={trace.mode === "markers" ? 0 : 2}

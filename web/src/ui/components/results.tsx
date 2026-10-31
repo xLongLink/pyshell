@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { A2uiSurface, type ReactCatalogComponent } from "@a2ui/react/v0_9";
-import { MessageProcessor, type SurfaceModel } from "@a2ui/web_core/v0_9";
-import { resultCatalog } from "@/components/catalog";
+import { Figure } from "@/components/plot/figure";
+import type { FigureProps } from "@/components/plot/common";
 import type { A2uiMessage } from "@/lib/a2ui";
 import type { Placements } from "@/lib/workspace";
 import { cn } from "cn";
+
+type Surface = { id: string; props?: FigureProps };
 
 export function Results({
     messages,
@@ -13,22 +14,12 @@ export function Results({
     messages: A2uiMessage[];
     placements?: Placements;
 }) {
-    const [surfaces, setSurfaces] = useState<
-        SurfaceModel<ReactCatalogComponent>[]
-    >([]);
+    const [surfaces, setSurfaces] = useState<Surface[]>([]);
     const [error, setError] = useState("");
     const stream = useRef<{
-        processor: MessageProcessor<ReactCatalogComponent>;
+        surfaces: Map<string, Surface>;
         messages: A2uiMessage[];
     } | null>(null);
-
-    useEffect(
-        () => () => {
-            stream.current?.processor.dispose();
-            stream.current = null;
-        },
-        [],
-    );
 
     useEffect(() => {
         let current = stream.current;
@@ -38,40 +29,42 @@ export function Results({
                 (message, index) => messages[index] === message,
             )
         ) {
-            current.processor.dispose();
             current = null;
         }
         if (!current) {
             current = {
-                processor: new MessageProcessor<ReactCatalogComponent>([
-                    resultCatalog,
-                ]),
+                surfaces: new Map(),
                 messages: [],
             };
             stream.current = current;
         }
-        const processor = current.processor;
+        const active = current.surfaces;
         try {
             for (const message of messages.slice(current.messages.length)) {
-                const active = processor.getSurfaces();
                 if ("createSurface" in message) {
                     if (
                         active.has(message.createSurface.surfaceId) ||
                         active.size >= 20
                     )
                         throw new Error("Invalid surface creation");
+                    const id = message.createSurface.surfaceId;
+                    active.set(id, { id });
                 } else if ("deleteSurface" in message) {
                     if (!active.has(message.deleteSurface.surfaceId))
                         throw new Error("Unknown surface");
-                } else if (!active.has(message.updateComponents.surfaceId))
-                    throw new Error("Unknown surface");
-                processor.processMessages(message);
+                    active.delete(message.deleteSurface.surfaceId);
+                } else {
+                    const id = message.updateComponents.surfaceId;
+                    if (!active.has(id)) throw new Error("Unknown surface");
+                    const { data, layout } =
+                        message.updateComponents.components[0];
+                    active.set(id, { id, props: { data, layout } });
+                }
             }
             current.messages = messages;
-            setSurfaces(Array.from(processor.getSurfaces().values()));
+            setSurfaces(Array.from(active.values()));
             setError("");
         } catch {
-            processor.dispose();
             stream.current = null;
             setSurfaces([]);
             setError(
@@ -87,11 +80,7 @@ export function Results({
     const centerIds = new Set(centered.map((surface) => surface.id));
     const sidebar = surfaces.filter((surface) => !centerIds.has(surface.id));
 
-    function widget(
-        surface: SurfaceModel<ReactCatalogComponent>,
-        index: number,
-        center = false,
-    ) {
+    function widget(surface: Surface, index: number, center = false) {
         return (
             <article
                 key={surface.id}
@@ -106,7 +95,7 @@ export function Results({
                         "h-80 [&_.recharts-legend-wrapper]:hidden [&_.plot-xaxis-title]:hidden",
                 )}
             >
-                <A2uiSurface surface={surface} />
+                {surface.props && <Figure {...surface.props} />}
             </article>
         );
     }

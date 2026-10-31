@@ -38,6 +38,7 @@ def test_lifespan_drains_accepted_work_before_closing_transports(monkeypatch):
 
         async def application():
             async with server.lifespan(server.app):
+                assert server.app.state.execution_client is client
                 server.app.state.workspace.start(Command(type="run", instruction="Finish accepted work"))
                 await started.wait()
                 exiting.set()
@@ -104,16 +105,20 @@ def test_web_server_serves_website_and_assets(monkeypatch, tmp_path):
 
 def test_geography_proxy_preserves_data_and_cache_headers_without_execution(monkeypatch):
     headers = {"cache-control": "public, max-age=3600", "etag": '"map-v1"', "last-modified": "Thu, 01 Oct 2026 00:00:00 GMT"}
-    geography = AsyncMock(return_value=httpx.Response(200, content=b'{"type":"FeatureCollection","features":[]}', headers=headers))
-    workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(geography=geography, uncertain=True)))
+    request = httpx.Request("GET", "http://execution-private/geographies/CHE")
+    get = AsyncMock(
+        return_value=httpx.Response(200, content=b'{"type":"FeatureCollection","features":[]}', headers=headers, request=request)
+    )
+    workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=True)))
     monkeypatch.setattr(server.app.state, "workspace", workspace, raising=False)
+    monkeypatch.setattr(server.app.state, "execution_client", SimpleNamespace(get=get), raising=False)
     response = TestClient(server.app).get("/geographies/CHE")
     assert response.status_code == 200
-    assert response.content == geography.return_value.content
+    assert response.content == get.return_value.content
     assert response.headers["content-type"] == "application/geo+json"
     for name, value in headers.items():
         assert response.headers[name] == value
-    geography.assert_awaited_once_with("CHE")
+    get.assert_awaited_once_with("/geographies/CHE")
     assert workspace.snapshot()["events"] == []
     assert workspace.agent.shell.uncertain is True
 
@@ -121,13 +126,12 @@ def test_geography_proxy_preserves_data_and_cache_headers_without_execution(monk
 @pytest.mark.parametrize("status", [None, 404, 500])
 def test_geography_proxy_reports_backend_failure_without_leaking_details(monkeypatch, status):
     request = httpx.Request("GET", "http://execution-private/geographies/CHE")
-    error = httpx.ConnectError("private backend address", request=request)
-    if status is not None:
-        error = httpx.HTTPStatusError("private backend address", request=request, response=httpx.Response(status))
-    geography = AsyncMock(side_effect=error)
-    monkeypatch.setattr(
-        server.app.state, "workspace", SimpleNamespace(agent=SimpleNamespace(shell=SimpleNamespace(geography=geography))), raising=False
+    get = (
+        AsyncMock(side_effect=httpx.ConnectError("private backend address", request=request))
+        if status is None
+        else AsyncMock(return_value=httpx.Response(status, request=request, text="private backend details"))
     )
+    monkeypatch.setattr(server.app.state, "execution_client", SimpleNamespace(get=get), raising=False)
     response = TestClient(server.app).get("/geographies/CHE")
     assert response.status_code == (404 if status == 404 else 502)
     assert response.json() == {"detail": "Unsupported geography" if status == 404 else "Map data is unavailable"}

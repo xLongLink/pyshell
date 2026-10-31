@@ -1,7 +1,55 @@
 import pytest
 from pydantic import ValidationError
-from src.ui.session import UI
+from src.ui.session import UI, CATALOG
+from a2ui.core.catalog import Catalog, ModelComponentApi
 from src.ui.plot.figure import Figure
+from a2ui.core.processing import MessageProcessor, MessageProcessorOptions
+from a2ui.core.validation import STRICT_VALIDATION
+
+
+@pytest.mark.parametrize(
+    "trace",
+    [
+        {"type": "bar", "x": ["A"], "y": [42]},
+        {"type": "scatter", "x": [0, 1], "y": [42, None]},
+        {"type": "pie", "labels": ["A", "B"], "values": [42, None]},
+        {"type": "choropleth", "locations": ["CHE"], "values": [42]},
+    ],
+)
+def test_widget_lifecycle_round_trips_through_the_protocol(monkeypatch, trace):
+    monkeypatch.setattr("src.ui.plot.choropleth.geography_info", lambda geography: {"locations": {"CHE": "Switzerland"}})
+    processor = MessageProcessor(
+        [Catalog(CATALOG, "v0.9", [ModelComponentApi(Figure)])], options=MessageProcessorOptions(validation_config=STRICT_VALIDATION)
+    )
+    ui = UI()
+    ui.on_publish = lambda event: processor.process_messages(event["messages"])
+    chart = ui.plot([trace], surface_id="sales")
+    surface = processor.model.get_surface("sales")
+    assert surface.components_model.get("root").component_tree == chart.model_dump(mode="json")
+    chart.update(layout={"title": {"text": "Updated"}})
+    assert processor.model.get_surface("sales") is surface
+    assert surface.components_model.get("root").component_tree == chart.model_dump(mode="json")
+    replacement = ui.plot([trace], surface_id="sales")
+    assert processor.model.get_surface("sales") is not surface
+    assert processor.model.get_surface("sales").components_model.get("root").component_tree == replacement.model_dump(mode="json")
+    replacement.remove()
+    assert processor.model.get_surface("sales") is None
+    assert ui.surfaces == set()
+
+
+@pytest.mark.parametrize("replace", [False, True])
+def test_surface_size_limit_preserves_the_existing_widget(replace):
+    ui = UI()
+    chart = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="sales")
+    messages = list(ui.messages)
+    data = [{"type": "bar", "x": ["A" * 2000] * 200, "y": [1] * 200}]
+    publish = (lambda: ui.plot(data, surface_id="sales")) if replace else lambda: chart.update(data=data)
+    with pytest.raises(ValueError, match="256 KiB"):
+        publish()
+    assert ui.messages == messages
+    assert chart.data[0].x == ["A"]
+    chart.update(layout={"title": {"text": "Still usable"}})
+    assert chart.layout.title.text == "Still usable"
 
 
 def test_plot_returns_typed_widgets_with_common_methods():

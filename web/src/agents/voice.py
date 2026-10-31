@@ -132,16 +132,6 @@ class VoiceSession:
                 except Exception:
                     logger.exception("Could not enqueue workspace result for voice")
 
-        async def hang_up() -> None:
-            """Bound provider cleanup without hiding a local call teardown."""
-            try:
-                async with asyncio.timeout(15):
-                    await realtime.hang_up(answer.session)
-
-            # Local teardown must finish even if provider cleanup fails.
-            except Exception:
-                logger.exception("Voice hangup failed")
-
         # Limit negotiation time without imposing a maximum call duration.
         try:
             async with asyncio.timeout(60) as setup:
@@ -188,7 +178,11 @@ class VoiceSession:
 
             # Provider cleanup is bounded independently of call setup.
             if answer is not None:
-                await hang_up()
+                try:
+                    async with asyncio.timeout(15):
+                        await realtime.hang_up(answer.session)
+                except Exception:
+                    logger.exception("Voice hangup failed")
         await self.emit({"type": "voice", "name": "closed"})
 
     async def stop(self, *, notify: bool = True) -> None:

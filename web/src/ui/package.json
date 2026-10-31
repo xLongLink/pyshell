@@ -11,8 +11,6 @@
         "format": "prettier --write *.tsx index.css components lib tests/*.{test.ts,test.tsx} index.html package.json tsconfig.json vite.config.ts components.json"
     },
     "dependencies": {
-        "@a2ui/react": "0.14.0",
-        "@a2ui/web_core": "0.14.0",
         "cn": "^0.5.1",
         "d3-geo": "^3.1.1",
         "react": "^19.3.1",
@@ -40,8 +38,5 @@
     },
     "engines": {
         "node": ">=22.18.0"
-    },
-    "overrides": {
-        "dompurify": "3.4.17"
     }
 }

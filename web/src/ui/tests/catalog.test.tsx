@@ -8,7 +8,6 @@ import {
     within,
 } from "@testing-library/react";
 import { Results } from "../components/results";
-import { ChartContainer } from "../components/ui/chart";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui";
 
 afterEach(cleanup);
@@ -189,6 +188,11 @@ test.each(["bar", "scatter", "pie"] as const)(
             expect(
                 container.querySelectorAll(".recharts-pie-sector"),
             ).toHaveLength(2);
+            expect(
+                [
+                    ...container.querySelectorAll(".recharts-pie-sector path"),
+                ].map((slice) => slice.getAttribute("fill")),
+            ).toEqual(["var(--chart-1)", "var(--chart-3)"]);
         }
     },
 );
@@ -209,12 +213,8 @@ test.each(['</style><img src=x onerror="alert(1)">', "__proto__", "slice_1"])(
         );
         await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
         expect(container.querySelector("img")).toBeNull();
-        const chart = container.querySelector<HTMLElement>(
-            '[data-slot="chart"]',
-        )!;
-        expect(chart.style.getPropertyValue("--color-slice_0")).not.toBe("");
-        expect(chart.getAttribute("style")).not.toContain(label);
-        expect(chart.querySelector("style")).toBeNull();
+        const slice = container.querySelector(".recharts-pie-sector path")!;
+        expect(slice.getAttribute("fill")).toBe("var(--chart-1)");
         fireEvent.mouseEnter(container.querySelector(".recharts-pie-sector")!);
         await waitFor(() =>
             expect(
@@ -223,10 +223,10 @@ test.each(['</style><img src=x onerror="alert(1)">', "__proto__", "slice_1"])(
             ).toBe(`${label}42`),
         );
         expect(
-            container
-                .querySelector<HTMLElement>(".recharts-tooltip-wrapper [style]")
-                ?.style.getPropertyValue("--color-bg"),
-        ).toBe("var(--color-slice_0)");
+            container.querySelector<HTMLElement>(
+                ".recharts-tooltip-wrapper [style]",
+            )?.style.backgroundColor,
+        ).toBe(slice.getAttribute("fill"));
         expect(container.querySelector("img")).toBeNull();
     },
 );
@@ -242,7 +242,7 @@ test.each(["bar", "scatter"] as const)(
                         id: "root",
                         component: "Figure",
                         data: [
-                            { type, name, x: ["A"], y: [42] },
+                            { type, name, x: ["A"], y: [1234.5] },
                             { type, x: ["B"], y: [10] },
                         ],
                     },
@@ -256,43 +256,71 @@ test.each(["bar", "scatter"] as const)(
             expect(
                 container.querySelector(".recharts-tooltip-wrapper")
                     ?.textContent,
-            ).toBe(`A${name}42`),
+            ).toBe(`A${name}${(1234.5).toLocaleString()}`),
         );
         expect(
-            container
-                .querySelector<HTMLElement>(".recharts-tooltip-wrapper [style]")
-                ?.style.getPropertyValue("--color-bg"),
-        ).toBe("var(--color-trace_0)");
+            container.querySelector<HTMLElement>(
+                ".recharts-tooltip-wrapper [style]",
+            )?.style.backgroundColor,
+        ).toBe("var(--chart-1)");
+        fireEvent.keyDown(screen.getByRole("application"), {
+            key: "ArrowRight",
+        });
+        await waitFor(() =>
+            expect(
+                container.querySelector(".recharts-tooltip-wrapper")
+                    ?.textContent,
+            ).toBe("BSeries 210"),
+        );
         expect(container.querySelector("img")).toBeNull();
     },
 );
 
-test("chart colors stay scoped to their containers", () => {
-    const { container, rerender } = render(
-        <>
-            <ChartContainer config={{ series: { color: "red" } }}>
-                <svg />
-            </ChartContainer>
-            <ChartContainer config={{ series: { color: "blue" } }}>
-                <svg />
-            </ChartContainer>
-        </>,
+test("charts keep independent labels and colors when another chart changes", async () => {
+    const pie = (labels: string[]) => ({
+        id: "root",
+        component: "Figure",
+        data: [{ type: "pie", labels, values: labels.map(() => 42) }],
+    });
+    const second = surface([pie(["Other", "Shared"])], "second");
+    const { rerender } = render(
+        <Results messages={[...surface([pie(["Shared"])]), ...second]} />,
     );
-    const charts = container.querySelectorAll<HTMLElement>(
-        '[data-slot="chart"]',
+    const widget = await screen.findByRole("article", {
+        name: "Widget second",
+    });
+    await waitFor(() =>
+        expect(within(widget).getByText("Shared")).toBeTruthy(),
     );
-    expect(charts[0].style.getPropertyValue("--color-series")).toBe("red");
-    expect(charts[1].style.getPropertyValue("--color-series")).toBe("blue");
+    const slice = widget.querySelectorAll(".recharts-pie-sector path")[1];
+    expect(slice.getAttribute("fill")).toBe("var(--chart-2)");
+    fireEvent.mouseEnter(widget.querySelectorAll(".recharts-pie-sector")[1]);
+    await waitFor(() =>
+        expect(
+            widget.querySelector(".recharts-tooltip-wrapper")?.textContent,
+        ).toBe("Shared42"),
+    );
     rerender(
-        <ChartContainer config={{}}>
-            <svg />
-        </ChartContainer>,
+        <Results
+            messages={[...surface([pie(["Changed", "Shared"])]), ...second]}
+        />,
+    );
+    await screen.findByText("Changed");
+    const updated = screen.getByRole("article", { name: "Widget second" });
+    const updatedSlice = updated.querySelectorAll(
+        ".recharts-pie-sector path",
+    )[1];
+    expect(updatedSlice.getAttribute("fill")).toBe("var(--chart-2)");
+    fireEvent.mouseEnter(updated.querySelectorAll(".recharts-pie-sector")[1]);
+    await waitFor(() =>
+        expect(
+            updated.querySelector(".recharts-tooltip-wrapper")?.textContent,
+        ).toBe("Shared42"),
     );
     expect(
-        container
-            .querySelector<HTMLElement>('[data-slot="chart"]')!
-            .style.getPropertyValue("--color-series"),
-    ).toBe("");
+        updated.querySelector<HTMLElement>(".recharts-tooltip-wrapper [style]")
+            ?.style.backgroundColor,
+    ).toBe(updatedSlice.getAttribute("fill"));
 });
 
 test("a pie with zero or missing values reports an empty plot", async () => {
@@ -399,10 +427,10 @@ test("independent lines and markers share numeric axes without adding gaps", asy
         container.querySelector(".recharts-tooltip-wrapper")?.textContent,
     ).toBe("2Observed3");
     expect(
-        container
-            .querySelector<HTMLElement>(".recharts-tooltip-wrapper [style]")
-            ?.style.getPropertyValue("--color-bg"),
-    ).toBe("var(--color-trace_1)");
+        container.querySelector<HTMLElement>(
+            ".recharts-tooltip-wrapper [style]",
+        )?.style.backgroundColor,
+    ).toBe("var(--chart-2)");
 });
 
 test("lines+markers preserves input order, repeated x values, and missing gaps", async () => {

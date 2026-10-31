@@ -95,9 +95,9 @@ class Agent:
         self.message_history = []
         self.pending_feedback = None
 
-    def _instructions(self) -> str:
+    async def _instructions(self) -> str:
         if self._libraries is None:
-            raise RuntimeError("Execution library inventory has not been loaded")
+            self._libraries = await self.shell.inventory()
         return (
             INSTRUCTIONS
             + "\nInstalled packages in the execution environment (distribution names may differ from import names):\n"
@@ -106,8 +106,6 @@ class Agent:
 
     async def arun(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> str:
         """Generate complete code and consume live execution feedback."""
-        if self._libraries is None:
-            self._libraries = await self.shell.inventory()
         emit = on_event if on_event is not None else lambda _event: None
         usage = RunUsage()
         limits = UsageLimits(request_limit=50, total_tokens_limit=200_000)

@@ -5,60 +5,29 @@ import type { TooltipPayloadEntry } from "recharts";
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
 
-export type ChartConfig = Record<
-    string,
-    {
-        label?: React.ReactNode;
-        color?: string;
-    }
->;
-
-const ChartContext = React.createContext<ChartConfig | null>(null);
-
-function useChart() {
-    const context = React.useContext(ChartContext);
-
-    if (!context) {
-        throw new Error("useChart must be used within a <ChartContainer />");
-    }
-
-    return context;
-}
-
 function ChartContainer({
     className,
     children,
-    config,
 }: {
     className?: string;
-    config: ChartConfig;
     children: React.ComponentProps<
         typeof RechartsPrimitive.ResponsiveContainer
     >["children"];
 }) {
-    const colors = Object.fromEntries(
-        Object.entries(config)
-            .filter(([, item]) => item.color)
-            .map(([key, item]) => [`--color-${key}`, item.color]),
-    );
-
     return (
-        <ChartContext.Provider value={config}>
-            <div
-                data-slot="chart"
-                className={cn(
-                    "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
-                    className,
-                )}
-                style={colors as React.CSSProperties}
+        <div
+            data-slot="chart"
+            className={cn(
+                "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
+                className,
+            )}
+        >
+            <RechartsPrimitive.ResponsiveContainer
+                initialDimension={INITIAL_DIMENSION}
             >
-                <RechartsPrimitive.ResponsiveContainer
-                    initialDimension={INITIAL_DIMENSION}
-                >
-                    {children}
-                </RechartsPrimitive.ResponsiveContainer>
-            </div>
-        </ChartContext.Provider>
+                {children}
+            </RechartsPrimitive.ResponsiveContainer>
+        </div>
     );
 }
 
@@ -67,16 +36,12 @@ function ChartTooltipContent({
     payload,
     indicator = "dot",
     formatLabel,
-    nameKey,
 }: {
     active?: boolean;
     payload?: readonly TooltipPayloadEntry[];
     formatLabel?: (payload: readonly TooltipPayloadEntry[]) => React.ReactNode;
     indicator?: "line" | "dot";
-    nameKey?: "category";
 }) {
-    const config = useChart();
-
     if (!active || !payload?.length) {
         return null;
     }
@@ -93,11 +58,6 @@ function ChartTooltipContent({
                 {payload
                     .filter((item) => item.type !== "none")
                     .map((item, index) => {
-                        const itemConfig = getChartItemConfig(
-                            config,
-                            item,
-                            nameKey,
-                        );
                         const indicatorColor = item.payload?.fill ?? item.color;
 
                         return (
@@ -109,19 +69,11 @@ function ChartTooltipContent({
                                 )}
                             >
                                 <div
-                                    className={cn(
-                                        "shrink-0 rounded-[2px] border-(--color-border) bg-(--color-bg)",
-                                        {
-                                            "h-2.5 w-2.5": indicator === "dot",
-                                            "w-1": indicator === "line",
-                                        },
-                                    )}
-                                    style={
-                                        {
-                                            "--color-bg": indicatorColor,
-                                            "--color-border": indicatorColor,
-                                        } as React.CSSProperties
-                                    }
+                                    className={cn("shrink-0 rounded-[2px]", {
+                                        "h-2.5 w-2.5": indicator === "dot",
+                                        "w-1": indicator === "line",
+                                    })}
+                                    style={{ backgroundColor: indicatorColor }}
                                 />
                                 <div
                                     className={cn(
@@ -134,7 +86,7 @@ function ChartTooltipContent({
                                     <div className="grid gap-1.5">
                                         {nestLabel ? tooltipLabel : null}
                                         <span className="text-muted-foreground">
-                                            {itemConfig?.label ?? item.name}
+                                            {item.name}
                                         </span>
                                     </div>
                                     {item.value != null && (
@@ -155,13 +107,9 @@ function ChartTooltipContent({
 
 function ChartLegendContent({
     payload,
-    nameKey,
 }: {
     payload?: RechartsPrimitive.DefaultLegendContentProps["payload"];
-    nameKey?: "category";
 }) {
-    const config = useChart();
-
     if (!payload?.length) {
         return null;
     }
@@ -171,12 +119,6 @@ function ChartLegendContent({
             {payload
                 .filter((item) => item.type !== "none")
                 .map((item, index) => {
-                    const itemConfig = getChartItemConfig(
-                        config,
-                        item,
-                        nameKey,
-                    );
-
                     return (
                         <div
                             key={index}
@@ -188,32 +130,12 @@ function ChartLegendContent({
                                     backgroundColor: item.color,
                                 }}
                             />
-                            <span className="truncate">
-                                {itemConfig?.label}
-                            </span>
+                            <span className="truncate">{item.value}</span>
                         </div>
                     );
                 })}
         </div>
     );
-}
-
-function getChartItemConfig(
-    config: ChartConfig,
-    item: Pick<TooltipPayloadEntry, "dataKey"> & { payload?: unknown },
-    nameKey?: "category",
-) {
-    if (nameKey === "category") {
-        const slice = item.payload;
-        return typeof slice === "object" &&
-            slice !== null &&
-            "category" in slice &&
-            typeof slice.category === "string"
-            ? config[slice.category]
-            : undefined;
-    }
-
-    return config[typeof item.dataKey === "string" ? item.dataKey : "value"];
 }
 
 export { ChartContainer, ChartTooltipContent, ChartLegendContent };

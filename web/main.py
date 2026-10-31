@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     provider = OpenAIProvider(api_key=settings.openai_api_key.get_secret_value())
     try:
         async with AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx.Timeout(180, connect=10), trust_env=False) as client:
+            app.state.execution_client = client
             model = OpenAIResponsesModel(settings.openai_model, provider=provider)
             workspace = Workspace(Agent(model, shell=RemoteShell(client)))
             app.state.workspace = workspace
@@ -53,7 +54,8 @@ async def geography(request: Request, geography: str) -> Response:
     if not re.fullmatch(r"world|[A-Z]{3}", geography):
         raise HTTPException(status_code=404, detail="Unsupported geography")
     try:
-        response = await request.app.state.workspace.agent.shell.geography(geography)
+        response = await request.app.state.execution_client.get(f"/geographies/{geography}")
+        response.raise_for_status()
     except httpx.HTTPStatusError as error:
         if error.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Unsupported geography") from error
