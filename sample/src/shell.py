@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 import asyncio
 from sample.src.events import Result, execution_event
 
@@ -6,7 +6,7 @@ from sample.src.events import Result, execution_event
 class RemoteShell:
     """Access the container's persistent Python session."""
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(self, client: httpx2.AsyncClient) -> None:
         """Use the application-owned execution transport."""
         self.client = client
         self.uncertain = False
@@ -51,12 +51,10 @@ class RemoteShell:
                     if finished or (result is not None and event.type != "execution_finished"):
                         raise RuntimeError("Execution events arrived after the final result")
 
-                    # A finish marker confirms a result, never substitutes for it.
-                    if event.type == "execution_finished" and result is None:
-                        raise RuntimeError("Execution finished without a result")
-
                     # Remember the terminal marker until the transport reaches EOF.
                     if event.type == "execution_finished":
+                        if result is None:
+                            raise RuntimeError("Execution finished without a result")
                         finished = True
 
                     elif event.type == "result":

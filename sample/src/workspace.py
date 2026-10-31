@@ -68,7 +68,7 @@ class Workspace:
 
     async def context(self) -> dict[str, object]:
         """Summarize recent work and current charts without copying their datasets."""
-        recent_tasks = [dict(task) for task in self.recent_tasks]
+        recent_tasks = list(self.recent_tasks)
         try:
             context = await self.agent.shell.context()
             charts = context["charts"]
@@ -83,9 +83,6 @@ class Workspace:
 
     def publish(self, event: dict[str, object]) -> None:
         """Broadcast browser messages without waiting on slow tabs."""
-        if event["type"] not in {"instruction", "error"}:
-            return
-
         for listener in tuple(self.listeners):
             listener.publish(event)
 
@@ -106,7 +103,7 @@ class Workspace:
         self.current_instruction = instruction
         self.phase = "starting"
 
-        self.publish({"type": "instruction", "text": instruction})
+        self.publish({"type": "instruction"})
         self.task = asyncio.create_task(self._execute(instruction))
 
     async def _execute(self, instruction: str) -> None:

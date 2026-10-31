@@ -8,7 +8,7 @@
         "build": "tsc --noEmit && vite build",
         "typecheck": "tsc --noEmit",
         "test": "vitest run tests/*.test.ts tests/*.test.tsx --environment jsdom",
-        "format": "prettier --write *.tsx index.css components lib tests/*.{test.ts,test.tsx} index.html package.json tsconfig.json vite.config.ts components.json"
+        "format": "prettier --write *.tsx index.css components lib tests/*.{test.ts,test.tsx} index.html package.json tsconfig.json vite.config.ts"
     },
     "dependencies": {
         "cn": "^0.5.1",

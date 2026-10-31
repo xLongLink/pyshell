@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 import pytest
 import asyncio
 from types import SimpleNamespace
@@ -27,7 +27,6 @@ def call_factory(monkeypatch):
         events = []
         offers = []
         hangups = []
-        queued = []
         tools = {}
 
         async def checkpoint(name):
@@ -38,20 +37,20 @@ def call_factory(monkeypatch):
         async def request(request):
             if request.url.path == "/libraries":
                 await checkpoint("inventory")
-                return httpx.Response(200, json=[])
+                return httpx2.Response(200, json=[])
             if request.url.path == "/execute/stream":
                 working.set()
                 await finish_work.wait()
-                return httpx.Response(
+                return httpx2.Response(
                     200,
                     text='{"type":"result","stdout":"accepted","stderr":"","exception":null,"done":true}\n{"type":"execution_finished"}\n',
                 )
             assert request.url.path == "/ui/context"
-            return httpx.Response(200, json={"charts": []})
+            return httpx2.Response(200, json={"charts": []})
 
         class Session:
             def enqueue(self, text):
-                queued.append(text)
+                pass
 
             async def __aiter__(self):
                 await checkpoint("active")
@@ -91,7 +90,7 @@ def call_factory(monkeypatch):
 
         monkeypatch.setattr(RealtimeAgent, "realtime", realtime)
         model = FunctionModel(lambda messages, info: ModelResponse(parts=[TextPart("done()")], finish_reason="stop"))
-        async with httpx.AsyncClient(base_url="http://execution", transport=httpx.MockTransport(request)) as client:
+        async with httpx2.AsyncClient(base_url="http://execution", transport=httpx2.MockTransport(request)) as client:
             workspace = Workspace(Agent(model, shell=RemoteShell(client)))
             voice = VoiceSession(None, workspace, events.append)
             try:
@@ -103,7 +102,6 @@ def call_factory(monkeypatch):
                     release=release,
                     offers=offers,
                     hangups=hangups,
-                    queued=queued,
                     tools=tools,
                     working=working,
                     finish_work=finish_work,

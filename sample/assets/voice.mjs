@@ -159,10 +159,7 @@ export function mountVoice(page = window) {
       connected = true;
       error(workspaceError, "");
       setPhase(phase);
-    } else if (
-      event?.type === "instruction" &&
-      typeof event.text === "string"
-    ) {
+    } else if (event?.type === "instruction") {
       error(workspaceError, "");
     } else if (event?.type === "error" && typeof event.text === "string") {
       error(workspaceError, event.text);

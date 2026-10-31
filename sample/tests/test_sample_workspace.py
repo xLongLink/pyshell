@@ -5,15 +5,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from sample.src.events import Result
 from sample.src.workspace import Workspace, Subscription
+from pydantic_ai.models.test import TestModel
 from sample.src.agents.script import Agent
 
 
 def make_agent(responses, results):
-    agent = Agent.__new__(Agent)
+    agent = Agent(TestModel(), shell=SimpleNamespace(stream=AsyncMock(side_effect=results), uncertain=False))
     agent.agent = SimpleNamespace(run=AsyncMock(side_effect=responses))
-    agent.shell = SimpleNamespace(stream=AsyncMock(side_effect=results), uncertain=False)
-    agent.message_history = []
-    agent.pending_feedback = None
     return agent
 
 
@@ -99,7 +97,7 @@ def test_workspace_returns_to_idle_and_only_publishes_browser_messages(fail):
         events = []
         while not subscription.queue.empty():
             events.append(subscription.queue.get_nowait())
-        expected = [{"type": "snapshot"}, {"type": "instruction", "text": "work"}]
+        expected = [{"type": "snapshot"}, {"type": "instruction"}]
         if fail:
             expected.append({"type": "error", "text": "execution failed"})
         assert events == expected
@@ -109,5 +107,36 @@ def test_workspace_returns_to_idle_and_only_publishes_browser_messages(fail):
             "Task failed: execution failed. Earlier changes may have applied; do not automatically resubmit." if fail else "finished"
         )
         assert [json.loads(report) for report in reports] == [record]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("unavailable", [False, True])
+def test_context_snapshots_history_before_fetching_charts(unavailable):
+    async def run():
+        agent = make_agent([], [])
+        workspace = Workspace(agent)
+        workspace.recent_tasks.append({"instruction": "first", "outcome": "completed", "result": "finished"})
+        fetching = asyncio.Event()
+        release = asyncio.Event()
+
+        async def context():
+            fetching.set()
+            await release.wait()
+            if unavailable:
+                raise RuntimeError("Execution container unavailable")
+            return {"charts": [{"surface_id": "sales"}]}
+
+        agent.shell.context = context
+        pending = asyncio.create_task(workspace.context())
+        await asyncio.wait_for(fetching.wait(), 1)
+        workspace.recent_tasks.append({"instruction": "second", "outcome": "completed", "result": "new result"})
+        release.set()
+        snapshot = await asyncio.wait_for(pending, 1)
+
+        assert snapshot["recent_tasks"] == [{"instruction": "first", "outcome": "completed", "result": "finished"}]
+        assert snapshot["charts"] == ([] if unavailable else [{"surface_id": "sales"}])
+        assert snapshot.get("charts_unavailable", False) is unavailable
+        assert len(workspace.recent_tasks) == 2
 
     asyncio.run(run())

@@ -1,6 +1,5 @@
-import httpx
+import httpx2
 import asyncio
-from httpx import AsyncClient
 from fastapi import FastAPI, WebSocket
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -23,7 +22,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Own provider and workspace resources for the application lifetime."""
     provider = OpenAIProvider(api_key=settings.openai_api_key.get_secret_value())
     try:
-        async with AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx.Timeout(180, connect=10), trust_env=False) as client:
+        async with httpx2.AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx2.Timeout(180, connect=10), trust_env=False) as client:
             model = OpenAIResponsesModel(
                 settings.openai_model, provider=provider, settings=OpenAIResponsesModelSettings(openai_reasoning_effort="low")
             )

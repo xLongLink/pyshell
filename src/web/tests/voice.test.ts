@@ -113,6 +113,16 @@ function setup({ gatherIce = false } = {}) {
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
+test("instruction events clear workspace errors without instruction text", () => {
+    const app = setup();
+    app.connect();
+    app.sockets[0].receive({ type: "error", text: "Earlier task failed" });
+    expect(app.workspaceError.hidden).toBe(false);
+    app.sockets[0].receive({ type: "instruction" });
+    expect(app.workspaceError.hidden).toBe(true);
+    expect(app.workspaceError.textContent).toBe("");
+});
+
 test("BFCache suspension releases voice resources and resumes only once", async () => {
     const app = setup();
     expect(app.sockets[0].url).toBe("wss://workspace.test/ws");
