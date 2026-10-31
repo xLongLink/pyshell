@@ -5,7 +5,7 @@ from src.api.tests.helpers import execute
 
 
 def test_widgets_publish_a2ui_messages_and_preserve_python_state():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
+    api_client = TestClient(create_app())
     result = execute(
         api_client, "amount = 42\nui.plot([{'type': 'bar', 'x': ['Revenue'], 'y': [amount]}], surface_id='revenue')\nprint(amount)\ndone()"
     )
@@ -31,7 +31,7 @@ def test_widgets_publish_a2ui_messages_and_preserve_python_state():
 
 
 def test_invalid_ui_does_not_publish_partial_surface():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
+    api_client = TestClient(create_app())
     attributes = {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "html": "<script>"}
     result = execute(api_client, f"ui.plot(**{attributes!r})")
     assert result["exception"]
@@ -40,14 +40,14 @@ def test_invalid_ui_does_not_publish_partial_surface():
 
 
 def test_display_limits_reject_excess_surfaces():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
+    api_client = TestClient(create_app())
     result = execute(api_client, "for number in range(21):\n    ui.plot([{'type': 'bar', 'x': ['A'], 'y': [number]}])")
     assert "20 surfaces" in result["exception"]
     assert sum("createSurface" in message for message in result["ui"]) == 20
 
 
 def test_pending_message_limit_keeps_last_successful_surface():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
+    api_client = TestClient(create_app())
     result = execute(
         api_client, "for number in range(40):\n    ui.plot([{'type': 'bar', 'x': ['A'], 'y': [number]}], surface_id='counter')"
     )
@@ -57,7 +57,7 @@ def test_pending_message_limit_keeps_last_successful_surface():
 
 
 def test_automatic_surface_ids_do_not_replace_named_results():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
+    api_client = TestClient(create_app())
     result = execute(
         api_client,
         "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='surface_1')\nui.plot([{'type': 'bar', 'x': ['B'], 'y': [2]}])",
@@ -68,19 +68,16 @@ def test_automatic_surface_ids_do_not_replace_named_results():
     assert not any("deleteSurface" in message for message in result["ui"])
 
 
-@pytest.mark.parametrize("kind", ["bar", "pie"])
-def test_trace_types_preserve_missing_values(kind):
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
+MISSING_VALUE_TRACES = [
+    {"type": "bar", "name": "Revenue", "x": ["Sales", "Missing"], "y": [-42, None]},
+    {"type": "pie", "name": "Revenue", "labels": ["Sales", "Zero", "Missing"], "values": [42, 0, None]},
+]
+
+
+@pytest.mark.parametrize("trace", MISSING_VALUE_TRACES, ids=["bar", "pie"])
+def test_trace_types_preserve_missing_values(trace):
     # Arrange
-    trace = {
-        "type": kind,
-        "name": "Revenue",
-        **(
-            {"labels": ["Sales", "Zero", "Missing"], "values": [42, 0, None]}
-            if kind == "pie"
-            else {"x": ["Sales", "Missing"], "y": [-42, None]}
-        ),
-    }
+    api_client = TestClient(create_app())
 
     # Act
     result = execute(api_client, f"ui.plot([{trace!r}])")
@@ -89,7 +86,4 @@ def test_trace_types_preserve_missing_values(kind):
     assert result["exception"] is None
     chart = result["ui"][1]["updateComponents"]["components"][0]
     assert chart["component"] == "Figure"
-    assert chart["data"][0]["type"] == kind
-    assert chart["data"][0]["name"] == "Revenue"
-    assert chart["data"][0]["labels" if kind == "pie" else "x"] == (["Sales", "Zero", "Missing"] if kind == "pie" else ["Sales", "Missing"])
-    assert chart["data"][0]["values" if kind == "pie" else "y"] == ([42, 0, None] if kind == "pie" else [-42, None])
+    assert chart["data"] == [trace]

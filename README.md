@@ -50,7 +50,7 @@ The sample loads an HTML document with a voice orb and the container-owned works
 
 The voice assistant can check the current task and execution phase, inspect chart titles and types, and recall the last eight task summaries across calls. Ask “what are you doing?” or “change the sales chart to a bar chart.” Say “end the call” to hang up without cancelling submitted work. Steering or stopping running Python is not supported.
 
-Configure `OPENAI_API_KEY` in `sample/.env`; it stays outside the execution container. Optional settings are `OPENAI_MODEL` and `OPENAI_REALTIME_MODEL` (default: `gpt-realtime`). Voice requires access to the realtime model. The web server requires Python 3.11 or newer. `make up` generates a shared `PYSHELL_EXECUTION_TOKEN` for server-only execution, reset, inventory, and chart-summary requests; manual startup must configure the same token in both processes. The browser never receives this token. This configuration is localhost-only, not an authenticated multi-user deployment.
+Configure `OPENAI_API_KEY` in `sample/.env`; it stays outside the execution container. Optional settings are `OPENAI_MODEL` and `OPENAI_REALTIME_MODEL` (default: `gpt-realtime`). Voice requires access to the realtime model. The web server requires Python 3.11 or newer. This configuration is localhost-only, not an authenticated multi-user deployment.
 
 Execution stream failures are not retried: code may already have run. Restart both the execution container and web server before submitting more work after an unconfirmed execution. A transport timeout does not terminate Python; restarting the container does. Listener queues are bounded; reconnect snapshots contain current widgets, not event history.
 

@@ -62,8 +62,8 @@ def test_lifespan_drains_accepted_work_before_closing_transports(monkeypatch):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("failure", ["initialization", "shutdown"])
-def test_lifespan_releases_transports_on_failure(monkeypatch, failure):
+def test_lifespan_releases_transports_on_initialization_failure(monkeypatch):
+    # Arrange
     client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
     provider = SimpleNamespace(client=SimpleNamespace(close=AsyncMock()))
     monkeypatch.setattr(server, "OpenAIProvider", lambda **kwargs: provider)
@@ -72,14 +72,36 @@ def test_lifespan_releases_transports_on_failure(monkeypatch, failure):
     monkeypatch.setattr(server, "Agent", lambda *args, **kwargs: SimpleNamespace())
 
     def realtime(*args, **kwargs):
-        if failure == "initialization":
-            raise RuntimeError("Initialization failed")
-        return object()
+        raise RuntimeError("Initialization failed")
 
     monkeypatch.setattr(server, "OpenAIRealtimeModel", realtime)
 
     async def run():
-        with pytest.raises(RuntimeError, match="failed"):
+        # Act
+        # Assert
+        with pytest.raises(RuntimeError, match="Initialization failed"):
+            async with server.lifespan(server.app):
+                pytest.fail("Initialization must fail before entering the lifespan body")
+        assert client.is_closed
+        provider.client.close.assert_awaited_once_with()
+
+    asyncio.run(run())
+
+
+def test_lifespan_releases_transports_on_shutdown_failure(monkeypatch):
+    # Arrange
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    provider = SimpleNamespace(client=SimpleNamespace(close=AsyncMock()))
+    monkeypatch.setattr(server, "OpenAIProvider", lambda **kwargs: provider)
+    monkeypatch.setattr(server, "AsyncClient", lambda **kwargs: client)
+    monkeypatch.setattr(server, "OpenAIResponsesModel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(server, "OpenAIRealtimeModel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(server, "Agent", lambda *args, **kwargs: SimpleNamespace())
+
+    async def run():
+        # Act
+        # Assert
+        with pytest.raises(RuntimeError, match="Shutdown failed"):
             async with server.lifespan(server.app):
                 monkeypatch.setattr(server.app.state.workspace, "close", AsyncMock(side_effect=RuntimeError("Shutdown failed")))
         assert client.is_closed
@@ -101,7 +123,6 @@ def test_sample_renders_voice_and_isolated_container_frame_without_frontend_buil
     assert 'aria-label="Start voice"' in response.text
     assert 'import { mountVoice } from "/voice.js"' in response.text
     assert "test-key" not in response.text
-    assert "PYSHELL_EXECUTION_TOKEN" not in response.text
     script = client.get("/voice.js")
     assert script.status_code == 200
     assert script.headers["content-type"].startswith("text/javascript")

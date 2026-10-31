@@ -76,7 +76,6 @@ jobs:
       - name: Check persistent execution API
         run: |
           docker run --detach --name pyshell-api-check --network none --read-only \
-            --env PYSHELL_EXECUTION_TOKEN=ci-token \
             --tmpfs /tmp:size=512m,mode=1777,exec pyshell:test
           trap 'docker rm --force pyshell-api-check' EXIT
           docker exec -i pyshell-api-check python - <<'PY'
@@ -99,7 +98,7 @@ jobs:
           def execute(code):
               request = urllib.request.Request(
                   url + "execute/stream", data=json.dumps({"code": code}).encode(),
-                  headers={"Content-Type": "application/json", "Authorization": "Bearer ci-token"},
+                  headers={"Content-Type": "application/json"},
               )
               with urllib.request.urlopen(request, timeout=5) as response:
                   events = [json.loads(line) for line in response]

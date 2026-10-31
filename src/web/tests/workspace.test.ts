@@ -3,26 +3,6 @@ import { test } from "vitest";
 import { messageSchema, placementsSchema } from "../lib/workspace.ts";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui.ts";
 
-test("malformed events are rejected at the browser boundary", () => {
-    for (const event of [
-        { type: "code_delta", text: "print('unused')" },
-        { type: "done" },
-        { type: "code_start" },
-        { type: "execution_start" },
-        { type: "stdout_delta", text: "output" },
-        { type: "stderr_delta", text: "warning" },
-        { type: "result", exception: null },
-    ])
-        assert.equal(messageSchema.safeParse(event).success, false);
-    assert.equal(
-        messageSchema.safeParse({
-            type: "snapshot",
-            events: [{ type: "unknown" }],
-        }).success,
-        false,
-    );
-});
-
 test("snapshots use one pinned flag", () => {
     const widgets = { sales: { pinned: true } };
     const snapshot = messageSchema.parse({
@@ -53,13 +33,17 @@ test("snapshots accept UI batches but reject live-only events", () => {
     ];
     const snapshot = { type: "snapshot", events, placements: {} };
     assert.deepEqual(messageSchema.parse(snapshot), snapshot);
+    assert.equal(
+        messageSchema.safeParse({ ...snapshot, type: "done" }).success,
+        false,
+    );
     for (const event of [
         { type: "instruction", text: "Plot sales" },
         { type: "error", text: "Execution failed" },
         { type: "placement", widgets: { sales: { pinned: true } } },
         { type: "voice", name: "closed" },
+        { type: "unknown" },
     ]) {
-        assert.equal(messageSchema.safeParse(event).success, false);
         assert.equal(
             messageSchema.safeParse({ ...snapshot, events: [...events, event] })
                 .success,

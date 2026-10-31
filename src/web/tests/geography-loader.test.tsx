@@ -2,22 +2,26 @@ import { afterEach, expect, test, vi } from "vitest";
 
 afterEach(() => vi.unstubAllGlobals());
 
-test.each(["http", "network", "malformed"])(
+test.each([
+    ["http", async () => new Response("unavailable", { status: 502 })],
+    [
+        "network",
+        async () => {
+            throw new Error("offline");
+        },
+    ],
+    ["malformed", async () => new Response("{}")],
+] as const)(
     "failed %s boundary responses can be retried",
-    async (failure) => {
+    async (_failure, firstFetch) => {
+        // Arrange
         vi.resetModules();
-        const fetch = vi.fn();
-        if (failure === "network")
-            fetch.mockRejectedValueOnce(new Error("offline"));
-        else
-            fetch.mockResolvedValueOnce(
-                failure === "http"
-                    ? new Response("unavailable", { status: 502 })
-                    : new Response("{}"),
-            );
+        const fetch = vi.fn().mockImplementationOnce(firstFetch);
         fetch.mockRejectedValueOnce(new Error("retry reached server"));
         vi.stubGlobal("fetch", fetch);
         const { loadGeography } = await import("../components/plot/geography");
+        // Act
+        // Assert
         await expect(loadGeography("CHE")).rejects.toBeTruthy();
         await expect(loadGeography("CHE")).rejects.toThrow(
             "retry reached server",

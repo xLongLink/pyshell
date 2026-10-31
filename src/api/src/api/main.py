@@ -1,7 +1,5 @@
-import os
 import json
 import asyncio
-import secrets
 from queue import Full, Queue
 from fastapi import Depends, FastAPI, Request, WebSocket, HTTPException, WebSocketDisconnect
 from pathlib import Path
@@ -31,23 +29,18 @@ class ExecutionRequest(BaseModel):
     code: str
 
 
-def create_app(execution_token: str | None = None) -> FastAPI:
+def create_app() -> FastAPI:
     """Create an API with a shared, serialized Python session."""
     app = FastAPI(title="PyShell execution API")
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
-    token = execution_token if execution_token is not None else os.environ.get("PYSHELL_EXECUTION_TOKEN", "")
     state = UIState()
     shell = PythonShell(state)
     lock = Lock()
     executions: set[asyncio.Task[None]] = set()
 
-    def authorize(request: Request) -> None:
-        if not token:
-            raise HTTPException(status_code=503, detail="Execution access is not configured")
+    def require_server_request(request: Request) -> None:
         if request.headers.get("origin") or request.headers.get("sec-fetch-mode"):
             raise HTTPException(status_code=403, detail="Execution is server-only")
-        if not secrets.compare_digest(request.headers.get("authorization", "").encode(), f"Bearer {token}".encode()):
-            raise HTTPException(status_code=401, detail="Invalid execution credentials")
 
     @app.middleware("http")
     async def frame_policy(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
@@ -61,7 +54,7 @@ def create_app(execution_token: str | None = None) -> FastAPI:
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
 
-    @app.get("/libraries", response_model=list[Library], dependencies=[Depends(authorize)])
+    @app.get("/libraries", response_model=list[Library], dependencies=[Depends(require_server_request)])
     def libraries() -> list[Library]:
         return sorted(
             (Library(name=package.metadata["Name"], version=package.version) for package in distributions()),
@@ -83,7 +76,7 @@ def create_app(execution_token: str | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="Map data is unavailable") from error
         return FileResponse(path, media_type="application/geo+json", headers={"Cache-Control": "public, max-age=3600"})
 
-    @app.get("/ui/context", dependencies=[Depends(authorize)])
+    @app.get("/ui/context", dependencies=[Depends(require_server_request)])
     def ui_context() -> dict[str, object]:
         return state.context()
 
@@ -119,7 +112,7 @@ def create_app(execution_token: str | None = None) -> FastAPI:
                 with suppress(asyncio.CancelledError, WebSocketDisconnect):
                     await task
 
-    @app.post("/execute/stream", dependencies=[Depends(authorize)])
+    @app.post("/execute/stream", dependencies=[Depends(require_server_request)])
     async def stream(request: ExecutionRequest) -> StreamingResponse:
         """Stream a submitted execution without coupling it to the HTTP connection."""
         queue: Queue[dict[str, object]] = Queue(maxsize=256)
@@ -167,7 +160,7 @@ def create_app(execution_token: str | None = None) -> FastAPI:
 
         return StreamingResponse(events(), media_type="application/x-ndjson")
 
-    @app.post("/reset", response_model=dict[str, str], dependencies=[Depends(authorize)])
+    @app.post("/reset", response_model=dict[str, str], dependencies=[Depends(require_server_request)])
     def reset() -> dict[str, str]:
         nonlocal shell
         with lock:

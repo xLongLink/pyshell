@@ -29,19 +29,20 @@ def test_container_serves_widget_frontend_with_restricted_framing(tmp_path):
 @pytest.mark.parametrize(
     ("path", "method"), [("/execute/stream", "post"), ("/reset", "post"), ("/libraries", "get"), ("/ui/context", "get")]
 )
-def test_control_endpoints_require_server_credentials_and_reject_browser_requests(path, method):
+def test_control_endpoints_accept_server_requests_and_reject_browser_requests(path, method):
     with TestClient(create_app()) as client:
         request = getattr(client, method)
-        assert request(path).status_code == 401
-        assert request(path, headers={"authorization": "Bearer wrong"}).status_code == 401
+        kwargs = {"json": {"code": "pass"}} if path == "/execute/stream" else {}
+        assert request(path, **kwargs).status_code == 200
         for browser in [{"origin": "http://localhost:8000"}, {"sec-fetch-mode": "same-origin"}]:
-            assert request(path, headers={"authorization": "Bearer test-token", **browser}).status_code == 403
+            assert request(path, headers=browser, **kwargs).status_code == 403
 
 
-def test_missing_execution_token_fails_closed_without_disabling_health():
-    with TestClient(create_app(execution_token="")) as client:
-        assert client.get("/health").status_code == 200
-        assert client.post("/execute/stream", json={"code": "raise RuntimeError"}).status_code == 503
+def test_health():
+    with TestClient(create_app()) as client:
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
 
 
 @pytest.mark.parametrize("origin", [None, "http://localhost:8010", "https://evil.example", "http://localhost:8000.evil.example"])
@@ -54,7 +55,7 @@ def test_widget_socket_rejects_origins_other_than_its_own(origin):
 
 
 def test_widgets_update_directly_and_reconnect_without_reexecuting_python():
-    with TestClient(create_app(), headers={"authorization": "Bearer test-token"}) as client:
+    with TestClient(create_app()) as client:
         with client.websocket_connect("/ui/ws", headers={"origin": "http://localhost:8000"}) as first:
             assert first.receive_json() == {"type": "snapshot", "events": [], "placements": {}}
             with client.websocket_connect("/ui/ws", headers={"origin": "http://localhost:8000"}) as second:

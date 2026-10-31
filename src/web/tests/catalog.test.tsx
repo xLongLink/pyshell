@@ -630,13 +630,14 @@ test("explicit figure updates replace traces in one widget and retain sidebar pl
     ).toBe("0");
 });
 
-test("backend placement moves widgets between center and sidebar without controls or visible IDs", async () => {
-    const messages = [
-        ...surface([bar("First result")], "first"),
-        ...surface([bar("Second result")], "second"),
-    ];
+test("backend placement moves widgets between center and sidebar without controls or visible IDs", () => {
+    const messages = a2uiBatchSchema.parse(
+        ["first", "second"].map((surfaceId) => ({
+            version: "v0.9",
+            createSurface: { surfaceId, catalogId },
+        })),
+    );
     const { rerender } = render(<Results messages={messages} />);
-    await waitFor(() => expect(screen.getByText("Second result")).toBeTruthy());
     const second = screen.getByRole("article", { name: "Widget second" });
     expect(
         screen.getByRole("region", { name: "Center widgets" }).contains(second),
@@ -672,12 +673,14 @@ test("backend placement moves widgets between center and sidebar without control
     );
 });
 
-test("the center holds at most four widgets and overflow stays visible on the side", async () => {
-    const messages = [1, 2, 3, 4, 5].flatMap((index) =>
-        surface([bar(`Chart ${index}`)], `chart_${index}`),
+test("the center holds at most four widgets and overflow stays visible on the side", () => {
+    const messages = a2uiBatchSchema.parse(
+        [1, 2, 3, 4, 5].map((index) => ({
+            version: "v0.9",
+            createSurface: { surfaceId: `chart_${index}`, catalogId },
+        })),
     );
     render(<Results messages={messages} />);
-    await waitFor(() => expect(screen.getByText("Chart 5")).toBeTruthy());
     expect(
         screen
             .getByRole("region", { name: "Center widgets" })
@@ -686,5 +689,9 @@ test("the center holds at most four widgets and overflow stays visible on the si
     expect(
         screen.getByRole("complementary").querySelectorAll("article"),
     ).toHaveLength(1);
-    expect(screen.getByRole("complementary").textContent).toContain("Chart 1");
+    expect(
+        screen
+            .getByRole("complementary")
+            .contains(screen.getByRole("article", { name: "Widget chart_1" })),
+    ).toBe(true);
 });

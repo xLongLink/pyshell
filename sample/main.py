@@ -28,7 +28,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         async with AsyncClient(
             base_url="http://127.0.0.1:8000",
-            headers={"Authorization": f"Bearer {settings.execution_token.get_secret_value()}"},
             timeout=httpx.Timeout(180, connect=10),
             trust_env=False,
         ) as client:

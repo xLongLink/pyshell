@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from api.main import create_app
 from unittest.mock import AsyncMock
 from sample.src.shell import RemoteShell
-from importlib.metadata import version
 from pydantic_ai.messages import TextPart, ModelResponse
 from sample.src.agents.script import Agent
 from pydantic_ai.models.function import FunctionModel
@@ -22,14 +21,10 @@ def test_continues_until_done_and_preserves_execution_context():
 
     async def run():
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=create_app(execution_token="test-token")),
+            transport=httpx.ASGITransport(app=create_app()),
             base_url="http://testserver",
-            headers={"authorization": "Bearer test-token"},
         ) as client:
             shell = RemoteShell(client)
-            libraries = await shell.inventory()
-            assert {"name": "fastapi", "version": version("fastapi")} in libraries
-            assert all(library["name"] and library["version"] for library in libraries)
             agent = Agent(FunctionModel(respond), shell=shell)
             assert "8.0\n" in await agent.arun("calculate")
             feedback = json.loads(requests[1][0][-1].parts[0].content)
@@ -39,6 +34,8 @@ def test_continues_until_done_and_preserves_execution_context():
             assert await agent.arun("inspect value") == "42\n"
             assert "import math" in str(requests[2][0])
             assert "Installed packages" in requests[0][1].instructions
+            libraries = json.loads(requests[0][1].instructions.splitlines()[-1])
+            assert any(library["name"] == "fastapi" and library["version"] for library in libraries)
 
     asyncio.run(run())
     assert len(requests) == 3

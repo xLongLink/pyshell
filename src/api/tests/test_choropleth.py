@@ -4,20 +4,26 @@ from api.ui.plot import geography
 from urllib.error import URLError
 from api.ui.session import UI
 
+INVALID_TRACES = [
+    pytest.param({"locations": ["CH-ZH"], "values": [float("inf")]}, id="nonfinite-value"),
+    pytest.param({"locations": ["CH-ZH"], "values": []}, id="mismatched-lengths"),
+    pytest.param({"locations": ["CH-ZH", "CH-ZH"], "values": [1, 2]}, id="duplicate-locations"),
+    pytest.param({"level": "country", "locations": ["CH-ZH"], "values": [1]}, id="incompatible-level"),
+]
 
-def test_validation_checks_input_structure_before_fetching(monkeypatch):
+
+@pytest.mark.parametrize("trace", INVALID_TRACES)
+def test_validation_checks_input_structure_before_fetching(monkeypatch, trace):
+    # Arrange
     def unexpected_download(url):
         pytest.fail("Invalid input must be rejected before fetching geography")
 
     monkeypatch.setattr(geography, "download", unexpected_download)
-    for trace in [
-        {"locations": ["CH-ZH"], "values": [float("inf")]},
-        {"locations": ["CH-ZH"], "values": []},
-        {"locations": ["CH-ZH", "CH-ZH"], "values": [1, 2]},
-        {"level": "country", "locations": ["CH-ZH"], "values": [1]},
-    ]:
-        with pytest.raises(ValidationError):
-            UI().plot([{"type": "choropleth", "geography": "CHE", "level": "region", **trace}])
+
+    # Act
+    # Assert
+    with pytest.raises(ValidationError):
+        UI().plot([{"type": "choropleth", "geography": "CHE", "level": "region", **trace}])
 
 
 def test_failed_first_lookup_preserves_an_existing_plot(monkeypatch, tmp_path):
