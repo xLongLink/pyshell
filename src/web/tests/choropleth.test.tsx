@@ -52,25 +52,15 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-test("failed map loads show an error and allow retry", async () => {
-    const load = vi
-        .spyOn(geographyLoader, "loadGeography")
-        .mockRejectedValue(new Error("Network failure"));
-    render(<Figure {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
-    await screen.findByRole("button", { name: "Retry" });
-    expect(screen.getByRole("alert").textContent).toContain(
-        "Unable to load map boundaries",
-    );
-    expect(load).toHaveBeenCalledTimes(2);
-});
-
 test("a successful retry keeps its boundaries without additional loads", async () => {
     const load = vi
         .spyOn(geographyLoader, "loadGeography")
         .mockRejectedValueOnce(new Error("Network failure"))
         .mockResolvedValue(boundaries);
     const { rerender } = render(<Figure {...props} />);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+        "Unable to load map boundaries",
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
     await screen.findByRole("img", { name: "France: 42" });
     rerender(

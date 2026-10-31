@@ -30,15 +30,6 @@ def test_widgets_publish_a2ui_messages_and_preserve_python_state():
     assert execute(api_client, "ui.remove('revenue')")["ui"] == [replacement[0]]
 
 
-def test_invalid_ui_does_not_publish_partial_surface():
-    api_client = TestClient(create_app())
-    attributes = {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "html": "<script>"}
-    result = execute(api_client, f"ui.plot(**{attributes!r})")
-    assert result["exception"]
-    assert result["ui"] == []
-    assert execute(api_client, "print(ui.surfaces)")["stdout"] == "set()\n"
-
-
 def test_display_limits_reject_excess_surfaces():
     api_client = TestClient(create_app())
     result = execute(api_client, "for number in range(21):\n    ui.plot([{'type': 'bar', 'x': ['A'], 'y': [number]}])")

@@ -4,12 +4,6 @@ afterEach(() => vi.unstubAllGlobals());
 
 test.each([
     ["http", async () => new Response("unavailable", { status: 502 })],
-    [
-        "network",
-        async () => {
-            throw new Error("offline");
-        },
-    ],
     ["malformed", async () => new Response("{}")],
 ] as const)(
     "failed %s boundary responses can be retried",

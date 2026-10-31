@@ -93,13 +93,10 @@ function validateFigure(
 export const figureProps = z
     .strictObject(figureFields)
     .superRefine(validateFigure);
-export const componentSchema = z
-    .strictObject({
-        id: z.literal("root"),
-        component: z.literal("Figure"),
-        ...figureFields,
-    })
-    .superRefine(validateFigure);
+export const componentSchema = figureProps.safeExtend({
+    id: z.literal("root"),
+    component: z.literal("Figure"),
+});
 
 const components = z.array(componentSchema).length(1);
 

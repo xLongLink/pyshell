@@ -37,20 +37,32 @@ def test_missing_provider_metadata_is_an_unsupported_geography(monkeypatch, tmp_
 
 
 def test_download_uses_lfs_url_and_bounded_reads(monkeypatch):
+    # Arrange
     calls = []
+    read_sizes = []
+    download_limit = geography.MAX_DOWNLOAD_BYTES
+
+    class Response(BytesIO):
+        def read(self, size=-1):
+            read_sizes.append(size)
+            return super().read(size)
 
     def open_url(url, *, timeout):
         calls.append((url, timeout))
-        return BytesIO(b"{}")
+        return Response(b"{}")
 
     monkeypatch.setattr(geography, "build_opener", lambda handler: SimpleNamespace(open=open_url))
     url = "https://github.com/wmgeolab/geoBoundaries/raw/revision/releaseData/gbOpen/CHE/ADM1/example.geojson"
+
+    # Act
+    # Assert
     assert geography.download(url) == {}
     assert calls[0][0].startswith("https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/revision/")
     assert calls[0][1] == 30
     monkeypatch.setattr(geography, "MAX_DOWNLOAD_BYTES", 1)
     with pytest.raises(ValueError, match="exceeds"):
         geography.download(url)
+    assert read_sizes == [download_limit + 1, 2]
 
 
 @pytest.mark.parametrize(

@@ -58,28 +58,44 @@ test("replacement snapshots rebuild surfaces even when their history has the sam
     expect(screen.getAllByRole("article")).toHaveLength(1);
 });
 
-test.each(["duplicate", "unknown update", "unknown delete", "capacity"])(
-    "invalid appended lifecycle messages fail closed: %s",
-    async (invalid) => {
+test.each([
+    {
+        name: "duplicate",
+        addition: a2uiBatchSchema.parse([
+            {
+                version: "v0.9",
+                createSurface: { surfaceId: "sales", catalogId },
+            },
+        ]),
+    },
+    {
+        name: "unknown update",
+        addition: surface([bar("Unknown")], "unknown").slice(1),
+    },
+    {
+        name: "unknown delete",
+        addition: a2uiBatchSchema.parse([
+            { version: "v0.9", deleteSurface: { surfaceId: "unknown" } },
+        ]),
+    },
+    {
+        name: "capacity",
+        addition: Array.from({ length: 20 }, (_, index) =>
+            surface([bar(`Extra ${index}`)], `extra_${index}`),
+        ).flat(),
+    },
+])(
+    "invalid appended lifecycle messages fail closed: $name",
+    async ({ addition }) => {
+        // Arrange
         const messages = surface([bar("Valid")]);
         const { rerender } = render(<Results messages={messages} />);
         await waitFor(() => expect(screen.getByText("Valid")).toBeTruthy());
-        const addition =
-            invalid === "duplicate"
-                ? [messages[0]]
-                : invalid === "unknown update"
-                  ? surface([bar("Unknown")], "unknown").slice(1)
-                  : invalid === "unknown delete"
-                    ? a2uiBatchSchema.parse([
-                          {
-                              version: "v0.9",
-                              deleteSurface: { surfaceId: "unknown" },
-                          },
-                      ])
-                    : Array.from({ length: 20 }, (_, index) =>
-                          surface([bar(`Extra ${index}`)], `extra_${index}`),
-                      ).flat();
+
+        // Act
         rerender(<Results messages={[...messages, ...addition]} />);
+
+        // Assert
         await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
         expect(screen.queryByRole("article")).toBeNull();
         rerender(<Results messages={surface([bar("Recovered")])} />);

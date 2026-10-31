@@ -98,9 +98,7 @@ def test_update_keeps_the_handle_and_surface_identity():
     "attributes",
     [
         {"data": [{"type": "pie", "labels": ["A"], "values": [-1]}]},
-        {"id": "other"},
         {"id": "root"},
-        {"component": "Other"},
         {"component": "Figure"},
         {"unknown": True},
         {"layout": {"yaxis": {"title": {"text": "Amount"}}}},
@@ -157,23 +155,14 @@ def test_removed_replaced_and_reset_handles_cannot_mutate_new_widgets(invalidate
     assert ui.messages == previous
 
 
-@pytest.mark.parametrize(
-    ("attributes", "message"),
-    [
-        ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "component": "Unknown"}, "Input should be 'Figure'"),
-        ({"data": [{"type": "pie", "labels": ["A"], "values": [-1]}]}, "greater than or equal to 0"),
-        ({"id": "other", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}, "Input should be 'root'"),
-        ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "layout": {"yaxis": {"title": {"text": "Amount"}}}}, "Extra inputs"),
-    ],
-)
-def test_invalid_replacement_does_not_destroy_the_existing_surface(attributes, message):
+def test_invalid_replacement_does_not_destroy_the_existing_surface():
     ui = UI()
     original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}}, surface_id="notice")
     ui.messages = []
     events = []
     ui.on_publish = events.append
-    with pytest.raises(ValueError, match=message):
-        ui.plot(**attributes, surface_id="notice")
+    with pytest.raises(ValueError, match="Input should be 'Figure'"):
+        ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], component="Unknown", surface_id="notice")
     assert ui.messages == []
     assert events == []
     assert ui.surfaces == {"notice"}

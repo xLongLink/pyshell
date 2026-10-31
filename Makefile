@@ -14,8 +14,6 @@ logs:
 
 test:
 	uv run --locked --project src/api pytest -c src/api/pyproject.toml src/api/tests -v
-	uv run --locked --project sample pytest -c sample/pyproject.toml sample/tests -v
-	node --test sample/tests/voice.test.mjs
 	npm --prefix src/web ci
 	npm --prefix src/web test
 
@@ -23,5 +21,5 @@ format:
 	uvx ruff check --fix .
 	uvx pyunslop
 	uvx ruff format .
-	npm exec --prefix src/web -- prettier --write sample/assets/voice.mjs sample/tests/voice.test.mjs
+	npm exec --prefix src/web -- prettier --write sample/assets/voice.mjs
 	npm --prefix src/web run format

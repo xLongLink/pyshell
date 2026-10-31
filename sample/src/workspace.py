@@ -134,8 +134,10 @@ class Workspace:
         record = {"instruction": instruction[:2000], "outcome": outcome, "result": result[-4000:]}
         self.recent_tasks.append(record)
         self.recent_tasks = self.recent_tasks[-8:]
-        for report in self.results:
-            report(json.dumps(record))
+        if self.results:
+            message = json.dumps(record)
+            for report in self.results:
+                report(message)
 
     async def close(self) -> None:
         """Stop submissions and finish accepted work."""

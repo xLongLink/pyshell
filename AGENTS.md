@@ -25,7 +25,6 @@
 │   │   ├── shell.py   # Execution container client
 │   │   ├── settings.py # Shared application settings
 │   │   └── page.py    # Load and render the HTML document
-│   ├── tests/         # Agent and server tests
 │   ├── pyproject.toml # Client dependencies
 │   └── uv.lock
 ├── README.md          # Setup and usage

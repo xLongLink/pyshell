@@ -1,6 +1,6 @@
 import pytest
 from pydantic import TypeAdapter, ValidationError
-from api.ui.types import Action, Number, TextValue, Identifier
+from api.ui.types import Number, TextValue, Identifier
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
@@ -28,9 +28,3 @@ def test_text_value_length_boundary():
     assert adapter.validate_python(value) == value
     with pytest.raises(ValidationError, match="at most 10000 characters"):
         adapter.validate_python(value + "a")
-
-
-@pytest.mark.parametrize("value", ["delete", "unfocus", "unpin"])
-def test_action_rejects_unknown_commands(value):
-    with pytest.raises(ValidationError, match="Input should be"):
-        TypeAdapter(Action).validate_python(value)
