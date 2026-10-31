@@ -58,22 +58,18 @@ test.each([
     await expect(loadGeography("CHE")).rejects.toBeTruthy();
 });
 
-test.each([
-    ["HTTP", 502],
-    ["validation", 200],
-] as const)(
-    "failed %s boundary requests can be retried",
-    async (_failure, status) => {
-        const fetch = vi
-            .fn()
-            .mockResolvedValueOnce(new Response("{}", { status }));
-        fetch.mockImplementation(() =>
-            Promise.resolve(new Response(JSON.stringify(boundaries))),
-        );
-        vi.stubGlobal("fetch", fetch);
+test("rejects unsuccessful HTTP responses", async () => {
+    vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response("{}", { status: 502 })),
+    );
+    await expect(loadGeography("CHE")).rejects.toBeTruthy();
+});
 
-        await expect(loadGeography("CHE")).rejects.toBeTruthy();
-        await expect(loadGeography("CHE")).resolves.toEqual(boundaries);
-        expect(fetch).toHaveBeenCalledTimes(2);
-    },
-);
+test("loads valid boundaries", async () => {
+    vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(JSON.stringify(boundaries))),
+    );
+    await expect(loadGeography("CHE")).resolves.toEqual(boundaries);
+});

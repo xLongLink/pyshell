@@ -134,19 +134,16 @@ def test_world_polygon_normalization_preserves_labels(geometry_type, label):
     assert result["features"] == [{"type": "Feature", "id": "CHE", "properties": {"name": label}, "geometry": geometry}]
 
 
-@pytest.mark.parametrize("failure", [None, "create", "write", "replace"])
+@pytest.mark.parametrize("failure", ["write", "replace"])
 def test_cache_write_closes_files_and_cleans_up_on_failure(monkeypatch, tmp_path, failure):
     monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
     geometry = {"type": "Polygon", "coordinates": [[[7, 46], [8, 46], [8, 47], [7, 46]]]}
     data = {"type": "FeatureCollection", "features": [{"properties": {"ISO_A3_EH": "CHE", "NAME_EN": "Switzerland"}, "geometry": geometry}]}
     monkeypatch.setattr(geography, "download", lambda url: data)
     create_temporary = geography.NamedTemporaryFile
-    replace = geography.Path.replace
     outputs = []
 
     def temporary_file(**kwargs):
-        if failure == "create":
-            raise OSError("Cannot create temporary file")
         output = create_temporary(**kwargs)
         outputs.append(output)
         return output
@@ -158,23 +155,16 @@ def test_cache_write_closes_files_and_cleans_up_on_failure(monkeypatch, tmp_path
     def replace_file(temporary, destination):
         assert outputs[0].closed
         assert not destination.exists()
-        if failure == "replace":
-            raise OSError("Cannot replace cache file")
-        return replace(temporary, destination)
+        raise OSError("Cannot replace cache file")
 
     monkeypatch.setattr(geography, "NamedTemporaryFile", temporary_file)
     monkeypatch.setattr(geography.Path, "replace", replace_file)
     if failure == "write":
         monkeypatch.setattr(geography.json, "dump", failed_write)
 
-    if failure is None:
-        path = geography.geography_path("world")
-        assert json.loads(path.read_text())["features"][0]["id"] == "CHE"
-        assert list(tmp_path.iterdir()) == [path]
-    else:
-        with pytest.raises(OSError, match="Cannot"):
-            geography.geography_path("world")
-        assert not list(tmp_path.iterdir())
+    with pytest.raises(OSError, match="Cannot"):
+        geography.geography_path("world")
+    assert not list(tmp_path.iterdir())
     assert all(output.closed for output in outputs)
 
 

@@ -37,13 +37,13 @@ function bar(title: string, surfaceId = "sales") {
     );
 }
 
-test("appending another surface preserves an existing chart and its keyboard focus", async () => {
+test("appending another surface preserves an existing chart and its keyboard focus", () => {
     const surfaces = bar("First", "first");
     const { rerender } = render(<Results surfaces={surfaces} />);
-    const chart = await screen.findByRole("application");
+    const chart = screen.getByRole("application");
     chart.focus();
     rerender(<Results surfaces={[...surfaces, ...bar("Second", "second")]} />);
-    await screen.findByText("Second");
+    screen.getByText("Second");
     expect(document.activeElement).toBe(chart);
     expect(
         screen
@@ -52,11 +52,11 @@ test("appending another surface preserves an existing chart and its keyboard foc
     ).toBe(chart);
 });
 
-test("replacement snapshots replace surfaces even when their count is unchanged", async () => {
+test("replacement snapshots replace surfaces even when their count is unchanged", () => {
     const { rerender } = render(<Results surfaces={bar("Old", "old")} />);
-    await screen.findByText("Old");
+    screen.getByText("Old");
     rerender(<Results surfaces={bar("New", "new")} />);
-    await screen.findByText("New");
+    screen.getByText("New");
     expect(screen.queryByText("Old")).toBeNull();
     expect(screen.getAllByRole("article")).toHaveLength(1);
 });

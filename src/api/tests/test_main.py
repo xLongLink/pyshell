@@ -1,6 +1,7 @@
 import json
 import pytest
 import asyncio
+import logging
 from types import SimpleNamespace
 from api.main import ExecutionRequest, create_app
 from threading import Event
@@ -33,6 +34,30 @@ def test_execution_preserves_namespace_and_captures_output():
 def test_invalid_request_is_rejected():
     api_client = TestClient(create_app())
     assert api_client.post("/execute/stream", json={"command": "print(42)"}).status_code == 422
+
+
+def test_reset_preserves_capture_for_logging_handlers_retained_by_modules(monkeypatch):
+    api_client = TestClient(create_app())
+    logger = logging.getLogger("reset_capture")
+    monkeypatch.setattr(logger, "propagate", False)
+    try:
+        result = execute(
+            api_client,
+            "import logging, sys\n"
+            "logger = logging.getLogger('reset_capture')\n"
+            "logger.addHandler(logging.StreamHandler(sys.stderr))\n"
+            "logger.warning('before reset')",
+        )
+        assert result["stderr"] == "before reset\n"
+        assert api_client.post("/reset").status_code == 200
+        result = execute(api_client, "import logging\nlogging.getLogger('reset_capture').warning('after reset')")
+        assert result["stderr"] == "after reset\n"
+        assert result["exception"] is None
+        assert "NameError" in execute(api_client, "logger")["exception"]
+    finally:
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+            handler.close()
 
 
 def test_synchronous_execution_endpoint_is_retired(tmp_path):

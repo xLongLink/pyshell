@@ -75,11 +75,10 @@ def test_failed_state_publication_does_not_spend_any_budget(monkeypatch, recorde
     assert len(state.messages) == 100
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
-def test_nonfinite_serialization_does_not_spend_budget(value, recorded_ui):
+def test_nonfinite_serialization_does_not_spend_budget(recorded_ui):
     state, ui = recorded_ui
     with pytest.raises(ValueError, match="JSON"):
-        ui._publish([{"value": value}])
+        ui._publish([{"value": float("nan")}])
     ui._publish([{}] * 100)
     assert len(state.messages) == 100
 

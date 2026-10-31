@@ -10,9 +10,10 @@ def test_identifier_rejects_invalid_characters_and_lengths(value):
         adapter.validate_python(value)
 
 
-def test_text_value_length_boundary():
+@pytest.mark.parametrize("character", ["a", "😀"])
+def test_text_value_length_boundary(character):
     adapter = TypeAdapter(TextValue)
-    value = "a" * 10000
+    value = character * 10000
     assert adapter.validate_python(value) == value
     with pytest.raises(ValidationError, match="at most 10000 characters"):
-        adapter.validate_python(value + "a")
+        adapter.validate_python(value + character)

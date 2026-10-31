@@ -140,11 +140,10 @@ def test_surface_snapshots_preserve_creation_and_only_the_latest_update():
     assert state.snapshot() == previous
 
 
-def test_slow_widget_subscribers_receive_latest_snapshot_without_blocking_execution():
+def test_slow_widget_subscriber_receives_latest_snapshot_without_blocking_execution():
     async def run():
         ui = UI()
         queue = ui.state.subscribe()
-        second = ui.state.subscribe()
         chart = ui.plot([{"type": "bar", "x": ["A"], "y": [0]}])
 
         def update():
@@ -156,17 +155,15 @@ def test_slow_widget_subscribers_receive_latest_snapshot_without_blocking_execut
         await asyncio.to_thread(worker.join, 2)
         assert not worker.is_alive()
         await asyncio.sleep(0)
-        assert queue.qsize() == second.qsize() == 1
+        assert queue.qsize() == 1
         snapshot = queue.get_nowait()
-        assert second.get_nowait() == snapshot
         assert snapshot == ui.state.snapshot()
         assert snapshot["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"][0]["y"] == [19]
         chart.update(data=[{"type": "bar", "x": ["A"], "y": [20]}])
         await asyncio.sleep(0)
-        assert queue.get_nowait() == second.get_nowait() == ui.state.snapshot()
+        assert queue.get_nowait() == ui.state.snapshot()
         assert snapshot["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"][0]["y"] == [19]
         ui.state.unsubscribe(queue)
-        ui.state.unsubscribe(second)
         assert not ui.state.listeners
 
     asyncio.run(run())

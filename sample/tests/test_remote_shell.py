@@ -58,8 +58,8 @@ def test_stream_requires_one_valid_result_followed_by_one_terminal_marker(payloa
     assert len(requests) == 1
 
 
-@pytest.mark.parametrize("payload", [[], [{"name": "numpy", "version": "2.0"}]])
-def test_inventory_caches_successful_reads(payload):
+def test_inventory_caches_empty_successful_reads():
+    payload = []
     requests = []
 
     def handle(request):

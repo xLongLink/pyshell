@@ -124,7 +124,6 @@ export const a2uiBatchSchema = z.preprocess((value, context) => {
         if (
             ++count > 20000 ||
             depth > 24 ||
-            (typeof item === "string" && item.length > 10000) ||
             (Array.isArray(item) && item.length > 500) ||
             (item !== null &&
                 typeof item === "object" &&

@@ -38,6 +38,45 @@ def test_execution_logs_errors_and_keeps_them_in_response(capsys):
 
 
 @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_persistent_logging_handler_captures_each_execution(stream, capsys):
+    shell = PythonShell()
+    setup = (
+        "import logging, sys\n"
+        "logger = logging.Logger('persistent')\n"
+        f"logger.addHandler(logging.StreamHandler(sys.{stream}))\n"
+        "logger.warning('first')"
+    )
+
+    first = shell.execute(setup)
+    second = shell.execute("logger.warning('second')")
+
+    assert first[stream] == "first\n"
+    assert second[stream] == "second\n"
+    assert second["stderr" if stream == "stdout" else "stdout"] == ""
+    assert second["exception"] is None
+    assert "second\n" in getattr(capsys.readouterr(), "out" if stream == "stdout" else "err")
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_saved_stream_has_a_fresh_budget_and_does_not_capture_between_executions(stream, capsys):
+    shell = PythonShell()
+    first = shell.execute(f"import sys\nsaved = sys.{stream}\nsaved.write('é' * 524288)")
+    assert first[stream] == "é" * 524288
+    assert first["exception"] is None
+    saved = shell.namespace["saved"]
+    saved.write("outside execution\n")
+    assert saved.getvalue() == first[stream]
+    assert "outside execution\n" in getattr(capsys.readouterr(), "out" if stream == "stdout" else "err")
+
+    second = shell.execute("saved.write('é' * 524288)\nsaved.write('x')")
+
+    assert second[stream] == "é" * 524288
+    assert "Python output exceeded 1 MiB per stream" in second["exception"]
+    assert first[stream] == "é" * 524288
+    assert shell.execute("print('recovered', file=saved)")[stream] == "recovered\n"
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
 def test_execution_caps_each_output_stream_in_bytes_and_keeps_captured_output(stream, capsys):
     shell = PythonShell()
     source = f"import sys\nsys.{stream}.write('é' * 524288)\nsys.{stream}.write('x')\ndone()"

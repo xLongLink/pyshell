@@ -110,6 +110,44 @@ test("each surface accepts exactly one chart", () => {
     );
 });
 
+test.each([
+    ["a", 10000, true],
+    ["😀", 6000, true],
+    ["😀", 10000, true],
+    ["a", 10001, false],
+    ["😀", 10001, false],
+] as const)(
+    "chart text limits count Unicode code points: %s × %i",
+    (character, length, valid) => {
+        const text = character.repeat(length);
+        const content = {
+            version: "v0.9",
+            updateComponents: {
+                surfaceId: "unicode",
+                components: [
+                    {
+                        id: "root",
+                        component: "Figure",
+                        data: [{ type: "bar", name: text, x: [text], y: [1] }],
+                        layout: { title: { text } },
+                    },
+                ],
+            },
+        };
+        const parsed = messageSchema.safeParse(
+            snapshot([
+                [creation("valid"), update("valid")],
+                [creation("unicode"), content],
+            ]),
+        );
+        assert.equal(parsed.success, valid);
+        if (parsed.success) {
+            assert.equal(parsed.data.surfaces.length, 2);
+            assert.equal(parsed.data.surfaces[1].props.layout.title.text, text);
+        }
+    },
+);
+
 function snapshot(batches: unknown[][]) {
     return {
         type: "snapshot",

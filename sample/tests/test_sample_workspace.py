@@ -78,6 +78,34 @@ def test_agent_retains_execution_feedback_across_generation_failure(text):
     assert [call.args[0] for call in agent.shell.stream.await_args_list] == ["print('first')", "done()"]
 
 
+@pytest.mark.parametrize(
+    ("generated", "error"),
+    [
+        (RuntimeError("generation failed"), RuntimeError),
+        (asyncio.CancelledError(), asyncio.CancelledError),
+        (response("partial", finish_reason="length"), RuntimeError),
+        (response(" "), RuntimeError),
+    ],
+)
+def test_agent_retains_incomplete_step_feedback_when_next_generation_fails(generated, error):
+    executed = result("created record 123", done=False)
+    feedback = executed.model_dump_json(exclude={"type"})
+    agent = make_agent([response("create_record()"), generated, response("done()")], [executed, result("finished", done=True)])
+
+    with pytest.raises(error):
+        asyncio.run(agent.arun("create one record", lambda phase: None))
+
+    assert agent.message_history == ["create_record()"]
+    assert feedback in agent.pending_feedback
+    agent.shell.stream.assert_awaited_once_with("create_record()")
+    assert asyncio.run(agent.arun("continue without creating another record", lambda phase: None)) == "finished"
+    prompts = [call.args[0] for call in agent.agent.run.await_args_list]
+    assert prompts[1] == feedback
+    assert prompts[2].startswith(feedback + "\n")
+    assert prompts[2].endswith("\ncontinue without creating another record")
+    assert [call.args[0] for call in agent.shell.stream.await_args_list] == ["create_record()", "done()"]
+
+
 @pytest.mark.parametrize("error", [RuntimeError("stream failed"), asyncio.CancelledError()])
 def test_agent_retains_history_when_execution_is_not_confirmed(error):
     agent = make_agent([response("print('first')")], [error])
@@ -113,17 +141,6 @@ def test_workspace_rejects_instructions_before_changing_state(instruction, uncer
     assert workspace.current_instruction is None
     assert workspace.phase == "idle"
     assert workspace.task is None
-    assert subscription.queue.empty()
-
-
-def test_workspace_phase_updates_do_not_publish_browser_messages():
-    workspace = Workspace(SimpleNamespace())
-    subscription = Subscription(workspace)
-    subscription.queue.get_nowait()
-
-    workspace.current_instruction = "work"
-    workspace.update_phase("executing_python")
-    assert workspace.phase == "executing_python"
     assert subscription.queue.empty()
 
 

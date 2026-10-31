@@ -60,10 +60,8 @@ class Agent:
 
         # Share usage limits across every execution step in this task.
         output = ""
-        message = instruction
+        prompt = self._with_pending_feedback(instruction)
         for step in range(10):
-            prompt = self._with_pending_feedback(message)
-
             # Preserve execution feedback across failed model requests.
             try:
                 on_phase("generating_code")
@@ -73,6 +71,8 @@ class Agent:
                 if response.response.finish_reason != "stop":
                     raise RuntimeError(f"Model response {response.response.finish_reason}; code was not executed.")
                 code, history = response.output, response.all_messages()
+                if not code.strip():
+                    raise RuntimeError("The model returned no Python code.")
 
             # Record that the interrupted response never reached the container.
             except (Exception, KeyboardInterrupt, asyncio.CancelledError) as error:
@@ -81,10 +81,6 @@ class Agent:
                 # Keep prior execution feedback alongside this unexecuted request.
                 self.pending_feedback = self._with_pending_feedback(feedback)
                 raise
-
-            # Empty output is not a completed execution step.
-            if not code.strip():
-                raise RuntimeError("The model returned no Python code.")
 
             # Execute once; an ambiguous transport failure must not trigger a retry.
             on_phase("executing_python")
@@ -102,14 +98,14 @@ class Agent:
                 self.message_history = history
 
             # Retain the completed exchange before deciding whether to continue.
-            self.pending_feedback = None
             message = result.model_dump_json(exclude={"type"})
+            self.pending_feedback = message
+            prompt = message
             for text in ("\n" if step else "", result.stdout, result.stderr, result.exception or ""):
                 output = (output + text[-4000:])[-4000:]
 
             # Carry final execution feedback into the next user turn.
             if result.done:
-                self.pending_feedback = message
                 return output or "Task completed without printed output."
         self.pending_feedback = (
             message + "\nTask stopped at the ten-execution limit; completion was not confirmed. Do not replay earlier mutations."

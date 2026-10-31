@@ -138,7 +138,7 @@ def create_app() -> FastAPI:
         with lock:
             shell.ui.close()
             state.reset()
-            shell = PythonShell(state)
+            shell = PythonShell(state, streams=(shell.stdout, shell.stderr))
         return {"status": "reset"}
 
     app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True, check_dir=False))

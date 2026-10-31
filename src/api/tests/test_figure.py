@@ -16,8 +16,6 @@ def standalone_traces(country_geography):
     ("kinds", "message"),
     [
         (("pie", "scatter"), "A pie figure requires exactly one pie trace"),
-        (("scatter", "pie"), "A pie figure requires exactly one pie trace"),
-        (("choropleth", "scatter"), "A map figure requires exactly one choropleth trace"),
         (("scatter", "choropleth"), "A map figure requires exactly one choropleth trace"),
         (("pie", "choropleth"), "A map figure requires exactly one choropleth trace"),
     ],

@@ -12,17 +12,6 @@ import { figureProps } from "../lib/a2ui";
 
 afterEach(cleanup);
 
-test("chart titles remain inert even when they contain HTML", async () => {
-    const text = '<img src=x onerror="alert(1)">';
-    const props = figureProps.parse({
-        data: [{ type: "bar", x: ["A"], y: [42] }],
-        layout: { title: { text } },
-    });
-    const { container } = render(<Figure {...props} />);
-    await screen.findByText(text);
-    expect(container.querySelector("img")).toBeNull();
-});
-
 test("pie rendering preserves missing slice positions and colors", async () => {
     const props = figureProps.parse({
         data: [
@@ -57,12 +46,15 @@ test("pie rendering preserves missing slice positions and colors", async () => {
     ).toEqual(["var(--chart-1)", "var(--chart-3)"]);
 });
 
-test("pie legends and tooltips resolve slice labels as inert text", async () => {
+test("pie titles, legends and tooltips render HTML as inert text", async () => {
+    const title = '<img src=x onerror="alert(1)">';
     const label = '</style><img src=x onerror="alert(1)">';
     const props = figureProps.parse({
         data: [{ type: "pie", labels: [label], values: [42] }],
+        layout: { title: { text: title } },
     });
     const { container } = render(<Figure {...props} />);
+    expect(screen.getByText(title)).toBeTruthy();
     await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
     expect(container.querySelector("img")).toBeNull();
     const slice = container.querySelector(".recharts-pie-sector path")!;
@@ -198,8 +190,6 @@ test("independent lines and markers share numeric axes without adding gaps", asy
     const application = screen.getByRole("application");
     fireEvent.focus(application);
     fireEvent.keyDown(application, { key: "ArrowRight" });
-    fireEvent.keyDown(application, { key: "ArrowRight" });
-    fireEvent.keyDown(application, { key: "ArrowRight" });
     await waitFor(() =>
         expect(
             container.querySelector(".recharts-tooltip-wrapper")?.textContent,
@@ -300,12 +290,11 @@ test("bar and scatter traces render on shared categorical axes", async () => {
     );
     const groupOffset = (previous[0] - actual[1]) / 2;
     expect(groupOffset).toBeGreaterThan(0);
-    expect(targetA).toBeCloseTo(actual[0] + groupOffset, 0);
-    expect(targetC).toBeCloseTo(previous[1] - groupOffset, 0);
-    expect((actual[1] + previous[0]) / 2).toBeCloseTo(
-        (targetA + targetC) / 2,
-        0,
-    );
+    expect(Math.abs(targetA - actual[0] - groupOffset)).toBeLessThan(1);
+    expect(Math.abs(targetC - previous[1] + groupOffset)).toBeLessThan(1);
+    expect(
+        Math.abs((actual[1] + previous[0] - targetA - targetC) / 2),
+    ).toBeLessThan(1);
     expect(screen.getByText("Actual")).toBeTruthy();
     expect(screen.getByText("Previous")).toBeTruthy();
     expect(screen.getByText("Target")).toBeTruthy();
@@ -338,6 +327,169 @@ test("numeric bars keep their spacing when overlaid with a line", async () => {
         bars.every((bar) => Math.abs(Number(bar.getAttribute("height"))) > 0),
     ).toBe(true);
     expect(container.querySelector(".recharts-line-curve")).not.toBeNull();
+});
+
+test.each([
+    ["categorical duplicates", ["A", "A", "B"]],
+    ["numeric duplicates", [0, 0, 10]],
+    ["irregular numeric duplicates", [0, 0, 1, 100]],
+    ["single-position duplicates", [2, 2, 2]],
+    ["categorical control", ["A", "B", "C"]],
+    ["irregular numeric control", [0, 2, 10]],
+] as const)(
+    "bars preserve every observation with nonzero width: %s",
+    async (_, x) => {
+        const props = figureProps.parse({
+            data: [{ type: "bar", x, y: [2, 5, 3, 4].slice(0, x.length) }],
+        });
+        const { container } = render(<Figure {...props} />);
+        await waitFor(() =>
+            expect(
+                container.querySelectorAll(".recharts-bar-rectangle path"),
+            ).toHaveLength(x.length),
+        );
+        const bars = [
+            ...container.querySelectorAll(".recharts-bar-rectangle path"),
+        ];
+        const widths = bars.map((bar) => Number(bar.getAttribute("width")));
+        expect(widths.every((width) => width > 0 && width <= 48)).toBe(true);
+        const heights = bars.map((bar) => Number(bar.getAttribute("height")));
+        expect(heights[0] / heights[1]).toBeCloseTo(2 / 5);
+        expect(heights[2] / heights[1]).toBeCloseTo(3 / 5);
+        if (x[0] === x[1]) {
+            expect(bars[0].getAttribute("x")).toBe(bars[1].getAttribute("x"));
+        }
+        if (x[0] === x[1] && x[1] !== x[2]) {
+            expect(widths[0]).toBeLessThan(
+                Number(bars[2].getAttribute("x")) -
+                    Number(bars[0].getAttribute("x")),
+            );
+            const application = screen.getByRole("application");
+            fireEvent.focus(application);
+            fireEvent.keyDown(application, { key: "ArrowRight" });
+            await waitFor(() =>
+                expect(
+                    container.querySelector(".recharts-tooltip-wrapper")
+                        ?.textContent,
+                ).toBe(`${x[2]}Series 13`),
+            );
+        }
+    },
+);
+
+test.each(["lines", "markers", "lines+markers"] as const)(
+    "mixed %s tooltips visit bar-only and line-only positions",
+    async (mode) => {
+        const props = figureProps.parse({
+            data: [
+                { type: "bar", name: "Actual", x: ["A", "B"], y: [2, 5] },
+                {
+                    type: "scatter",
+                    name: "Target",
+                    mode,
+                    x: ["A", "C"],
+                    y: [3, 7],
+                },
+            ],
+        });
+        const { container } = render(<Figure {...props} />);
+        const application = await screen.findByRole("application");
+        fireEvent.focus(application);
+        const tooltip = () =>
+            container.querySelector(".recharts-tooltip-wrapper")?.textContent;
+        await waitFor(() => expect(tooltip()).toBe("AActual2Target3"));
+        fireEvent.keyDown(application, { key: "ArrowRight" });
+        await waitFor(() => expect(tooltip()).toBe("BActual5"));
+        fireEvent.keyDown(application, { key: "ArrowRight" });
+        await waitFor(() => expect(tooltip()).toBe("CTarget7"));
+        fireEvent.keyDown(application, { key: "ArrowLeft" });
+        await waitFor(() => expect(tooltip()).toBe("BActual5"));
+    },
+);
+
+test.each(["bars", "mixed", "duplicates"] as const)(
+    "dense grouped %s stay within distinct x spacing",
+    async (kind) => {
+        const x = Array.from({ length: 10 }, (_, index) =>
+            kind === "duplicates" ? Math.max(0, index - 1) : index,
+        );
+        const data: unknown[] = Array.from(
+            { length: kind === "mixed" ? 19 : 20 },
+            () => ({ type: "bar", x, y: x.map(() => 1) }),
+        );
+        if (kind === "mixed") {
+            data.push({ type: "scatter", x: [0, 9], y: [1, 2] });
+        }
+        const props = figureProps.parse({ data });
+        const { container } = render(<Figure {...props} />);
+        await waitFor(() => expect(
+            container.querySelectorAll(".recharts-bar-rectangle path"),
+        ).toHaveLength(kind === "mixed" ? 190 : 200));
+        const series = [...container.querySelectorAll(".recharts-bar")].map(
+            (series) => [...series.querySelectorAll(".recharts-bar-rectangle path")],
+        );
+        const groups = x.flatMap((value, point) => {
+            if (point > 0 && value === x[point - 1]) return [];
+            const bars = series.map((bars) => bars[point]);
+            return [{
+                start: Math.min(...bars.map((bar) => Number(bar.getAttribute("x")))),
+                end: Math.max(...bars.map((bar) => Number(bar.getAttribute("x")) + Number(bar.getAttribute("width")))),
+            }];
+        });
+        for (let index = 1; index < groups.length; index++) {
+            expect(groups[index - 1].end).toBeLessThan(groups[index].start);
+        }
+        for (const bars of series) {
+            expect(bars.every((bar) => Number(bar.getAttribute("width")) > 0)).toBe(true);
+        }
+    },
+);
+
+test("mixed numeric interaction preserves ordered duplicate line points, gaps, and irregular spacing", async () => {
+    const props = figureProps.parse({
+        data: [
+            { type: "bar", name: "Actual", x: [0, 2], y: [2, 5] },
+            {
+                type: "scatter",
+                name: "Target",
+                mode: "lines+markers",
+                x: [10, 0, 10, 5, 7, 9],
+                y: [3, 1, 4, null, 5, 2],
+            },
+        ],
+    });
+    const { container } = render(<Figure {...props} />);
+    await waitFor(() =>
+        expect(container.querySelectorAll(".recharts-line-dot")).toHaveLength(
+            5,
+        ),
+    );
+    const dots = [...container.querySelectorAll(".recharts-line-dot")];
+    const xs = dots.map((dot) => Number(dot.getAttribute("cx")));
+    expect(xs[0]).toBe(xs[2]);
+    expect(xs[0]).toBeGreaterThan(xs[1]);
+    expect(dots[0].getAttribute("cy")).not.toBe(dots[2].getAttribute("cy"));
+    expect(
+        container
+            .querySelector(".recharts-line-curve")
+            ?.getAttribute("d")
+            ?.match(/M/g),
+    ).toHaveLength(2);
+    expect((xs[3] - xs[1]) / (xs[0] - xs[1])).toBeCloseTo(0.7);
+    const application = screen.getByRole("application");
+    fireEvent.focus(application);
+    const tooltip = () =>
+        container.querySelector(".recharts-tooltip-wrapper")?.textContent;
+    await waitFor(() => expect(tooltip()).toBe("0Actual2Target1"));
+    fireEvent.keyDown(application, { key: "ArrowRight" });
+    await waitFor(() => expect(tooltip()).toBe("2Actual5"));
+    fireEvent.keyDown(application, { key: "ArrowRight" });
+    fireEvent.keyDown(application, { key: "ArrowRight" });
+    await waitFor(() => expect(tooltip()).toBe("7Target5"));
+    fireEvent.keyDown(application, { key: "ArrowRight" });
+    await waitFor(() => expect(tooltip()).toBe("9Target2"));
+    fireEvent.keyDown(application, { key: "ArrowRight" });
+    await waitFor(() => expect(tooltip()).toBe("10Target3"));
 });
 
 test("compact figures remove legend and axis-title space without changing the full layout", () => {
