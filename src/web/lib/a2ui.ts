@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const catalogId = "urn:pyshell:catalog:v3";
+export const catalogId = "urn:pyshell:catalog:v4";
 export const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const text = z.string().max(10000);
 const number = z.number();
@@ -32,7 +32,6 @@ export const traceSchema = z.discriminatedUnion("type", [
             .string()
             .regex(/^(world|[A-Z]{3})$/)
             .default("world"),
-        level: z.enum(["country", "region"]).default("country"),
         locations: z.array(text).min(1).max(200),
         values: z.array(number.nullable()).min(1).max(200),
     }),
@@ -68,11 +67,6 @@ function validateFigure(
         } else if (trace.type === "choropleth") {
             if (figure.data.length !== 1)
                 fail("A map figure requires exactly one choropleth trace");
-            if (
-                trace.level !==
-                (trace.geography === "world" ? "country" : "region")
-            )
-                fail("Unsupported level for this geography");
             if (trace.locations.length !== trace.values.length)
                 fail("locations and values must have equal lengths");
             if (new Set(trace.locations).size !== trace.locations.length)

@@ -101,16 +101,23 @@ def test_container_state_preserves_focus_replacement_and_partial_updates():
     before = ui.state.snapshot()
     assert before["placements"]["chart_0"] == {"pinned": True}
     charts[0].focus()
+    assert ui.state.snapshot()["placements"]["chart_1"] == {"pinned": True}
     charts[2].pin()
     charts[1].focus()
     placements = ui.state.snapshot()["placements"]
-    assert list(placements) == ["chart_2", "chart_3", "chart_4", "chart_0", "chart_1"]
+    assert placements == {
+        "chart_0": {"pinned": False},
+        "chart_1": {"pinned": False},
+        "chart_2": {"pinned": True},
+        "chart_3": {"pinned": False},
+        "chart_4": {"pinned": False},
+    }
     charts[0].update(data=[{"type": "bar", "x": ["A"], "y": [2]}])
     updated = ui.state.snapshot()
     assert updated["events"][0]["messages"][1]["updateComponents"]["surfaceId"] == "chart_0"
     assert updated["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"][0]["y"] == [2]
     assert updated["placements"] == placements
-    assert list(updated["placements"]) == list(placements)
+    assert [event["messages"][0]["createSurface"]["surfaceId"] for event in updated["events"]] == [f"chart_{index}" for index in range(5)]
     replacement = ui.plot([{"type": "bar", "x": ["A"], "y": [3]}], surface_id="chart_0")
     assert len(ui.state.snapshot()["events"]) == 5
     replacement.remove()

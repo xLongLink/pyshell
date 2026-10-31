@@ -4,10 +4,8 @@ services:
   pyshell:
     build:
       context: .
-      additional_contexts:
-        portfolio: ../sample/portfolio
       dockerfile: api/Dockerfile
-      target: runtime
+      target: demo
     ports:
       - "127.0.0.1:8000:8000"
     init: true

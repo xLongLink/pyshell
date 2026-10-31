@@ -161,7 +161,6 @@ test("map defaults and nonfinite values match Python", () => {
         ...trace,
         name: "",
         geography: "world",
-        level: "country",
     });
     assert.equal(
         figureProps.safeParse({ data: [{ ...trace, values: [Infinity] }] })
@@ -188,17 +187,62 @@ test.each([
     },
 );
 
-test("only the current catalog is accepted", () => {
+test.each(["v2", "v3"])("old catalog %s is rejected", (version) => {
     assert.equal(
         a2uiBatchSchema.safeParse([
             {
                 version: "v0.9",
                 createSurface: {
                     surfaceId: "sales",
-                    catalogId: "urn:pyshell:catalog:v2",
+                    catalogId: `urn:pyshell:catalog:${version}`,
                 },
             },
         ]).success,
         false,
     );
+});
+
+test("the current catalog is v4 and is accepted", () => {
+    assert.equal(catalogId, "urn:pyshell:catalog:v4");
+    assert.equal(
+        a2uiBatchSchema.safeParse([
+            {
+                version: "v0.9",
+                createSurface: { surfaceId: "sales", catalogId },
+            },
+        ]).success,
+        true,
+    );
+});
+
+test.each([
+    { geography: "world", level: "country" },
+    { geography: "FRA", level: "region" },
+])("legacy map level is rejected: %j", (fields) => {
+    assert.equal(
+        figureProps.safeParse({
+            data: [
+                {
+                    type: "choropleth",
+                    locations: ["FRA"],
+                    values: [1],
+                    ...fields,
+                },
+            ],
+        }).success,
+        false,
+    );
+});
+
+test("regional maps need only geography, locations and values", () => {
+    const trace = {
+        type: "choropleth",
+        geography: "FRA",
+        locations: ["FR-IDF"],
+        values: [7],
+    };
+    assert.deepEqual(figureProps.parse({ data: [trace] }).data[0], {
+        ...trace,
+        name: "",
+    });
 });

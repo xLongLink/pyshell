@@ -18,10 +18,12 @@ COPY api/pyproject.toml api/uv.lock ./
 COPY api/src ./src
 COPY --from=frontend /app/api/src/api/static ./src/api/static
 RUN uv sync --locked --no-dev --no-editable
-COPY --from=portfolio / /app/portfolio
-RUN uv pip install --python /opt/venv/bin/python --no-deps /app/portfolio
 
-FROM python:3.12-slim AS runtime
+FROM builder AS demo-builder
+
+RUN uv pip install --python /opt/venv/bin/python wbgapi==1.0.14
+
+FROM python:3.12-slim AS runtime-base
 
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
@@ -35,3 +37,9 @@ COPY --from=builder /opt/venv /opt/venv
 USER pyshell
 WORKDIR /workspace
 ENTRYPOINT ["python", "-m", "uvicorn", "api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-access-log", "--log-level", "warning"]
+
+FROM runtime-base AS demo
+
+COPY --from=demo-builder /opt/venv /opt/venv
+
+FROM runtime-base AS runtime

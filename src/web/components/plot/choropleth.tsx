@@ -63,7 +63,8 @@ export default function Choropleth(props: MapProps) {
         result.boundaries.features.map((feature) => feature.id),
     );
     if (
-        result.boundaries.level !== props.trace.level ||
+        result.boundaries.level !==
+            (geography === "world" ? "country" : "region") ||
         props.trace.locations.some((code) => !locations.has(code))
     ) {
         return (
@@ -81,10 +82,15 @@ function BoundaryMap({
     boundaries,
 }: MapProps & { boundaries: GeographyData }) {
     const [active, setActive] = useState<string | null>(null);
-    const path = useMemo(
-        () => geoPath(mapProjection(boundaries, trace.geography === "world")),
-        [trace.geography, boundaries],
-    );
+    const paths = useMemo(() => {
+        const path = geoPath(
+            mapProjection(boundaries, trace.geography === "world"),
+        );
+        return boundaries.features.map((feature) => ({
+            feature,
+            d: path(feature) ?? undefined,
+        }));
+    }, [trace.geography, boundaries]);
     const values = new Map(
         trace.locations.map((code, index) => [code, trace.values[index]]),
     );
@@ -121,13 +127,13 @@ function BoundaryMap({
                 }
                 className="min-h-0 w-full flex-1"
             >
-                {boundaries.features.map((feature) => {
+                {paths.map(({ feature, d }) => {
                     const code = feature.id;
                     const label = describe(code, feature.properties.name);
                     return (
                         <path
                             key={code}
-                            d={path(feature) ?? undefined}
+                            d={d}
                             fill={color(values.get(code))}
                             stroke="var(--border)"
                             strokeWidth={0.6}

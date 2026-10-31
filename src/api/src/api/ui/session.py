@@ -5,7 +5,7 @@ from api.ui.types import Action, Identifier
 from api.ui.plot.figure import Figure
 from a2ui.core.schema.v0_9 import server_to_client
 
-CATALOG = "urn:pyshell:catalog:v3"
+CATALOG = "urn:pyshell:catalog:v4"
 identifier_adapter = TypeAdapter(Identifier)
 action_adapter = TypeAdapter(Action)
 

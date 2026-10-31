@@ -89,7 +89,7 @@ def test_cached_geography_with_boundary_id_remains_readable(monkeypatch, tmp_pat
     assert response.json() == cached
     assert geography.geography_path("CHE") == path
     assert geography.geography_info("CHE") == {"name": "Switzerland", "level": "region", "locations": {"CH-BE": "Bern"}}
-    assert Choropleth(geography="CHE", level="region", locations=["CH-BE"], values=[1]).locations == ["CH-BE"]
+    assert Choropleth(geography="CHE", locations=["CH-BE"], values=[1]).locations == ["CH-BE"]
 
 
 def test_public_geography_info_does_not_expose_cached_mutable_data(monkeypatch, tmp_path):

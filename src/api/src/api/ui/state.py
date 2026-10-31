@@ -36,9 +36,7 @@ class UIState:
                     }
                     for surface in self.surfaces.values()
                 ],
-                "placements": {
-                    key: {"pinned": surface.pinned} for key, surface in sorted(self.surfaces.items(), key=lambda item: item[1].focused_at)
-                },
+                "placements": {key: {"pinned": surface.pinned} for key, surface in self.surfaces.items()},
             }
 
     def subscribe(self) -> asyncio.Queue:

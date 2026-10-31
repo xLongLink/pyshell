@@ -56,7 +56,17 @@ def test_stream_requests_are_serialized():
 
 
 def test_stream_only_confirms_execution_while_widgets_publish_directly():
-    api_client = TestClient(create_app())
+    app = create_app()
+    disconnected = asyncio.Event()
+
+    async def application(scope, receive, send):
+        try:
+            await app(scope, receive, send)
+        finally:
+            if scope["type"] == "websocket":
+                disconnected.set()
+
+    api_client = TestClient(application)
     response = api_client.post(
         "/execute/stream",
         json={
@@ -78,6 +88,8 @@ def test_stream_only_confirms_execution_while_widgets_publish_directly():
         snapshot = socket.receive_json()
         assert snapshot["events"][0]["messages"][0]["createSurface"]["surfaceId"] == "sales"
         assert snapshot["placements"] == {"sales": {"pinned": True}}
+        socket.close()
+        socket.portal.call(asyncio.wait_for, disconnected.wait(), 2)
     assert execute(api_client, "print(chart.surface_id)")["stdout"] == "sales\n"
 
 

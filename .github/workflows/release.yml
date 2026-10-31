@@ -61,6 +61,7 @@ jobs:
         with:
           context: src
           file: src/api/Dockerfile
+          target: runtime
           platforms: linux/amd64
           push: true
           tags: |

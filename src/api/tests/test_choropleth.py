@@ -9,10 +9,53 @@ from api.ui.plot.choropleth import Choropleth
 
 INVALID_TRACES = [
     pytest.param({"locations": ["CH-ZH"], "values": [float("inf")]}, id="nonfinite-value"),
-    pytest.param({"locations": ["CH-ZH"], "values": []}, id="mismatched-lengths"),
+    pytest.param({"locations": ["CH-ZH", "CH-BE"], "values": [1]}, id="mismatched-lengths"),
     pytest.param({"locations": ["CH-ZH", "CH-ZH"], "values": [1, 2]}, id="duplicate-locations"),
-    pytest.param({"level": "country", "locations": ["CH-ZH"], "values": [1]}, id="incompatible-level"),
+    pytest.param({"level": "country", "locations": ["CH-ZH"], "values": [1]}, id="old-country-level"),
+    pytest.param({"level": "region", "locations": ["CH-ZH"], "values": [1]}, id="old-region-level"),
+    pytest.param({"level": "district", "locations": ["CH-ZH"], "values": [1]}, id="unsupported-level"),
 ]
+
+
+@pytest.mark.parametrize(("name", "level", "location"), [("world", "country", "CHE"), ("CHE", "region", "CH-ZH")])
+def test_geography_determines_level_without_a_trace_field(monkeypatch, name, level, location):
+    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", lambda geography: {"level": level, "locations": {location: "Location"}})
+    ui = UI()
+    chart = ui.plot([{"type": "choropleth", "geography": name, "locations": [location], "values": [1]}])
+    assert chart.data[0].geography == name
+    assert "level" not in chart.data[0].model_dump()
+    messages = ui.state.snapshot()["events"][0]["messages"]
+    assert messages[0]["createSurface"]["catalogId"] == "urn:pyshell:catalog:v4"
+    assert "level" not in messages[1]["updateComponents"]["components"][0]["data"][0]
+
+
+@pytest.mark.parametrize(("name", "level"), [("world", "region"), ("CHE", "country")])
+@pytest.mark.parametrize("operation", ["update", "replace"])
+def test_wrong_boundary_level_preserves_an_existing_plot(monkeypatch, name, level, operation):
+    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", lambda geography: {"level": level, "locations": {"CHE": "Switzerland"}})
+    ui = UI()
+    chart = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="map")
+    snapshot = ui.state.snapshot()
+    trace = {"type": "choropleth", "geography": name, "locations": ["CHE"], "values": [1]}
+    publish = chart.update if operation == "update" else ui.plot
+    attributes = {} if operation == "update" else {"surface_id": "map"}
+    with pytest.raises(ValidationError, match="Unsupported level for this geography"):
+        publish(data=[trace], **attributes)
+    assert chart.data[0].type == "bar"
+    assert ui.state.snapshot() == snapshot
+    chart.update(layout={"title": {"text": "Still valid"}})
+
+
+@pytest.mark.parametrize("level", ["country", "region", "district"])
+@pytest.mark.parametrize("name", ["world", "CHE"])
+def test_trace_level_is_rejected_without_fetching(monkeypatch, level, name):
+    def unexpected_lookup(geography):
+        pytest.fail("Old trace fields must be rejected before geography lookup")
+
+    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", unexpected_lookup)
+    with pytest.raises(ValidationError) as error:
+        Choropleth(geography=name, level=level, locations=["CHE"], values=[1])
+    assert [(item["loc"], item["type"]) for item in error.value.errors()] == [(("level",), "extra_forbidden")]
 
 
 def test_location_membership_refreshes_when_cached_file_changes(monkeypatch, tmp_path):
@@ -46,7 +89,7 @@ def test_validation_checks_input_structure_before_geography_lookup(monkeypatch, 
     # Act
     # Assert
     with pytest.raises(ValidationError):
-        UI().plot([{"type": "choropleth", "geography": "CHE", "level": "region", **trace}])
+        UI().plot([{"type": "choropleth", "geography": "CHE", **trace}])
 
 
 def test_failed_first_lookup_preserves_an_existing_plot(monkeypatch, tmp_path):
@@ -60,6 +103,6 @@ def test_failed_first_lookup_preserves_an_existing_plot(monkeypatch, tmp_path):
 
     monkeypatch.setattr(geography, "download", unavailable)
     with pytest.raises(ValidationError, match="first use requires internet"):
-        chart.update(data=[{"type": "choropleth", "geography": "CHE", "level": "region", "locations": ["CH-ZH"], "values": [1]}])
+        chart.update(data=[{"type": "choropleth", "geography": "CHE", "locations": ["CH-ZH"], "values": [1]}])
     assert chart.data[0].type == "bar"
     assert ui.state.snapshot() == snapshot

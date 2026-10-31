@@ -9,13 +9,6 @@ const geographySchema = z.object({
     geography: z.string(),
     name: z.string(),
     level: z.enum(["country", "region"]),
-    source: z.object({
-        source: z.string(),
-        url: z.url(),
-        license: z.string(),
-        licenseUrl: z.url(),
-        year: z.string().optional(),
-    }),
     features: z
         .array(
             z.object({
@@ -60,9 +53,8 @@ export function loadGeography(geography: string): Promise<Geography> {
             }
             return data;
         })
-        .catch((error) => {
+        .finally(() => {
             requests.delete(geography);
-            throw error;
         });
     requests.set(geography, request);
     return request;
