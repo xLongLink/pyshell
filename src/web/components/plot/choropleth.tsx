@@ -12,8 +12,6 @@ type MapProps = {
     showlegend: boolean;
 };
 
-const lowColor = "color-mix(in oklch, var(--chart-1) 20%, var(--card))";
-const highColor = "var(--chart-1)";
 const format = new Intl.NumberFormat(undefined, {
     maximumSignificantDigits: 6,
 });
@@ -177,7 +175,7 @@ function BoundaryMap({
                                     background:
                                         min === max
                                             ? color(min)
-                                            : `linear-gradient(to right, ${lowColor}, ${highColor})`,
+                                            : "linear-gradient(to right, color-mix(in oklch, var(--chart-1) 20%, var(--card)), var(--chart-1))",
                                 }}
                             />
                             <span>{format.format(max)}</span>

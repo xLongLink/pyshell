@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 import { messageSchema, placementsSchema } from "../lib/workspace.ts";
-import { a2uiBatchSchema, catalogId } from "../lib/a2ui.ts";
+import { a2uiBatchSchema } from "../lib/a2ui.ts";
 import { creation, update } from "./workspace-fixtures.ts";
 
 test("snapshots accept UI batches but reject live-only events", () => {
@@ -48,7 +48,7 @@ test("surface IDs and placement keys enforce the same boundaries", () => {
             a2uiBatchSchema.safeParse([
                 {
                     version: "v0.9",
-                    createSurface: { surfaceId, catalogId },
+                    createSurface: { surfaceId },
                 },
                 update(surfaceId),
             ]).success,

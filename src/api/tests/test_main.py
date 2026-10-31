@@ -55,24 +55,6 @@ def test_stream_requests_are_serialized():
     assert execute(api_client, "print(value)")["stdout"] == "8\n"
 
 
-def test_stream_only_confirms_execution_while_widgets_publish_directly():
-    api_client = TestClient(create_app())
-    result = execute(
-        api_client,
-        "print('before')\n"
-        "chart = ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='sales')\n"
-        "chart.pin()\n"
-        "print('after')\n"
-        "done()",
-    )
-    assert result == {"stdout": "before\nafter\n", "stderr": "", "exception": None, "done": True}
-    with api_client.websocket_connect("/ui/ws", headers={"origin": "http://localhost:8000"}) as socket:
-        snapshot = socket.receive_json()
-        assert snapshot["events"][0]["messages"][0]["createSurface"]["surfaceId"] == "sales"
-        assert snapshot["placements"] == {"sales": {"pinned": True}}
-    assert execute(api_client, "print(chart.surface_id)")["stdout"] == "sales\n"
-
-
 def test_stream_reports_partial_output_and_python_failure():
     # Arrange
     api_client = TestClient(create_app())

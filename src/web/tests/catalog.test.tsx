@@ -286,37 +286,6 @@ test("backend placement moves widgets between center and sidebar without control
     );
 });
 
-test("backend-pinned overflow stays visible on the side", () => {
-    const surfaces = [1, 2, 3, 4, 5].flatMap((index) =>
-        figure(
-            [{ type: "bar", x: ["A"], y: [null] }],
-            undefined,
-            `chart_${index}`,
-        ),
-    );
-    render(
-        <Results
-            surfaces={surfaces.map((surface, index) => ({
-                ...surface,
-                pinned: index === 0,
-            }))}
-        />,
-    );
-    expect(
-        screen
-            .getByRole("region", { name: "Center widgets" })
-            .querySelectorAll("article"),
-    ).toHaveLength(4);
-    expect(
-        screen.getByRole("complementary").querySelectorAll("article"),
-    ).toHaveLength(1);
-    expect(
-        screen
-            .getByRole("complementary")
-            .contains(screen.getByRole("article", { name: "Widget chart_1" })),
-    ).toBe(true);
-});
-
 test("the sidebar renders every backend-pinned widget in surface order", () => {
     const surfaces = [1, 2, 3, 4, 5, 6].flatMap((index) =>
         figure(

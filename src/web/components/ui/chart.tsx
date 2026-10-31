@@ -1,7 +1,6 @@
 import * as React from "react";
 import { cn } from "cn";
 import * as RechartsPrimitive from "recharts";
-import type { TooltipPayloadEntry } from "recharts";
 import { plotClassName } from "@/components/plot/common";
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
@@ -37,8 +36,10 @@ function ChartTooltipContent({
     formatLabel,
 }: {
     active?: boolean;
-    payload?: readonly TooltipPayloadEntry[];
-    formatLabel?: (payload: readonly TooltipPayloadEntry[]) => React.ReactNode;
+    payload?: readonly RechartsPrimitive.TooltipPayloadEntry[];
+    formatLabel?: (
+        payload: readonly RechartsPrimitive.TooltipPayloadEntry[],
+    ) => React.ReactNode;
     indicator?: "line" | "dot";
 }) {
     if (!active || !payload?.length) {
@@ -52,7 +53,7 @@ function ChartTooltipContent({
 
     return (
         <div className="grid min-w-[8rem] items-start gap-1.5 rounded-lg border border-border/50 bg-card px-2.5 py-1.5 text-xs shadow-xl">
-            {!nestLabel ? tooltipLabel : null}
+            {!nestLabel && tooltipLabel}
             <div className="grid gap-1.5">
                 {payload
                     .filter((item) => item.type !== "none")
@@ -83,7 +84,7 @@ function ChartTooltipContent({
                                     )}
                                 >
                                     <div className="grid gap-1.5">
-                                        {nestLabel ? tooltipLabel : null}
+                                        {nestLabel && tooltipLabel}
                                         <span className="text-muted-foreground">
                                             {item.name}
                                         </span>

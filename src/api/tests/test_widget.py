@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from api.ui.session import UI, CATALOG
+from api.ui.session import UI
 from api.ui.plot.figure import Figure
 from src.api.tests.ui_helpers import RecordingUIState
 
@@ -26,7 +26,7 @@ def test_widget_creation_and_updates_publish_protocol_messages(ui, trace, monkey
     )
     chart = ui.plot([trace], id="root", surface_id="sales")
     assert chart.data[0].model_dump(mode="json", include=set(trace)) == trace
-    creation = {"version": "v0.9", "createSurface": {"surfaceId": "sales", "catalogId": CATALOG}}
+    creation = {"version": "v0.9", "createSurface": {"surfaceId": "sales"}}
 
     def content(widget):
         return {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [widget.model_dump(mode="json")]}}
@@ -46,7 +46,7 @@ def test_surface_replacement_and_removal_publish_protocol_messages(ui):
     trace = {"type": "bar", "x": ["A"], "y": [1]}
     ui.plot([trace], surface_id="sales")
     ui.state.messages.clear()
-    creation = {"version": "v0.9", "createSurface": {"surfaceId": "sales", "catalogId": CATALOG}}
+    creation = {"version": "v0.9", "createSurface": {"surfaceId": "sales"}}
     deletion = {"version": "v0.9", "deleteSurface": {"surfaceId": "sales"}}
     replacement = ui.plot([trace], surface_id="sales")
     content = {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [replacement.model_dump(mode="json")]}}
@@ -58,16 +58,32 @@ def test_surface_replacement_and_removal_publish_protocol_messages(ui):
     assert ui.state.snapshot()["placements"] == {}
 
 
-@pytest.mark.parametrize("replace", [False, True])
-def test_surface_size_limit_preserves_the_existing_widget(ui, replace):
-    chart = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="sales")
+@pytest.mark.parametrize(
+    ("operation", "attributes", "message"),
+    [
+        pytest.param("update", {"data": [{"type": "bar", "x": ["A" * 2000] * 200, "y": [1] * 200}]}, "256 KiB", id="oversized-update"),
+        pytest.param("plot", {"data": [{"type": "bar", "x": ["A" * 2000] * 200, "y": [1] * 200}]}, "256 KiB", id="oversized-replacement"),
+        pytest.param(
+            "plot",
+            {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "component": "Unknown"},
+            "Input should be 'Figure'",
+            id="invalid-replacement",
+        ),
+    ],
+)
+def test_rejected_publication_preserves_the_existing_widget(ui, operation, attributes, message):
+    chart = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}}, surface_id="sales")
     messages = list(ui.state.messages)
-    data = [{"type": "bar", "x": ["A" * 2000] * 200, "y": [1] * 200}]
-    publish = (lambda: ui.plot(data, surface_id="sales")) if replace else lambda: chart.update(data=data)
-    with pytest.raises(ValueError, match="256 KiB"):
-        publish()
+    snapshot = ui.state.snapshot()
+    with pytest.raises(ValueError, match=message):
+        if operation == "plot":
+            ui.plot(**attributes, surface_id="sales")
+        else:
+            chart.update(**attributes)
     assert ui.state.messages == messages
+    assert ui.state.snapshot() == snapshot
     assert chart.data[0].x == ("A",)
+    assert chart.layout.title.text == "Original"
     chart.update(layout={"title": {"text": "Still usable"}})
     assert chart.layout.title.text == "Still usable"
 
@@ -117,20 +133,25 @@ def test_update_keeps_the_handle_and_surface_identity(ui):
 
 
 @pytest.mark.parametrize(
-    "attributes",
+    ("attributes", "exhaust_budget", "message"),
     [
-        {"data": [{"type": "pie", "labels": ["A"], "values": [-1]}]},
-        {"id": "root"},
-        {"component": "Figure"},
-        {"unknown": True},
-        {"layout": {"yaxis": {"title": {"text": "Amount"}}}},
-        {"layout": {"title": {"text": "Not published"}}, "data": [{"type": "scatter", "x": [1, 2], "y": [1]}]},
+        ({"data": [{"type": "pie", "labels": ["A"], "values": [-1]}]}, False, None),
+        ({"id": "root"}, False, None),
+        ({"component": "Figure"}, False, None),
+        ({"unknown": True}, False, None),
+        ({"layout": {"yaxis": {"title": {"text": "Amount"}}}}, False, None),
+        ({"layout": {"title": {"text": "Not published"}}, "data": [{"type": "scatter", "x": [1, 2], "y": [1]}]}, False, None),
+        pytest.param({"layout": {"title": {"text": "Not published"}}}, True, "100 messages", id="publication-budget"),
     ],
 )
-def test_rejected_update_preserves_attributes_and_published_state(ui, attributes):
+def test_rejected_update_preserves_attributes_and_published_state(ui, attributes, exhaust_budget, message):
     chart = ui.plot([{"type": "pie", "labels": ["A"], "values": [42]}], layout={"title": {"text": "Original"}})
+    if exhaust_budget:
+        for _ in range(98):
+            chart.pin()
     ui.state.messages.clear()
-    with pytest.raises((ValueError, ValidationError)):
+    snapshot = ui.state.snapshot()
+    with pytest.raises(ValueError, match=message):
         chart.update(**attributes)
 
     # Rejection is atomic and leaves the handle usable for a later valid update.
@@ -138,20 +159,11 @@ def test_rejected_update_preserves_attributes_and_published_state(ui, attributes
     assert chart.data[0].values == (42,)
     assert chart.id == "root"
     assert ui.state.messages == []
+    assert ui.state.snapshot() == snapshot
+    if exhaust_budget:
+        ui.reset_output()
     chart.update(layout={"title": {"text": "Valid update"}})
     assert chart.layout.title.text == "Valid update"
-
-
-def test_widget_attributes_cannot_be_assigned_without_publishing(ui):
-    widget = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}})
-    with pytest.raises(ValidationError, match="frozen"):
-        widget.layout = {"title": {"text": "Unpublished"}}
-
-    # Nested models must not bypass publication through direct assignment.
-    with pytest.raises(ValidationError, match="frozen"):
-        widget.layout.title.text = "Unpublished"
-    assert widget.layout.title.text == "Original"
-    assert len(ui.state.messages) == 2
 
 
 @pytest.mark.parametrize("invalidate", ["remove", "replace", "close"])
@@ -179,31 +191,3 @@ def test_invalidated_handles_cannot_mutate_published_state(ui, invalidate):
     successor.update(data=[{"type": "scatter", "x": ["A"], "y": [3]}])
     assert successor.data[0].y == (3,)
     assert ui.state.snapshot()["events"][0]["messages"][-1]["updateComponents"]["components"][0]["data"][0]["y"] == [3]
-
-
-def test_invalid_replacement_does_not_destroy_the_existing_surface(ui):
-    original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}}, surface_id="notice")
-    ui.state.messages.clear()
-    snapshot = ui.state.snapshot()
-    with pytest.raises(ValueError, match="Input should be 'Figure'"):
-        ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], component="Unknown", surface_id="notice")
-    assert ui.state.messages == []
-    assert ui.state.snapshot() == snapshot
-    assert set(ui.state.snapshot()["placements"]) == {"notice"}
-    assert original.layout.title.text == "Original"
-    original.update(layout={"title": {"text": "Still usable"}})
-    assert original.layout.title.text == "Still usable"
-
-
-def test_failed_publication_does_not_change_widget_attributes(ui):
-    widget = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}})
-    for _ in range(98):
-        widget.pin()
-    with pytest.raises(ValueError, match="100 messages"):
-        widget.update(layout={"title": {"text": "Not published"}})
-    assert widget.layout.title.text == "Original"
-
-    # Once the output budget is cleared, the same handle can publish again.
-    ui.reset_output()
-    widget.update(layout={"title": {"text": "Now published"}})
-    assert widget.layout.title.text == "Now published"

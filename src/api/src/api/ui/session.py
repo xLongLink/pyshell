@@ -4,7 +4,6 @@ from api.ui.state import UIState
 from api.ui.types import Action, Identifier
 from api.ui.plot.figure import Figure
 
-CATALOG = "urn:pyshell:catalog:v4"
 identifier_adapter = TypeAdapter(Identifier)
 action_adapter = TypeAdapter(Action)
 
@@ -58,7 +57,7 @@ class UI:
         self._node_count = 1
 
     def _create(self, surface_id: str) -> dict[str, object]:
-        return {"version": "v0.9", "createSurface": {"surfaceId": surface_id, "catalogId": CATALOG}}
+        return {"version": "v0.9", "createSurface": {"surfaceId": surface_id}}
 
     def _content(self, surface_id: str, widget: Figure) -> dict[str, object]:
         component = widget.model_dump(mode="json")

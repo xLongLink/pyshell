@@ -24,13 +24,11 @@ export function PiePlot({
         const value = trace.values[index];
         return value === null
             ? []
-            : [
-                  {
-                      label,
-                      value,
-                      fill: traceColor(index),
-                  },
-              ];
+            : {
+                  label,
+                  value,
+                  fill: traceColor(index),
+              };
     });
     return (
         <ChartContainer>

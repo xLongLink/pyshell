@@ -16,11 +16,14 @@ from pydantic_ai.models.function import FunctionModel
 @pytest.fixture
 def call_factory(monkeypatch):
     @asynccontextmanager
-    async def create(*, phase=None, outcome="complete"):
+    async def create(*, phase=None, outcome="complete", hold_cleanup=False):
         entered = asyncio.Event()
         release = asyncio.Event()
         working = asyncio.Event()
         finish_work = asyncio.Event()
+        cleanup_started = asyncio.Event()
+        cleanup_release = asyncio.Event()
+        completed = asyncio.Event()
         events = []
         offers = []
         hangups = []
@@ -73,8 +76,12 @@ def call_factory(monkeypatch):
 
             async def hang_up(self, session):
                 hangups.append(session)
+                cleanup_started.set()
+                if hold_cleanup:
+                    await cleanup_release.wait()
                 if outcome == "hangup_error":
                     raise RuntimeError("hangup failed")
+                completed.set()
 
         def realtime(agent, *args, **kwargs):
             tools.update(agent._function_toolset.tools)
@@ -100,9 +107,13 @@ def call_factory(monkeypatch):
                     tools=tools,
                     working=working,
                     finish_work=finish_work,
+                    cleanup_started=cleanup_started,
+                    cleanup_release=cleanup_release,
+                    completed=completed,
                 )
             finally:
                 finish_work.set()
+                cleanup_release.set()
                 await voice.stop(notify=False)
                 await workspace.close()
 
@@ -218,5 +229,64 @@ def test_hangup_preserves_accepted_workspace_work(call_factory):
             assert call.workspace.recent_tasks[0]["outcome"] == "completed"
             assert not call.workspace.results
             assert [event["name"] for event in call.events] == ["answer", "closed"]
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+def test_old_completion_cannot_close_restarted_call(call_factory, stopped):
+    async def scenario():
+        async with call_factory(phase="active") as call:
+            start = VoiceCommand(type="voice", action="start", sdp="offer")
+            await call.voice.handle(start)
+            old_task = call.voice.task
+            await asyncio.wait_for(call.entered.wait(), 1)
+
+            async def restart():
+                await call.completed.wait()
+                assert old_task.done()
+                call.release.clear()
+                await call.voice.handle(start)
+                new_task = call.voice.task
+                assert new_task is not old_task
+                await asyncio.sleep(0)
+                assert call.voice.task is new_task
+                assert not any(event["name"] == "closed" for event in call.events)
+                await call.voice.stop()
+
+            restarting = asyncio.create_task(restart())
+            await asyncio.sleep(0)
+            if stopped:
+                await call.voice.stop()
+            else:
+                call.release.set()
+            await asyncio.wait_for(restarting, 1)
+            assert [event["name"] for event in call.events].count("closed") == 1
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("silent", [False, True])
+def test_concurrent_stop_keeps_guard_through_cleanup(call_factory, silent):
+    async def scenario():
+        async with call_factory(phase="active", hold_cleanup=True) as call:
+            start = VoiceCommand(type="voice", action="start", sdp="offer")
+            await call.voice.handle(start)
+            task = call.voice.task
+            await asyncio.wait_for(call.entered.wait(), 1)
+            first = asyncio.create_task(call.voice.stop())
+            await asyncio.wait_for(call.cleanup_started.wait(), 1)
+            second = asyncio.create_task(call.voice.stop(notify=not silent))
+            await asyncio.sleep(0)
+            assert not task.done()
+            assert call.voice.task is task
+            assert call.hangups == ["provider-call"]
+            with pytest.raises(RuntimeError, match="already active"):
+                await call.voice.handle(start)
+            call.cleanup_release.set()
+            await asyncio.gather(first, second)
+            await call.voice.stop()
+            assert [event["name"] for event in call.events].count("closed") == int(not silent)
+            assert call.voice.task is None
 
     asyncio.run(scenario())

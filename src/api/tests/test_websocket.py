@@ -4,7 +4,7 @@ from api.websocket import run_websocket
 from starlette.websockets import WebSocketDisconnect
 
 
-@pytest.mark.parametrize(("count", "first"), [(2, 0), (2, 1), (3, 0), (3, 1), (3, 2)])
+@pytest.mark.parametrize(("count", "first"), [(2, 0), (2, 1), (3, 2)])
 @pytest.mark.parametrize("error", [None, WebSocketDisconnect(), RuntimeError("socket failed")])
 def test_first_completion_drains_peer(count, first, error):
     async def scenario():

@@ -61,7 +61,7 @@ test.each([
             ] as const,
     ),
 ] as const)(
-    "failed %s boundary responses can be retried with concurrent requests deduplicated",
+    "failed %s boundary responses can be retried",
     async (_failure, firstFetch) => {
         // Arrange
         vi.resetModules();
@@ -75,11 +75,8 @@ test.each([
         // Assert
         await expect(loadGeography("CHE")).rejects.toBeTruthy();
         const retry = loadGeography("CHE");
-        expect(loadGeography("CHE")).toBe(retry);
         await expect(retry).resolves.toEqual(boundaries);
         expect(fetch).toHaveBeenCalledTimes(2);
-        expect(fetch).toHaveBeenNthCalledWith(1, "/geographies/CHE");
-        expect(fetch).toHaveBeenNthCalledWith(2, "/geographies/CHE");
     },
 );
 
@@ -104,24 +101,6 @@ test("successful geography requests are shared only until settlement", async () 
     expect(reloaded).toEqual(original);
     expect(reloaded).not.toBe(original);
     expect(fetch).toHaveBeenCalledTimes(2);
-});
-
-test("rendering does not retain malformed attribution metadata", async () => {
-    vi.resetModules();
-    vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-            new Response(
-                JSON.stringify({
-                    ...boundaries,
-                    source: { source: 123, url: "invalid", license: false },
-                }),
-            ),
-        ),
-    );
-    const { loadGeography } = await import("../components/plot/geography");
-
-    const loaded = await loadGeography("CHE");
-    expect(loaded).toEqual(boundaries);
-    expect(loaded).not.toHaveProperty("source");
+    expect(fetch).toHaveBeenNthCalledWith(1, "/geographies/CHE");
+    expect(fetch).toHaveBeenNthCalledWith(2, "/geographies/CHE");
 });

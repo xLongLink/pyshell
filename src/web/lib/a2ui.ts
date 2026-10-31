@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-export const catalogId = "urn:pyshell:catalog:v4";
 export const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const text = z.string().max(10000);
 const number = z.number();
@@ -98,7 +97,6 @@ const createSurfaceSchema = z.strictObject({
     version: z.literal("v0.9"),
     createSurface: z.strictObject({
         surfaceId: identifier,
-        catalogId: z.literal(catalogId),
     }),
 });
 const updateComponentsSchema = z.strictObject({

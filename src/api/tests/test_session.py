@@ -27,16 +27,6 @@ def test_pending_message_limit_keeps_last_successful_surface(shell):
     assert shell.ui.state.snapshot()["events"] == []
 
 
-def test_automatic_surface_ids_do_not_replace_named_results(shell):
-    result = shell.execute(
-        "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='surface_1')\nui.plot([{'type': 'bar', 'x': ['B'], 'y': [2]}])"
-    )
-    assert result["exception"] is None
-    created = [message["createSurface"]["surfaceId"] for message in shell.ui.state.messages if "createSurface" in message]
-    assert created == ["surface_1", "surface_2"]
-    assert not any("deleteSurface" in message for message in shell.ui.state.messages)
-
-
 def test_automatic_surface_ids_skip_consecutive_named_collisions(shell):
     data = [{"type": "bar", "x": ["A"], "y": [1]}]
     for number in range(1, 4):

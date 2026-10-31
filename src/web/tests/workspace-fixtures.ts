@@ -1,7 +1,5 @@
-import { catalogId } from "../lib/a2ui.ts";
-
 export function creation(surfaceId: string) {
-    return { version: "v0.9", createSurface: { surfaceId, catalogId } };
+    return { version: "v0.9", createSurface: { surfaceId } };
 }
 
 export function update(surfaceId: string) {

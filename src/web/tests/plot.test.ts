@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
-import { figureProps, catalogId, a2uiBatchSchema } from "../lib/a2ui.ts";
+import { figureProps, a2uiBatchSchema } from "../lib/a2ui.ts";
 
 test("figure defaults match the Python wire model", () => {
     assert.deepEqual(
@@ -105,7 +105,7 @@ test("batch complexity limits stop validation before message parsing", () => {
 test("snapshot batches reject histories and retain UTF-8 byte limits", () => {
     const create = {
         version: "v0.9",
-        createSurface: { surfaceId: "sales", catalogId },
+        createSurface: { surfaceId: "sales" },
     };
     assert.equal(
         a2uiBatchSchema.safeParse(Array(100).fill(create)).success,
@@ -182,39 +182,6 @@ test.each([
         assert.equal(figureProps.safeParse({ data }).success, valid);
     },
 );
-
-test.each([
-    ["urn:pyshell:catalog:v2", false],
-    ["urn:pyshell:catalog:v3", false],
-    [catalogId, true],
-] as const)("catalog %s acceptance is %s", (catalog, accepted) => {
-    assert.equal(catalogId, "urn:pyshell:catalog:v4");
-    assert.equal(
-        a2uiBatchSchema.safeParse([
-            {
-                version: "v0.9",
-                createSurface: {
-                    surfaceId: "sales",
-                    catalogId: catalog,
-                },
-            },
-            {
-                version: "v0.9",
-                updateComponents: {
-                    surfaceId: "sales",
-                    components: [
-                        {
-                            id: "root",
-                            component: "Figure",
-                            data: [{ type: "bar", x: [0], y: [1] }],
-                        },
-                    ],
-                },
-            },
-        ]).success,
-        accepted,
-    );
-});
 
 test("legacy map level field is rejected", () => {
     // Arrange

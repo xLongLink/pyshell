@@ -21,9 +21,9 @@ def trace(request, monkeypatch):
     return {"type": kind, "x": [1, 2.5], "y": [1, None]}
 
 
-def test_published_sequences_and_nested_traces_cannot_be_mutated(trace):
+def test_published_attributes_and_sequences_cannot_be_mutated(trace):
     ui = UI(RecordingUIState())
-    chart = ui.plot([trace])
+    chart = ui.plot([trace], layout={"title": {"text": "Original"}})
     before = chart.model_dump(mode="json")
     snapshot = ui.state.snapshot()
     sequences = [chart.data, *(getattr(chart.data[0], name) for name, value in trace.items() if isinstance(value, list))]
@@ -32,6 +32,10 @@ def test_published_sequences_and_nested_traces_cannot_be_mutated(trace):
             setitem(sequence, 0, sequence[0])
     with pytest.raises(ValidationError, match="frozen"):
         chart.data[0].name = "Unpublished"
+    with pytest.raises(ValidationError, match="frozen"):
+        chart.layout = {"title": {"text": "Unpublished"}}
+    with pytest.raises(ValidationError, match="frozen"):
+        chart.layout.title.text = "Unpublished"
     assert chart.model_dump(mode="json") == before
     assert ui.state.snapshot() == snapshot
     assert len(ui.state.messages) == 2

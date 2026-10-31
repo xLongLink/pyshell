@@ -23,7 +23,7 @@ def test_geography_determines_level_without_a_trace_field(monkeypatch, name, lev
     assert chart.data[0].geography == name
     assert "level" not in chart.data[0].model_dump()
     messages = ui.state.snapshot()["events"][0]["messages"]
-    assert messages[0]["createSurface"]["catalogId"] == "urn:pyshell:catalog:v4"
+    assert messages[0]["createSurface"] == {"surfaceId": chart.surface_id}
     assert "level" not in messages[1]["updateComponents"]["components"][0]["data"][0]
 
 

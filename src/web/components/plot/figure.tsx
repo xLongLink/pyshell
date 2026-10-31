@@ -17,7 +17,7 @@ export function Figure({
         ? {
               ...layout,
               showlegend: false,
-              xaxis: { ...layout.xaxis, title: { text: "" } },
+              xaxis: { title: { text: "" } },
           }
         : layout;
     return (
