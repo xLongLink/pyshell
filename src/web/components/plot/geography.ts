@@ -30,13 +30,10 @@ const geographySchema = z.object({
         .min(1),
 });
 export type Geography = z.infer<typeof geographySchema>;
-const requests = new Map<string, Promise<Geography>>();
 
 export function loadGeography(geography: string): Promise<Geography> {
-    const existing = requests.get(geography);
-    if (existing) return existing;
-    const request = fetch(`/geographies/${encodeURIComponent(geography)}`)
-        .then(async (response) => {
+    return fetch(`/geographies/${encodeURIComponent(geography)}`).then(
+        async (response) => {
             if (!response.ok) throw new Error("Map data is unavailable");
             const data = geographySchema.parse(await response.json());
             if (data.geography !== geography)
@@ -52,12 +49,8 @@ export function loadGeography(geography: string): Promise<Geography> {
                 }
             }
             return data;
-        })
-        .finally(() => {
-            requests.delete(geography);
-        });
-    requests.set(geography, request);
-    return request;
+        },
+    );
 }
 
 export function mapProjection(boundaries: FeatureCollection, world: boolean) {

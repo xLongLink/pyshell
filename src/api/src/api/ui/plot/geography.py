@@ -56,11 +56,7 @@ def download(url: str) -> dict | list:
 
 def _source(geography: str) -> tuple[str, dict]:
     if geography == "world":
-        return "World", {
-            "source": "Natural Earth, 1:110m Admin 0 Countries",
-            "url": WORLD_URL,
-            "downloadUrl": WORLD_URL,
-        }
+        return "World", {"source": "Natural Earth, 1:110m Admin 0 Countries", "url": WORLD_URL, "downloadUrl": WORLD_URL}
     url = METADATA_URL.format(geography=geography)
     try:
         metadata = download(url)
@@ -162,11 +158,6 @@ def normalize(geography: str, name: str, source: dict, data: dict | list) -> dic
             label = properties.get("shapeName") or code
         if not isinstance(label, str):
             raise ValueError("Invalid geographic name")
-        if "Ã" in label or "Â" in label:
-            try:
-                label = label.encode("latin1").decode("utf8")
-            except UnicodeError:
-                pass
         geometry = feature.get("geometry")
         if code in seen or not isinstance(geometry, dict) or geometry.get("type") not in {"Polygon", "MultiPolygon"}:
             raise ValueError("Unexpected geographic feature")

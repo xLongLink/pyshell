@@ -131,7 +131,6 @@ export function Cartesian({
                     }
                     content={
                         <ChartTooltipContent
-                            indicator={hasBars ? "dot" : "line"}
                             formatLabel={(payload) =>
                                 numeric
                                     ? String(payload[0]?.payload?.x ?? "")

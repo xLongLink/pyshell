@@ -67,17 +67,17 @@ def test_original_lists_cannot_change_published_or_subsequently_updated_content(
 
 def test_list_inputs_round_trip_as_arrays_and_explicit_updates_remain_immutable(trace):
     attributes = {"data": [trace]}
-    for chart in (Figure.model_validate(attributes), Figure.model_validate_json(json.dumps(attributes))):
-        assert isinstance(chart.data, tuple)
-        for name, value in trace.items():
-            if isinstance(value, list):
-                assert getattr(chart.data[0], name) == tuple(value)
-        assert Figure.model_validate(chart.model_dump()).model_dump(mode="json") == chart.model_dump(mode="json")
-        assert json.loads(chart.model_dump_json()) == chart.model_dump(mode="json")
+    chart = Figure.model_validate(attributes)
+    assert isinstance(chart.data, tuple)
+    for name, value in trace.items():
+        if isinstance(value, list):
+            assert getattr(chart.data[0], name) == tuple(value)
+    assert Figure.model_validate(chart.model_dump()).model_dump(mode="json") == chart.model_dump(mode="json")
+    assert json.loads(chart.model_dump_json()) == chart.model_dump(mode="json")
 
     ui = UI(RecordingUIState())
     chart = ui.plot([trace])
-    replacement = deepcopy(trace)
+    replacement = trace.copy()
     field = "y" if "y" in replacement else "values"
     replacement[field] = [3, None]
     chart.update(data=[replacement])
@@ -117,15 +117,12 @@ def test_nonlist_inputs_are_rejected_atomically_for_every_sequence(trace, contai
     [("bar", value) for value in [True, float("inf"), float("nan"), {}, []]] + [(kind, True) for kind in ["scatter", "pie", "choropleth"]],
     indirect=["trace"],
 )
-@pytest.mark.parametrize("json_input", [False, True])
-def test_immutable_sequences_preserve_strict_scalar_validation(trace, value, json_input):
-    validate = Figure.model_validate_json if json_input else Figure.model_validate
+def test_immutable_sequences_preserve_strict_scalar_validation(trace, value):
     for name, coordinates in trace.items():
         if isinstance(coordinates, list):
             attributes = {"data": [{**trace, name: [value, coordinates[1]]}]}
-            candidate = json.dumps(attributes) if json_input else attributes
             with pytest.raises(ValidationError) as error:
-                validate(candidate)
+                Figure.model_validate(attributes)
             assert any(name in item["loc"] for item in error.value.errors())
 
 

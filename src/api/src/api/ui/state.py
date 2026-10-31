@@ -78,11 +78,6 @@ class UIState:
         """Apply a validated widget mutation from the execution thread."""
         with self.lock:
             for index, message in enumerate(messages):
-                if "createSurface" in message:
-                    content = messages[index + 1].get("updateComponents", {}) if index + 1 < len(messages) else {}
-                    if content.get("surfaceId") != message["createSurface"]["surfaceId"] or "components" not in content:
-                        raise ValueError("Surface creation must be followed by matching content")
-            for index, message in enumerate(messages):
                 if message.get("type") == "widget":
                     identifier = message["surface_id"]
                     if message["action"] == "focus":

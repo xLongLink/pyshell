@@ -123,17 +123,15 @@ def test_administrative_identifiers_are_normalized_and_duplicates_use_shape_ids(
     assert [feature["id"] for feature in result["features"]] == expected
 
 
-@pytest.mark.parametrize("geometry_type", ["Polygon", "MultiPolygon"])
-@pytest.mark.parametrize("label", ["ZÃ¼rich", "Â", "Switzerland"])
-def test_world_polygon_normalization_preserves_label_repair(geometry_type, label):
+@pytest.mark.parametrize(("geometry_type", "label"), [("Polygon", "ZÃ¼rich"), ("MultiPolygon", "Â"), ("MultiPolygon", "Switzerland")])
+def test_world_polygon_normalization_preserves_labels(geometry_type, label):
     coordinates = [[[7, 46], [8, 46], [8, 47], [7, 46]]]
     geometry = {"type": geometry_type, "coordinates": coordinates if geometry_type == "Polygon" else [coordinates]}
     data = {"type": "FeatureCollection", "features": [{"properties": {"ISO_A3_EH": "CHE", "NAME_EN": label}, "geometry": geometry}]}
 
     result = geography.normalize("world", "World", {}, data)
 
-    expected_label = "Zürich" if label == "ZÃ¼rich" else label
-    assert result["features"] == [{"type": "Feature", "id": "CHE", "properties": {"name": expected_label}, "geometry": geometry}]
+    assert result["features"] == [{"type": "Feature", "id": "CHE", "properties": {"name": label}, "geometry": geometry}]
 
 
 @pytest.mark.parametrize("failure", [None, "create", "write", "replace"])

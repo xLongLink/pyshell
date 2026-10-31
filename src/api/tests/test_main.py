@@ -77,10 +77,10 @@ def test_stream_reports_partial_output_and_python_failure():
     assert api_client.get("/health").status_code == 200
 
 
-async def open_stream(app, code="pass"):
+async def open_stream(app):
     tasks = asyncio.all_tasks()
     endpoint = next(route.endpoint for route in app.routes if route.path == "/execute/stream")
-    response = await endpoint(ExecutionRequest(code=code))
+    response = await endpoint(ExecutionRequest(code="pass"))
     workers = asyncio.all_tasks() - tasks
     return response, workers
 

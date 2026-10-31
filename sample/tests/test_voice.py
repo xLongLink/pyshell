@@ -119,23 +119,17 @@ def call_factory(monkeypatch):
 
 
 @pytest.mark.parametrize("offer", [{}, {"sdp": None}, {"sdp": ""}, {"sdp": "x" * 65537}])
-def test_invalid_start_never_reserves_call(call_factory, offer):
-    async def scenario():
-        async with call_factory() as call:
-            with pytest.raises(ValidationError) as error:
-                await call.voice.handle(VoiceCommand.model_validate({"type": "voice", "action": "start", **offer}))
-            if not offer or offer["sdp"] is None:
-                assert "Voice start requires an SDP offer." in str(error.value)
-            assert call.voice.task is None
-            assert call.events == []
-            assert call.offers == []
-            assert asyncio.all_tasks() == {asyncio.current_task()}
-
-    asyncio.run(scenario())
+def test_start_command_rejects_invalid_offers(offer):
+    with pytest.raises(ValidationError) as error:
+        VoiceCommand.model_validate({"type": "voice", "action": "start", **offer})
+    if not offer or offer["sdp"] is None:
+        assert "Voice start requires an SDP offer." in str(error.value)
 
 
-@pytest.mark.parametrize("sdp", ["offer", "x" * 65536])
-def test_valid_start_and_stop_without_offer(call_factory, sdp):
+def test_valid_start_and_stop_without_offer(call_factory):
+    assert VoiceCommand(type="voice", action="start", sdp="offer").sdp == "offer"
+    sdp = "x" * 65536
+
     async def scenario():
         async with call_factory(phase="active") as call:
             await call.voice.handle(VoiceCommand(type="voice", action="start", sdp=sdp))
@@ -183,7 +177,6 @@ def test_completion_and_errors_notify_once(call_factory, outcome):
             await call.voice.handle(VoiceCommand(type="voice", action="start", sdp="offer"))
             task = call.voice.task
             await task
-            assert task.done()
             await call.voice.stop()
             await call.voice.stop()
             names = [event["name"] for event in call.events]

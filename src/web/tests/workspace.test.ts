@@ -45,13 +45,8 @@ test("surface IDs and placement keys enforce the same boundaries", () => {
         ["Sales_2026-01", true],
     ] as const) {
         assert.equal(
-            a2uiBatchSchema.safeParse([
-                {
-                    version: "v0.9",
-                    createSurface: { surfaceId },
-                },
-                update(surfaceId),
-            ]).success,
+            a2uiBatchSchema.safeParse([creation(surfaceId), update(surfaceId)])
+                .success,
             valid,
         );
         assert.equal(

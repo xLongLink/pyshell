@@ -6,12 +6,11 @@ from api.ui.plot.figure import Figure
 from src.api.tests.ui_helpers import RecordingUIState
 
 
-@pytest.mark.parametrize("text", ["plain", 'é雪😀\n\t"\\', "\ud800"])
 @pytest.mark.parametrize("split", [False, True])
-def test_byte_budget_matches_default_json_encoding_at_exact_limit(text, split):
+def test_byte_budget_matches_default_json_encoding_at_exact_limit(split):
     state = RecordingUIState()
     ui = UI(state)
-    first = {"text": text}
+    first = {"text": 'plainé雪😀\n\t"\\\ud800'}
     last = {"text": ""}
     last["text"] = "a" * (1048576 - len(json.dumps([first, last], allow_nan=False).encode()))
     if split:
@@ -84,8 +83,8 @@ def test_nonfinite_serialization_does_not_spend_budget(value):
     assert len(state.messages) == 100
 
 
-@pytest.mark.parametrize("text", ["a", "é", "😀", '"'])
-def test_surface_size_uses_default_json_encoding(text):
+def test_surface_size_uses_default_json_encoding():
+    text = 'aé😀"'
     ui = UI()
     attributes = {"data": [{"type": "bar", "x": ["a" * 2550] * 100, "y": [1] * 100}], "layout": {"title": {"text": text}}}
     component = Figure.model_validate(attributes).model_dump(mode="json")

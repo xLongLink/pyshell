@@ -44,42 +44,40 @@ def test_widget_creation_and_updates_publish_protocol_messages(ui, trace, monkey
 
 def test_surface_replacement_and_removal_publish_protocol_messages(ui):
     trace = {"type": "bar", "x": ["A"], "y": [1]}
-    ui.plot([trace], surface_id="sales")
+    chart = ui.plot([trace], surface_id="sales")
+    ui.plot([trace], surface_id="other")
+    chart.pin()
+    other = ui.state.snapshot()["events"][1]
     ui.state.messages.clear()
     creation = {"version": "v0.9", "createSurface": {"surfaceId": "sales"}}
     deletion = {"version": "v0.9", "deleteSurface": {"surfaceId": "sales"}}
-    replacement = ui.plot([trace], surface_id="sales")
+    replacement = ui.plot([trace], surface_id="sales", layout={"title": {"text": "Replacement"}})
     content = {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [replacement.model_dump(mode="json")]}}
     assert ui.state.messages == [deletion, creation, content]
-    assert ui.state.snapshot()["events"] == [{"type": "a2ui", "messages": [creation, content]}]
+    snapshot = ui.state.snapshot()
+    assert snapshot["events"] == [other, {"type": "a2ui", "messages": [creation, content]}]
+    assert snapshot["placements"]["sales"] == {"pinned": False}
     ui.state.messages.clear()
     replacement.remove()
     assert ui.state.messages == [deletion]
-    assert ui.state.snapshot()["placements"] == {}
+    assert ui.state.snapshot()["placements"] == {"other": {"pinned": False}}
 
 
 @pytest.mark.parametrize(
-    ("operation", "attributes", "message"),
+    ("attributes", "message"),
     [
-        pytest.param("update", {"data": [{"type": "bar", "x": ["A" * 2000] * 200, "y": [1] * 200}]}, "256 KiB", id="oversized-update"),
-        pytest.param("plot", {"data": [{"type": "bar", "x": ["A" * 2000] * 200, "y": [1] * 200}]}, "256 KiB", id="oversized-replacement"),
+        pytest.param({"data": [{"type": "bar", "x": ["A" * 2000] * 200, "y": [1] * 200}]}, "256 KiB", id="oversized-replacement"),
         pytest.param(
-            "plot",
-            {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "component": "Unknown"},
-            "Input should be 'Figure'",
-            id="invalid-replacement",
+            {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "component": "Unknown"}, "Input should be 'Figure'", id="invalid-replacement"
         ),
     ],
 )
-def test_rejected_publication_preserves_the_existing_widget(ui, operation, attributes, message):
+def test_rejected_publication_preserves_the_existing_widget(ui, attributes, message):
     chart = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}}, surface_id="sales")
     messages = list(ui.state.messages)
     snapshot = ui.state.snapshot()
     with pytest.raises(ValueError, match=message):
-        if operation == "plot":
-            ui.plot(**attributes, surface_id="sales")
-        else:
-            chart.update(**attributes)
+        ui.plot(**attributes, surface_id="sales")
     assert ui.state.messages == messages
     assert ui.state.snapshot() == snapshot
     assert chart.data[0].x == ("A",)

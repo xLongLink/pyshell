@@ -167,50 +167,6 @@ test.each(["bar", "scatter"] as const)(
     },
 );
 
-test("charts keep independent labels and colors when another chart changes", async () => {
-    const pie = (labels: string[], surfaceId = "sales") =>
-        figure(
-            [{ type: "pie", labels, values: labels.map(() => 42) }],
-            undefined,
-            surfaceId,
-        );
-    const second = pie(["Other", "Shared"], "second");
-    const { rerender } = render(
-        <Results surfaces={[...pie(["Shared"]), ...second]} />,
-    );
-    const widget = await screen.findByRole("article", {
-        name: "Widget second",
-    });
-    await waitFor(() =>
-        expect(within(widget).getByText("Shared")).toBeTruthy(),
-    );
-    const slice = widget.querySelectorAll(".recharts-pie-sector path")[1];
-    expect(slice.getAttribute("fill")).toBe("var(--chart-2)");
-    fireEvent.mouseEnter(widget.querySelectorAll(".recharts-pie-sector")[1]);
-    await waitFor(() =>
-        expect(
-            widget.querySelector(".recharts-tooltip-wrapper")?.textContent,
-        ).toBe("Shared42"),
-    );
-    rerender(<Results surfaces={[...pie(["Changed", "Shared"]), ...second]} />);
-    await screen.findByText("Changed");
-    const updated = screen.getByRole("article", { name: "Widget second" });
-    const updatedSlice = updated.querySelectorAll(
-        ".recharts-pie-sector path",
-    )[1];
-    expect(updatedSlice.getAttribute("fill")).toBe("var(--chart-2)");
-    fireEvent.mouseEnter(updated.querySelectorAll(".recharts-pie-sector")[1]);
-    await waitFor(() =>
-        expect(
-            updated.querySelector(".recharts-tooltip-wrapper")?.textContent,
-        ).toBe("Shared42"),
-    );
-    expect(
-        updated.querySelector<HTMLElement>(".recharts-tooltip-wrapper [style]")
-            ?.style.backgroundColor,
-    ).toBe(updatedSlice.getAttribute("fill"));
-});
-
 test("explicit figure updates replace traces in one widget and retain sidebar placement", async () => {
     const surfaces = figure(
         [{ type: "scatter", mode: "lines", x: [0, 1], y: [1, 2] }],

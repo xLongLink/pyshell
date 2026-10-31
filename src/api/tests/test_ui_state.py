@@ -3,68 +3,7 @@ import pytest
 import asyncio
 from weakref import ref
 from api.ui.state import UIState
-from api.ui.session import UI
 from src.api.tests.ui_helpers import content, creation
-
-
-@pytest.mark.parametrize(
-    "messages",
-    [
-        [creation("new")],
-        [creation("new"), content("sales")],
-        [creation("new"), {"updateComponents": {"surfaceId": "new"}}],
-        [{"deleteSurface": {"surfaceId": "sales"}}, creation("sales")],
-        [content("sales", "Changed"), creation("new")],
-        [creation("new"), content("new"), creation("incomplete")],
-    ],
-)
-def test_incomplete_creation_rejects_entire_batch_and_preserves_reconnect(messages):
-    async def run():
-        state = UIState()
-        for index in range(5):
-            identifier = "sales" if index == 0 else f"chart_{index}"
-            state.publish([creation(identifier), content(identifier)])
-        before = state.snapshot()
-        sequence = state.sequence
-        context = state.context()
-        queue = state.subscribe()
-        queue.get_nowait()
-        with pytest.raises(ValueError, match="matching content"):
-            state.publish(messages)
-        await asyncio.sleep(0)
-        assert queue.empty()
-        assert not state.pending
-        assert state.snapshot() == before
-        assert state.context() == context
-        assert state.sequence == sequence
-        state.unsubscribe(queue)
-        reconnected = state.subscribe()
-        assert reconnected.get_nowait() == before
-        state.unsubscribe(reconnected)
-
-    asyncio.run(run())
-
-
-def test_complete_creation_and_replacement_always_reconnect_with_content():
-    async def run():
-        state = UIState()
-        ui = UI(state)
-        data = [{"type": "bar", "x": ["A"], "y": [1]}]
-        chart = ui.plot(data, surface_id="sales")
-        ui.plot(data, surface_id="other")
-        chart.pin()
-        ui.plot(data, surface_id="sales", layout={"title": {"text": "Replacement"}})
-        queue = state.subscribe()
-        snapshot = queue.get_nowait()
-        assert [event["messages"][0]["createSurface"]["surfaceId"] for event in snapshot["events"]] == ["other", "sales"]
-        assert snapshot["placements"]["sales"] == {"pinned": False}
-        for event in snapshot["events"]:
-            first, second = event["messages"]
-            assert first["createSurface"]["surfaceId"] == second["updateComponents"]["surfaceId"]
-        assert snapshot["events"][1]["messages"][1]["updateComponents"]["components"][0]["layout"]["title"]["text"] == "Replacement"
-        state.unsubscribe(queue)
-
-    asyncio.run(run())
 
 
 @pytest.mark.parametrize("resubscribe", [False, True])

@@ -32,7 +32,6 @@ function ChartContainer({
 function ChartTooltipContent({
     active,
     payload,
-    indicator = "dot",
     formatLabel,
 }: {
     active?: boolean;
@@ -40,7 +39,6 @@ function ChartTooltipContent({
     formatLabel?: (
         payload: readonly RechartsPrimitive.TooltipPayloadEntry[],
     ) => React.ReactNode;
-    indicator?: "line" | "dot";
 }) {
     if (!active || !payload?.length) {
         return null;
@@ -49,11 +47,10 @@ function ChartTooltipContent({
     const tooltipLabel = formatLabel ? (
         <div className="font-medium">{formatLabel(payload)}</div>
     ) : null;
-    const nestLabel = payload.length === 1 && indicator !== "dot";
 
     return (
         <div className="grid min-w-[8rem] items-start gap-1.5 rounded-lg border border-border/50 bg-card px-2.5 py-1.5 text-xs shadow-xl">
-            {!nestLabel && tooltipLabel}
+            {tooltipLabel}
             <div className="grid gap-1.5">
                 {payload
                     .filter((item) => item.type !== "none")
@@ -63,32 +60,16 @@ function ChartTooltipContent({
                         return (
                             <div
                                 key={index}
-                                className={cn(
-                                    "flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5 [&>svg]:text-muted-foreground",
-                                    indicator === "dot" && "items-center",
-                                )}
+                                className="flex w-full flex-wrap items-center gap-2"
                             >
                                 <div
-                                    className={cn("shrink-0 rounded-[2px]", {
-                                        "h-2.5 w-2.5": indicator === "dot",
-                                        "w-1": indicator === "line",
-                                    })}
+                                    className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
                                     style={{ backgroundColor: indicatorColor }}
                                 />
-                                <div
-                                    className={cn(
-                                        "flex flex-1 justify-between leading-none",
-                                        nestLabel
-                                            ? "items-end"
-                                            : "items-center",
-                                    )}
-                                >
-                                    <div className="grid gap-1.5">
-                                        {nestLabel && tooltipLabel}
-                                        <span className="text-muted-foreground">
-                                            {item.name}
-                                        </span>
-                                    </div>
+                                <div className="flex flex-1 items-center justify-between leading-none">
+                                    <span className="text-muted-foreground">
+                                        {item.name}
+                                    </span>
                                     {item.value != null && (
                                         <span className="font-mono font-medium text-foreground tabular-nums">
                                             {typeof item.value === "number"

@@ -96,7 +96,7 @@ def test_widget_connection_cannot_submit_python():
             assert error.value.code == 1008
 
 
-def test_container_state_preserves_focus_replacement_and_partial_updates():
+def test_container_state_preserves_focus_and_partial_updates():
     ui = UI()
     charts = [ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id=f"chart_{index}") for index in range(5)]
     before = ui.state.snapshot()
@@ -119,10 +119,6 @@ def test_container_state_preserves_focus_replacement_and_partial_updates():
     assert updated["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"][0]["y"] == [2]
     assert updated["placements"] == placements
     assert [event["messages"][0]["createSurface"]["surfaceId"] for event in updated["events"]] == [f"chart_{index}" for index in range(5)]
-    replacement = ui.plot([{"type": "bar", "x": ["A"], "y": [3]}], surface_id="chart_0")
-    assert len(ui.state.snapshot()["events"]) == 5
-    replacement.remove()
-    assert "chart_0" not in ui.state.snapshot()["placements"]
 
 
 def test_surface_snapshots_preserve_creation_and_only_the_latest_update():

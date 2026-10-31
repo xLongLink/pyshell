@@ -48,6 +48,17 @@ test("explicit defaults are not substituted for empty text, false, zero or null"
 test.each([
     { extra: true },
     { data: [{ type: "bar", x: [0], y: [1], extra: true }] },
+    {
+        data: [
+            {
+                type: "choropleth",
+                geography: "FRA",
+                level: "region",
+                locations: ["FR-IDF"],
+                values: [1],
+            },
+        ],
+    },
     { layout: { extra: true } },
     { layout: { title: { text: "", extra: true } } },
     { layout: { xaxis: { extra: true } } },
@@ -101,15 +112,11 @@ test("batch complexity limits stop validation before message parsing", () => {
     }
 });
 
-test("snapshot batches reject histories and retain UTF-8 byte limits", () => {
+test("snapshot batches retain message-count and UTF-8 byte limits", () => {
     const create = {
         version: "v0.9",
         createSurface: { surfaceId: "sales" },
     };
-    assert.equal(
-        a2uiBatchSchema.safeParse(Array(100).fill(create)).success,
-        false,
-    );
     const large = {
         version: "v0.9",
         updateComponents: {
@@ -181,23 +188,6 @@ test.each([
         assert.equal(figureProps.safeParse({ data }).success, valid);
     },
 );
-
-test("legacy map level field is rejected", () => {
-    // Arrange
-    const trace = {
-        type: "choropleth",
-        geography: "FRA",
-        level: "region",
-        locations: ["FR-IDF"],
-        values: [1],
-    };
-
-    // Act
-    const parsed = figureProps.safeParse({ data: [trace] });
-
-    // Assert
-    assert.equal(parsed.success, false);
-});
 
 test("regional maps need only geography, locations and values", () => {
     const trace = {

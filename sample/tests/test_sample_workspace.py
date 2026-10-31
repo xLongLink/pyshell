@@ -54,7 +54,7 @@ def test_generation_failure_never_reports_or_starts_execution(generated, message
 
 
 def test_workspace_ignores_phase_updates_while_idle():
-    workspace = Workspace(make_agent([], []))
+    workspace = Workspace(SimpleNamespace())
     subscription = Subscription(workspace)
     subscription.queue.get_nowait()
 
@@ -70,7 +70,7 @@ def test_workspace_ignores_phase_updates_while_idle():
 @pytest.mark.parametrize("fail", [False, True])
 def test_workspace_returns_to_idle_and_only_publishes_browser_messages(fail):
     async def run():
-        agent = make_agent([], [])
+        agent = SimpleNamespace(shell=SimpleNamespace(uncertain=False))
         workspace = Workspace(agent)
         subscription = Subscription(workspace)
         reports = []
@@ -114,7 +114,7 @@ def test_workspace_returns_to_idle_and_only_publishes_browser_messages(fail):
 @pytest.mark.parametrize("unavailable", [False, True])
 def test_context_snapshots_history_before_fetching_charts(unavailable):
     async def run():
-        agent = make_agent([], [])
+        agent = SimpleNamespace(shell=SimpleNamespace())
         workspace = Workspace(agent)
         workspace.recent_tasks.append({"instruction": "first", "outcome": "completed", "result": "finished"})
         fetching = asyncio.Event()

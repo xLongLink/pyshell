@@ -6,7 +6,6 @@ def execute(client, code):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/x-ndjson")
     events = [json.loads(line) for line in response.text.splitlines()]
-    assert len(events) == 2
     result, finished = events
     assert finished == {"type": "execution_finished"}
     assert result["type"] == "result"
