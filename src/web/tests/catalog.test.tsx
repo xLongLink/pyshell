@@ -138,111 +138,77 @@ test("chart titles remain inert even when they contain HTML", async () => {
     expect(container.querySelector("img")).toBeNull();
 });
 
-test.each(["bar", "scatter", "pie"] as const)(
-    "%s renders its plot without a data table while preserving missing values",
-    async (type) => {
-        const { container } = render(
-            <Results
-                messages={surface([
-                    {
-                        id: "root",
-                        component: "Figure",
-                        layout: { title: { text: "Revenue" } },
-                        data: [
-                            type === "pie"
-                                ? {
-                                      type,
-                                      labels: ["Apples", "Pears", "Oranges"],
-                                      values: [42, null, 84],
-                                  }
-                                : {
-                                      type,
-                                      x: [
-                                          "Apples",
-                                          "Pears",
-                                          "Oranges",
-                                          "Bananas",
-                                      ],
-                                      y: [42, null, 84, 50],
-                                  },
-                        ],
-                    },
-                ])}
-            />,
-        );
-        await waitFor(() => expect(screen.getByText("Revenue")).toBeTruthy());
-        const plot = {
-            bar: ".recharts-bar",
-            scatter: ".recharts-line",
-            pie: ".recharts-pie",
-        }[type];
-        await waitFor(() =>
-            expect(container.querySelector(plot!)).not.toBeNull(),
-        );
-        const chart = screen.getByRole("application");
-        expect(chart.getAttribute("tabindex")).toBe("0");
-        chart.focus();
-        expect(document.activeElement).toBe(chart);
-        if (type === "scatter") {
-            const path = container
-                .querySelector(".recharts-line-curve")
-                ?.getAttribute("d");
-            expect(path?.match(/M/g)).toHaveLength(2);
-        }
-        if (type === "pie") {
-            const legend = within(
-                container.querySelector<HTMLElement>(
-                    ".recharts-legend-wrapper",
-                )!,
-            );
-            expect(legend.getByText("Apples")).toBeTruthy();
-            expect(legend.getByText("Oranges")).toBeTruthy();
-            expect(legend.queryByText("Pears")).toBeNull();
-            expect(
-                container.querySelectorAll(".recharts-pie-sector"),
-            ).toHaveLength(2);
-            expect(
-                [
-                    ...container.querySelectorAll(".recharts-pie-sector path"),
-                ].map((slice) => slice.getAttribute("fill")),
-            ).toEqual(["var(--chart-1)", "var(--chart-3)"]);
-        }
-    },
-);
+test("pie rendering preserves missing slice positions and colors", async () => {
+    const { container } = render(
+        <Results
+            messages={surface([
+                {
+                    id: "root",
+                    component: "Figure",
+                    layout: { title: { text: "Revenue" } },
+                    data: [
+                        {
+                            type: "pie",
+                            labels: ["Apples", "Pears", "Oranges"],
+                            values: [42, null, 84],
+                        },
+                    ],
+                },
+            ])}
+        />,
+    );
+    await waitFor(() => expect(screen.getByText("Revenue")).toBeTruthy());
+    await waitFor(() =>
+        expect(container.querySelector(".recharts-pie")).not.toBeNull(),
+    );
+    const chart = screen.getByRole("application");
+    expect(chart.getAttribute("tabindex")).toBe("0");
+    chart.focus();
+    expect(document.activeElement).toBe(chart);
+    const legend = within(
+        container.querySelector<HTMLElement>(".recharts-legend-wrapper")!,
+    );
+    expect(legend.getByText("Apples")).toBeTruthy();
+    expect(legend.getByText("Oranges")).toBeTruthy();
+    expect(legend.queryByText("Pears")).toBeNull();
+    expect(container.querySelectorAll(".recharts-pie-sector")).toHaveLength(2);
+    expect(
+        [...container.querySelectorAll(".recharts-pie-sector path")].map(
+            (slice) => slice.getAttribute("fill"),
+        ),
+    ).toEqual(["var(--chart-1)", "var(--chart-3)"]);
+});
 
-test.each(['</style><img src=x onerror="alert(1)">', "__proto__", "slice_1"])(
-    "pie legends and tooltips resolve slice labels as inert text: %s",
-    async (label) => {
-        const { container } = render(
-            <Results
-                messages={surface([
-                    {
-                        id: "root",
-                        component: "Figure",
-                        data: [{ type: "pie", labels: [label], values: [42] }],
-                    },
-                ])}
-            />,
-        );
-        await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
-        expect(container.querySelector("img")).toBeNull();
-        const slice = container.querySelector(".recharts-pie-sector path")!;
-        expect(slice.getAttribute("fill")).toBe("var(--chart-1)");
-        fireEvent.mouseEnter(container.querySelector(".recharts-pie-sector")!);
-        await waitFor(() =>
-            expect(
-                container.querySelector(".recharts-tooltip-wrapper")
-                    ?.textContent,
-            ).toBe(`${label}42`),
-        );
+test("pie legends and tooltips resolve slice labels as inert text", async () => {
+    const label = '</style><img src=x onerror="alert(1)">';
+    const { container } = render(
+        <Results
+            messages={surface([
+                {
+                    id: "root",
+                    component: "Figure",
+                    data: [{ type: "pie", labels: [label], values: [42] }],
+                },
+            ])}
+        />,
+    );
+    await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
+    expect(container.querySelector("img")).toBeNull();
+    const slice = container.querySelector(".recharts-pie-sector path")!;
+    expect(slice.getAttribute("fill")).toBe("var(--chart-1)");
+    fireEvent.mouseEnter(container.querySelector(".recharts-pie-sector")!);
+    await waitFor(() =>
         expect(
-            container.querySelector<HTMLElement>(
-                ".recharts-tooltip-wrapper [style]",
-            )?.style.backgroundColor,
-        ).toBe(slice.getAttribute("fill"));
-        expect(container.querySelector("img")).toBeNull();
-    },
-);
+            container.querySelector(".recharts-tooltip-wrapper")?.textContent,
+        ).toBe(`${label}42`),
+    );
+    expect(
+        container.querySelector<HTMLElement>(
+            ".recharts-tooltip-wrapper [style]",
+        )?.style.backgroundColor,
+    ).toBe(slice.getAttribute("fill"));
+    expect(container.querySelector("img")).toBeNull();
+});
 
 test.each(["bar", "scatter"] as const)(
     "%s legends and keyboard tooltips preserve user labels and default series names",

@@ -234,8 +234,12 @@ def _lookup(path: Path, _revision: int) -> dict:
     }
 
 
+def _geography_info(geography: str) -> dict:
+    path = geography_path(geography)
+    return _lookup(path, path.stat().st_mtime_ns)
+
+
 def geography_info(geography: str = "world") -> dict:
     """Return the selected map's name, level, and available location codes."""
-    path = geography_path(geography)
-    info = _lookup(path, path.stat().st_mtime_ns)
+    info = _geography_info(geography)
     return {**info, "locations": dict(info["locations"])}

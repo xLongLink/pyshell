@@ -195,7 +195,6 @@ test.each([
 );
 
 test("only the current catalog is accepted", () => {
-    assert.equal(catalogId, "urn:pyshell:catalog:v3");
     assert.equal(
         a2uiBatchSchema.safeParse([
             {

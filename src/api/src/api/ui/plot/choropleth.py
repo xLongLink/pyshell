@@ -2,7 +2,7 @@ from typing import Literal, Annotated
 from pydantic import Field, model_validator
 from api.ui.model import UIModel
 from api.ui.types import Number, TextValue
-from api.ui.plot.geography import geography_info
+from api.ui.plot.geography import _geography_info
 
 
 class Choropleth(UIModel):
@@ -25,7 +25,7 @@ class Choropleth(UIModel):
         if len(set(self.locations)) != len(self.locations):
             raise ValueError("locations must be unique")
         try:
-            geography = geography_info(self.geography)
+            geography = _geography_info(self.geography)
         except OSError as error:
             raise ValueError("Map data is unavailable; first use requires internet access") from error
         if any(location not in geography["locations"] for location in self.locations):

@@ -1,16 +1,6 @@
 import httpx
 import asyncio
-from typing import TypedDict
-from sample.src.events import execution_event
-
-
-class ExecutionResult(TypedDict):
-    """Output returned by the execution API."""
-
-    stdout: str
-    stderr: str
-    exception: str | None
-    done: bool
+from sample.src.events import Result, execution_event
 
 
 class RemoteShell:
@@ -36,7 +26,7 @@ class RemoteShell:
         response.raise_for_status()
         return response
 
-    async def stream(self, code: str) -> ExecutionResult:
+    async def stream(self, code: str) -> Result:
         """Submit once and consume ordered output until completion is confirmed."""
         if self.uncertain:
             raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
@@ -73,7 +63,7 @@ class RemoteShell:
                         finished = True
 
                     elif event.type == "result":
-                        result = event.model_dump(exclude={"type"})
+                        result = event
                     # Widgets are delivered directly to the container-hosted UI.
 
             # EOF alone does not confirm that execution finished.

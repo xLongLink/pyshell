@@ -2,6 +2,7 @@ import pytest
 import asyncio
 from api.main import create_app
 from threading import Thread
+from api.ui.state import UIState
 from api.ui.session import UI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -108,6 +109,34 @@ def test_container_state_preserves_focus_replacement_and_partial_updates():
     assert len(ui.state.snapshot()["events"]) == 5
     replacement.remove()
     assert "chart_0" not in ui.state.snapshot()["placements"]
+
+
+def test_surface_snapshots_preserve_creation_and_only_the_latest_update():
+    state = UIState()
+    creation = {"createSurface": {"surfaceId": "sales"}}
+    state.publish([creation])
+    initial = state.snapshot()
+    assert initial == {"type": "snapshot", "events": [{"type": "a2ui", "messages": [creation]}], "placements": {"sales": {"pinned": False}}}
+    assert state.context() == {"charts": []}
+
+    updates = [
+        {"updateComponents": {"surfaceId": "sales", "components": [{"layout": {"title": {"text": title}}, "data": []}]}}
+        for title in ["First", "Latest"]
+    ]
+    state.publish([updates[0]])
+    previous = state.snapshot()
+    state.publish([updates[1]])
+    assert initial["events"][0]["messages"] == [creation]
+    assert previous["events"][0]["messages"] == [creation, updates[0]]
+    assert state.snapshot()["events"] == [{"type": "a2ui", "messages": [creation, updates[1]]}]
+    assert state.context() == {"charts": [{"surface_id": "sales", "title": "Latest", "trace_types": [], "series": [], "pinned": False}]}
+    snapshot = state.snapshot()
+    snapshot["events"][0]["messages"].clear()
+    assert state.snapshot()["events"][0]["messages"] == [creation, updates[1]]
+
+    state.publish([creation])
+    assert state.snapshot() == initial
+    assert state.context() == {"charts": []}
 
 
 def test_slow_widget_subscriber_receives_latest_snapshot_without_blocking_execution():

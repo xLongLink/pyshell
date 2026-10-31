@@ -47,6 +47,13 @@ export function Cartesian({
     const ys = data.flatMap((trace) =>
         trace.y.filter((y): y is number => y !== null),
     );
+    if (ys.length === 0) {
+        return (
+            <p className="py-8 text-sm text-muted-foreground">
+                No values to display.
+            </p>
+        );
+    }
     const bars: Record<string, string | number | null>[] = [];
     const rows = new Map<
         string | number,

@@ -1,3 +1,4 @@
+import json
 import pytest
 from io import BytesIO
 from types import SimpleNamespace
@@ -6,6 +7,24 @@ from api.ui.plot import geography
 from urllib.error import URLError, HTTPError
 from urllib.request import Request
 from fastapi.testclient import TestClient
+from api.ui.plot.choropleth import Choropleth
+
+
+def test_public_geography_info_does_not_expose_cached_mutable_data(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
+    (tmp_path / "world-v2.json").write_text(
+        json.dumps({"name": "World", "level": "country", "features": [{"id": "CHE", "properties": {"name": "Switzerland"}}]})
+    )
+
+    info = geography.geography_info()
+    info["name"] = "Changed"
+    info["locations"]["CHE"] = "Changed"
+    info["locations"]["FRA"] = "France"
+
+    assert geography.geography_info() == {"name": "World", "level": "country", "locations": {"CHE": "Switzerland"}}
+    assert Choropleth(locations=["CHE"], values=[1]).locations == ["CHE"]
+    with pytest.raises(ValueError, match="Unknown location for this geography"):
+        Choropleth(locations=["FRA"], values=[1])
 
 
 def test_failed_download_does_not_cache_or_expose_upstream_details(monkeypatch, tmp_path):

@@ -7,7 +7,8 @@ from dataclasses import dataclass
 class Surface:
     """Retain a widget's current content and placement."""
 
-    messages: list[dict[str, object]]
+    creation: dict[str, object]
+    latest_update: dict[str, object] | None = None
     pinned: bool = False
     focused_at: int = 0
 
@@ -28,7 +29,13 @@ class UIState:
         with self.lock:
             return {
                 "type": "snapshot",
-                "events": [{"type": "a2ui", "messages": list(surface.messages)} for surface in self.surfaces.values()],
+                "events": [
+                    {
+                        "type": "a2ui",
+                        "messages": [surface.creation] + ([surface.latest_update] if surface.latest_update is not None else []),
+                    }
+                    for surface in self.surfaces.values()
+                ],
                 "placements": {
                     key: {"pinned": surface.pinned} for key, surface in sorted(self.surfaces.items(), key=lambda item: item[1].focused_at)
                 },
@@ -84,11 +91,11 @@ class UIState:
                         self.surfaces[identifier].pinned = True
                 elif "createSurface" in message:
                     identifier = message["createSurface"]["surfaceId"]
-                    self.surfaces[identifier] = Surface([message])
+                    self.surfaces[identifier] = Surface(message)
                     self._focus(identifier)
                 elif "updateComponents" in message:
                     surface = self.surfaces[message["updateComponents"]["surfaceId"]]
-                    surface.messages = [surface.messages[0], message]
+                    surface.latest_update = message
                 elif "deleteSurface" in message:
                     self.surfaces.pop(message["deleteSurface"]["surfaceId"], None)
             self._broadcast()
@@ -105,15 +112,16 @@ class UIState:
         with self.lock:
             charts = []
             for identifier, surface in self.surfaces.items():
-                for message in surface.messages:
-                    charts.extend(
-                        {
-                            "surface_id": identifier,
-                            "title": component.get("layout", {}).get("title", {}).get("text", "")[:300],
-                            "trace_types": list(dict.fromkeys(trace["type"] for trace in component.get("data", []))),
-                            "series": [trace.get("name", "")[:100] for trace in component.get("data", [])],
-                            "pinned": surface.pinned,
-                        }
-                        for component in message.get("updateComponents", {}).get("components", [])
-                    )
+                if surface.latest_update is None:
+                    continue
+                charts.extend(
+                    {
+                        "surface_id": identifier,
+                        "title": component.get("layout", {}).get("title", {}).get("text", "")[:300],
+                        "trace_types": list(dict.fromkeys(trace["type"] for trace in component.get("data", []))),
+                        "series": [trace.get("name", "")[:100] for trace in component.get("data", [])],
+                        "pinned": surface.pinned,
+                    }
+                    for component in surface.latest_update["updateComponents"].get("components", [])
+                )
             return {"charts": charts}

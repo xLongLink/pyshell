@@ -159,11 +159,11 @@ class Agent:
             # Retain the completed exchange before deciding whether to continue.
             self.pending_feedback = None
             self.message_history = history
-            message = json.dumps(result)
-            outputs.append(result["stdout"] + result["stderr"] + (result["exception"] or ""))
+            message = json.dumps(result.model_dump(exclude={"type"}))
+            outputs.append(result.stdout + result.stderr + (result.exception or ""))
 
             # Carry final execution feedback into the next user turn.
-            if result["done"]:
+            if result.done:
                 self.pending_feedback = message
                 return "\n".join(outputs) or "Task completed without printed output."
         self.pending_feedback = (

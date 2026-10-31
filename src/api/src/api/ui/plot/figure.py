@@ -56,14 +56,13 @@ class Figure(UIModel):
     @model_validator(mode="after")
     def traces(self) -> "Figure":
         """Require compatible traces on one coordinate system."""
-        if any(isinstance(trace, Choropleth) for trace in self.data):
+        standalone = next((trace for trace in self.data if isinstance(trace, (Pie, Choropleth))), None)
+        if standalone is not None:
             if len(self.data) != 1:
-                raise ValueError("A map figure requires exactly one choropleth trace")
-            count = len(self.data[0].values)
-        elif any(isinstance(trace, Pie) for trace in self.data):
-            if len(self.data) != 1:
+                if any(isinstance(trace, Choropleth) for trace in self.data):
+                    raise ValueError("A map figure requires exactly one choropleth trace")
                 raise ValueError("A pie figure requires exactly one pie trace")
-            count = len(self.data[0].values)
+            count = len(standalone.values)
 
         # Cartesian traces share one numeric or categorical coordinate system.
         else:

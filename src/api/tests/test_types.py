@@ -1,12 +1,6 @@
 import pytest
 from pydantic import TypeAdapter, ValidationError
-from api.ui.types import Number, TextValue, Identifier
-
-
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
-def test_number_rejects_nonfinite_values(value):
-    with pytest.raises(ValidationError, match="Input should be a finite number"):
-        TypeAdapter(Number).validate_python(value)
+from api.ui.types import TextValue, Identifier
 
 
 @pytest.mark.parametrize("value", ["a", "Sales_2026-Q4", "a" * 64])

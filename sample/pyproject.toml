@@ -11,6 +11,14 @@ dependencies = [
     "pydantic-ai-slim[openai,openai-realtime]>=2.61,<3",
 ]
 
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".."]
+addopts = "--import-mode=importlib"
+
 [tool.ruff]
 line-length = 140
 target-version = "py310"
@@ -30,6 +38,9 @@ ignore = ["D100", "D104", "D202", "D203", "D213"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "ARG", "D", "N803", "S"]
 
 [tool.ruff.lint.isort]
 no-sections = true

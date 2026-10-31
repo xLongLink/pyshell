@@ -14,6 +14,7 @@ logs:
 
 test:
 	uv run --locked --project src/api pytest -c src/api/pyproject.toml src/api/tests -v
+	uv run --locked --project sample pytest -c sample/pyproject.toml sample/tests -v
 	npm --prefix src/web ci
 	npm --prefix src/web test
 

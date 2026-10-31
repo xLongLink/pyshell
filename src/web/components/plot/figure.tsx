@@ -30,14 +30,8 @@ export function Figure({ data, layout }: FigureProps) {
                     </Suspense>
                 ) : trace.type === "pie" ? (
                     <PiePlot trace={trace} showlegend={layout.showlegend} />
-                ) : cartesian.some((trace) =>
-                      trace.y.some((value) => value !== null),
-                  ) ? (
-                    <Cartesian data={cartesian} layout={layout} />
                 ) : (
-                    <p className="py-8 text-sm text-muted-foreground">
-                        No values to display.
-                    </p>
+                    <Cartesian data={cartesian} layout={layout} />
                 )}
             </div>
         </figure>
