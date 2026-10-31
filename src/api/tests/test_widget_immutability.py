@@ -23,7 +23,7 @@ def trace(request, monkeypatch):
 
 def test_published_attributes_and_sequences_cannot_be_mutated(trace):
     ui = UI(RecordingUIState())
-    chart = ui.plot([trace], layout={"title": {"text": "Original"}})
+    chart = ui.plot([trace])
     before = chart.model_dump(mode="json")
     snapshot = ui.state.snapshot()
     sequences = [chart.data, *(getattr(chart.data[0], name) for name, value in trace.items() if isinstance(value, list))]
@@ -32,13 +32,19 @@ def test_published_attributes_and_sequences_cannot_be_mutated(trace):
             setitem(sequence, 0, sequence[0])
     with pytest.raises(ValidationError, match="frozen"):
         chart.data[0].name = "Unpublished"
+    assert chart.model_dump(mode="json") == before
+    assert ui.state.snapshot() == snapshot
+    assert len(ui.state.messages) == 2
+
+
+def test_layout_and_nested_title_cannot_be_mutated():
+    chart = Figure.model_validate({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "layout": {"title": {"text": "Original"}}})
+    before = chart.model_dump(mode="json")
     with pytest.raises(ValidationError, match="frozen"):
         chart.layout = {"title": {"text": "Unpublished"}}
     with pytest.raises(ValidationError, match="frozen"):
         chart.layout.title.text = "Unpublished"
     assert chart.model_dump(mode="json") == before
-    assert ui.state.snapshot() == snapshot
-    assert len(ui.state.messages) == 2
 
 
 def test_original_lists_cannot_change_published_or_subsequently_updated_content(trace):

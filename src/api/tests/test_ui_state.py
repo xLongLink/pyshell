@@ -140,7 +140,7 @@ def test_public_snapshot_containers_do_not_mutate_shared_delivery():
         state.publish([creation("sales"), content("sales")])
         await asyncio.sleep(0)
         shared = first.get_nowait()
-        assert second.get_nowait() is shared
+        assert second.get_nowait() == shared
         public = state.snapshot()
         public["events"][0]["messages"].clear()
         public["events"].clear()

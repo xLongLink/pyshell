@@ -30,8 +30,6 @@ const boundaries: Geography = {
 afterEach(() => vi.unstubAllGlobals());
 
 test.each([
-    ["http", async () => new Response("unavailable", { status: 502 })],
-    ["malformed", async () => new Response("{}")],
     ...[
         { ...boundaries, geography: "USA" },
         { ...boundaries, features: [] },
@@ -60,22 +58,34 @@ test.each([
                 async () => new Response(JSON.stringify(data)),
             ] as const,
     ),
+] as const)("rejects %s boundary responses", async (_failure, firstFetch) => {
+    // Arrange
+    vi.resetModules();
+    vi.stubGlobal("fetch", vi.fn().mockImplementationOnce(firstFetch));
+    const { loadGeography } = await import("../components/plot/geography");
+    // Act
+    // Assert
+    await expect(loadGeography("CHE")).rejects.toBeTruthy();
+});
+
+test.each([
+    ["HTTP", 502],
+    ["validation", 200],
 ] as const)(
-    "failed %s boundary responses can be retried",
-    async (_failure, firstFetch) => {
-        // Arrange
+    "failed %s boundary requests can be retried",
+    async (_failure, status) => {
         vi.resetModules();
-        const fetch = vi.fn().mockImplementationOnce(firstFetch);
+        const fetch = vi
+            .fn()
+            .mockResolvedValueOnce(new Response("{}", { status }));
         fetch.mockImplementation(() =>
             Promise.resolve(new Response(JSON.stringify(boundaries))),
         );
         vi.stubGlobal("fetch", fetch);
         const { loadGeography } = await import("../components/plot/geography");
-        // Act
-        // Assert
+
         await expect(loadGeography("CHE")).rejects.toBeTruthy();
-        const retry = loadGeography("CHE");
-        await expect(retry).resolves.toEqual(boundaries);
+        await expect(loadGeography("CHE")).resolves.toEqual(boundaries);
         expect(fetch).toHaveBeenCalledTimes(2);
     },
 );

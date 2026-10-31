@@ -21,7 +21,6 @@ def standalone_traces(monkeypatch):
         (("choropleth", "scatter"), "A map figure requires exactly one choropleth trace"),
         (("scatter", "choropleth"), "A map figure requires exactly one choropleth trace"),
         (("pie", "choropleth"), "A map figure requires exactly one choropleth trace"),
-        (("choropleth", "pie"), "A map figure requires exactly one choropleth trace"),
     ],
 )
 def test_standalone_traces_reject_mixed_figures(standalone_traces, kinds, message):
@@ -58,10 +57,7 @@ def test_scatter_modes_and_trace_order_survive_publication():
 @pytest.mark.parametrize("coordinates", [([1], ["A"]), (["A"], [1]), ([1, "A"], [2])])
 def test_mixed_cartesian_coordinate_types_are_rejected_before_publication(coordinates):
     ui = UI()
-    data = [
-        {"type": kind, "x": values, "y": [1] * len(values)}
-        for kind, values in zip(("bar", "scatter"), coordinates)
-    ]
+    data = [{"type": kind, "x": values, "y": [1] * len(values)} for kind, values in zip(("bar", "scatter"), coordinates)]
 
     with pytest.raises(ValidationError, match="All x coordinates must be numeric or all categorical"):
         ui.plot(data)

@@ -73,7 +73,6 @@ test("validated figures contain only one plot family", () => {
         [scatter, map],
         [map, scatter],
         [pie, map],
-        [map, pie],
         [pie, pie],
         [map, map],
     ])

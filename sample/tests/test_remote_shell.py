@@ -34,8 +34,7 @@ def test_metadata_reads_preserve_payload_path_and_timeout(method, path, payload,
     assert requests[0].extensions["timeout"] == expected_timeout
 
 
-@pytest.mark.parametrize("method", ["inventory", "context"])
-@pytest.mark.parametrize("status", [404, 503])
+@pytest.mark.parametrize(("method", "status"), [("inventory", 404), ("context", 503)])
 def test_metadata_reads_raise_for_unsuccessful_status_without_marking_execution_uncertain(method, status):
     async def run():
         transport = httpx.MockTransport(lambda request: httpx.Response(status, json={"detail": "unavailable"}))

@@ -25,6 +25,9 @@ Respond only with executable Python, without Markdown or prose.
 - Call done() only after completing the request and printing a concise result.
   Otherwise, continue inspecting and working. If blocked, print the limitation and call done()
   without claiming success.
+
+Installed packages in the worker's execution environment (distribution names may differ from import names):
+{libraries}
 """
 
 
@@ -46,11 +49,7 @@ class Agent:
     async def _instructions(self) -> str:
         if self._instruction_text is None:
             libraries = await self.shell.inventory()
-            self._instruction_text = (
-                INSTRUCTIONS
-                + "\nInstalled packages in the execution environment (distribution names may differ from import names):\n"
-                + json.dumps(libraries)
-            )
+            self._instruction_text = INSTRUCTIONS.format(libraries=json.dumps(libraries))
         return self._instruction_text
 
     async def arun(self, instruction: str, on_phase: Callable[[str], None]) -> str:
