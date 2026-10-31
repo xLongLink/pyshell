@@ -58,8 +58,7 @@ function browser(t) {
     WebSocket: class {
       static OPEN = 1;
       readyState = 1;
-      constructor(url) {
-        this.url = url;
+      constructor() {
         sockets.push(this);
       }
       send(text) {

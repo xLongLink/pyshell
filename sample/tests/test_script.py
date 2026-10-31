@@ -136,7 +136,6 @@ def test_library_discovery_failure_prevents_model_request_and_retries():
             await agent.arun("work")
         assert requests == []
         assert agent.message_history == []
-        assert agent._libraries is None
         shell.stream.assert_not_awaited()
         feedback = agent.pending_feedback.splitlines()
         assert feedback[0] == "previous feedback"

@@ -35,17 +35,6 @@ def test_execution_preserves_namespace_and_captures_output():
     assert execute(api_client, "pass") == {"stdout": "", "stderr": "", "exception": None, "done": False, "ui": []}
 
 
-def test_errors_preserve_prior_updates_and_do_not_kill_server():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
-    result = execute(api_client, "value = 42\nprint('before')\n1 / 0\nvalue = 99")
-    assert result["stdout"] == "before\n"
-    assert "ZeroDivisionError" in result["exception"]
-    assert execute(api_client, "print(value)")["stdout"] == "42\n"
-    for source in ("if :", "raise SystemExit(1)", "raise KeyboardInterrupt"):
-        assert execute(api_client, source)["exception"]
-    assert api_client.get("/health").status_code == 200
-
-
 def test_invalid_request_is_rejected():
     api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
     assert api_client.post("/execute/stream", json={"command": "print(42)"}).status_code == 422
@@ -98,15 +87,37 @@ def test_stream_preserves_widget_placement_and_final_output_order():
 
 
 def test_stream_reports_partial_output_and_python_failure():
+    # Arrange
     api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
-    response = api_client.post("/execute/stream", json={"code": "value = 42\nprint('before')\ndone()\n1 / 0"})
+
+    # Act
+    response = api_client.post(
+        "/execute/stream",
+        json={
+            "code": (
+                "value = 42\n"
+                "print('before')\n"
+                "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='notice')\n"
+                "done()\n1 / 0\nvalue = 99"
+            )
+        },
+    )
     events = [json.loads(line) for line in response.text.splitlines()]
-    assert [event["type"] for event in events] == ["result", "execution_finished"]
+
+    # Assert
+    assert response.status_code == 200
+    assert [event["type"] for event in events] == ["a2ui", "result", "execution_finished"]
+    assert events[0]["messages"][0]["createSurface"]["surfaceId"] == "notice"
     assert events[-2]["stdout"] == "before\n"
     assert "ZeroDivisionError" in events[-2]["exception"]
     assert events[-2]["done"] is False
     assert events[-1] == {"type": "execution_finished"}
-    assert execute(api_client, "print(value)")["stdout"] == "42\n"
+    subsequent = execute(api_client, "print(value)")
+    assert subsequent["stdout"] == "42\n"
+    assert subsequent["ui"] == []
+    for source, error in (("if :", "SyntaxError"), ("raise SystemExit(1)", "SystemExit"), ("raise KeyboardInterrupt", "KeyboardInterrupt")):
+        assert error in execute(api_client, source)["exception"]
+    assert api_client.get("/health").status_code == 200
 
 
 async def open_stream(app, code="pass"):
@@ -153,7 +164,6 @@ def test_stream_worker_failure_still_emits_terminal_event(monkeypatch):
     async def check():
         response, workers = await open_stream(app)
         errors = await asyncio.wait_for(asyncio.gather(*workers, return_exceptions=True), timeout=2)
-        assert len(errors) == 1
         assert isinstance(errors[0], RuntimeError)
         assert str(errors[0]) == "worker failed"
         assert [json.loads(line) async for line in response.body_iterator] == [

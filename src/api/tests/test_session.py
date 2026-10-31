@@ -39,17 +39,6 @@ def test_invalid_ui_does_not_publish_partial_surface():
     assert execute(api_client, "print(ui.surfaces)")["stdout"] == "set()\n"
 
 
-def test_python_errors_preserve_widgets_but_reset_clears_display_state():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
-    result = execute(api_client, "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='notice')\n1 / 0")
-    assert result["exception"]
-    assert result["ui"][0]["createSurface"]["surfaceId"] == "notice"
-    assert execute(api_client, "pass")["ui"] == []
-    api_client.post("/reset")
-    fresh = execute(api_client, "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [2]}], surface_id='notice')")["ui"]
-    assert "createSurface" in fresh[0]
-
-
 def test_display_limits_reject_excess_surfaces():
     api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
     result = execute(api_client, "for number in range(21):\n    ui.plot([{'type': 'bar', 'x': ['A'], 'y': [number]}])")

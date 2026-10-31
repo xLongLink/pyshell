@@ -56,19 +56,7 @@ test("failed map loads show an error and allow retry", async () => {
     const load = vi
         .spyOn(geographyLoader, "loadGeography")
         .mockRejectedValue(new Error("Network failure"));
-    render(
-        <Figure
-            {...figureProps.parse({
-                data: [
-                    {
-                        type: "choropleth",
-                        locations: ["FRA"],
-                        values: [42],
-                    },
-                ],
-            })}
-        />,
-    );
+    render(<Figure {...props} />);
     fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
     await screen.findByRole("button", { name: "Retry" });
     expect(screen.getByRole("alert").textContent).toContain(

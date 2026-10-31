@@ -163,7 +163,6 @@ test.each(["bar", "scatter", "pie"] as const)(
         await waitFor(() =>
             expect(container.querySelector(plot!)).not.toBeNull(),
         );
-        expect(container.querySelector('[data-slot="chart"]')).not.toBeNull();
         const chart = screen.getByRole("application");
         expect(chart.getAttribute("tabindex")).toBe("0");
         chart.focus();

@@ -8,10 +8,12 @@ from sample.src.workspace import Command, Workspace
 
 def test_workspace_inspection_tracks_phases_and_fetches_container_chart_context():
     async def run():
+        # Arrange
         started = asyncio.Event()
         release = asyncio.Event()
         charts = [{"surface_id": "sales", "title": "Sales", "pinned": False}]
-        context = AsyncMock(return_value={"charts": charts})
+        updated_charts = [{"surface_id": "sales", "title": "Updated sales", "pinned": True}]
+        context = AsyncMock(side_effect=[{"charts": charts}, {"charts": updated_charts}])
 
         async def execute(instruction, emit):
             emit({"type": "code_start"})
@@ -24,6 +26,8 @@ def test_workspace_inspection_tracks_phases_and_fetches_container_chart_context(
         workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False, context=context), arun=execute))
         reports = []
         workspace.results.add(reports.append)
+
+        # Act
         task = workspace.start(Command(type="run", instruction="Plot sales"))
         await started.wait()
         assert workspace.status()["phase"] == "executing_python"
@@ -31,9 +35,12 @@ def test_workspace_inspection_tracks_phases_and_fetches_container_chart_context(
         assert workspace.snapshot() == {"type": "snapshot"}
         release.set()
         await task
+
+        # Assert
         assert workspace.status()["phase"] == "idle"
-        assert json.loads(reports[0]) == (await workspace.context())["recent_tasks"][0]
-        assert context.await_count == 2
+        completed_context = await workspace.context()
+        assert completed_context["charts"] == updated_charts
+        assert json.loads(reports[0]) == completed_context["recent_tasks"][0]
 
     asyncio.run(run())
 

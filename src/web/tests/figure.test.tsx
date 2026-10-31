@@ -1,31 +1,42 @@
-import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, expect, test } from "vitest";
+import {
+    cleanup,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+} from "@testing-library/react";
 import { Figure } from "../components/plot/figure";
-import { Cartesian } from "../components/plot/cartesian";
 import { figureProps } from "../lib/a2ui";
 
-vi.mock("../components/plot/cartesian", () => ({
-    Cartesian: vi.fn(() => <div>Cartesian plot</div>),
-}));
-
-afterEach(() => {
-    cleanup();
-    vi.clearAllMocks();
-});
+afterEach(cleanup);
 
 test.each(["bar", "scatter"] as const)(
-    "%s-first dispatch passes the original array including later non-null traces",
-    (type) => {
+    "%s-first plots retain a later zero-valued series when the first is all missing",
+    async (type) => {
+        // Arrange
         const props = figureProps.parse({
             data: [
                 { type, x: [0], y: [null] },
-                { type: type === "bar" ? "scatter" : "bar", x: [0], y: [0] },
+                {
+                    type: type === "bar" ? "scatter" : "bar",
+                    name: "Zero series",
+                    x: [0],
+                    y: [0],
+                },
             ],
         });
-        render(<Figure {...props} />);
-        expect(screen.getByText("Cartesian plot")).toBeTruthy();
+        // Act
+        const { container } = render(<Figure {...props} />);
+        fireEvent.focus(await screen.findByRole("application"));
+
+        // Assert
+        await waitFor(() =>
+            expect(
+                container.querySelector(".recharts-tooltip-wrapper")
+                    ?.textContent,
+            ).toBe("0Zero series0"),
+        );
         expect(screen.queryByText("No values to display.")).toBeNull();
-        expect(vi.mocked(Cartesian).mock.calls[0][0].data).toBe(props.data);
-        expect(vi.mocked(Cartesian).mock.calls[0][0].layout).toBe(props.layout);
     },
 );

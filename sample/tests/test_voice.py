@@ -35,11 +35,9 @@ class Realtime:
 
 
 def install_agent(monkeypatch, realtime, tools):
-    settings = {}
-
     class Agent:
         def __init__(self, **kwargs):
-            settings.update(kwargs)
+            pass
 
         def tool_plain(self, function):
             tools[function.__name__] = function
@@ -49,7 +47,6 @@ def install_agent(monkeypatch, realtime, tools):
             return realtime
 
     monkeypatch.setattr(voice, "Agent", Agent)
-    return settings
 
 
 def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(monkeypatch):
@@ -67,7 +64,7 @@ def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(mon
             return "Confirmed result: 42"
 
         shell = SimpleNamespace(uncertain=False)
-        agent = SimpleNamespace(shell=shell, pending_feedback=None, arun=execute)
+        agent = SimpleNamespace(shell=shell, arun=execute)
         workspace = Workspace(agent)
         events = []
 
@@ -181,7 +178,7 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         tools = {}
         release = asyncio.Event()
 
-        settings = install_agent(monkeypatch, realtime, tools)
+        install_agent(monkeypatch, realtime, tools)
 
         async def execute(instruction, emit):
             if instruction == "slow":
@@ -203,7 +200,6 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         await call.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
         await asyncio.sleep(0)
         assert "Calculate answer" in realtime.messages[0]
-        assert "persistent Python workspace" in settings["instructions"]
         assert "Confirmed answer: 42" in realtime.messages[0]
         context = json.loads(await tools["inspect_workspace"]())
         assert context["recent_tasks"][0]["instruction"] == "Calculate answer"

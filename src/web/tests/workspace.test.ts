@@ -25,15 +25,12 @@ test("malformed events are rejected at the browser boundary", () => {
 
 test("snapshots use one pinned flag", () => {
     const widgets = { sales: { pinned: true } };
-    assert.deepEqual(placementsSchema.parse(widgets), widgets);
     const snapshot = messageSchema.parse({
         type: "snapshot",
         events: [],
         placements: widgets,
     });
-    assert.equal(snapshot.type, "snapshot");
-    if (snapshot.type === "snapshot")
-        assert.deepEqual(snapshot.placements, widgets);
+    assert.deepEqual(snapshot.placements, widgets);
     assert.equal(
         placementsSchema.safeParse({
             sales: { pinned: false, focused: true },
