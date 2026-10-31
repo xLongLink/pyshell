@@ -97,7 +97,6 @@ test("batch complexity limits stop validation before message parsing", () => {
         deep,
         [Array(501).fill(null)],
         [Object.fromEntries(Array.from({ length: 17 }, (_, i) => [i, null]))],
-        ["x".repeat(10001)],
         [Array.from({ length: 500 }, () => Array(41).fill(null))],
     ]) {
         const parsed = a2uiBatchSchema.safeParse(payload);

@@ -62,7 +62,6 @@ class Agent:
         output = ""
         prompt = self._with_pending_feedback(instruction)
         for step in range(10):
-            # Preserve execution feedback across failed model requests.
             try:
                 on_phase("generating_code")
 

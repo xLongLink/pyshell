@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 // @ts-expect-error The sample browser module has no TypeScript declarations.
 import { ParticlesOrb } from "../../../sample/assets/particles-orb.mjs";
 
-type Orb = HTMLElement & { state: string; level: number };
+type Orb = HTMLElement & { state: string; level: number; energy: number };
 
 let frames: Map<number, FrameRequestCallback>;
 let motion: EventTarget & { matches: boolean };
@@ -92,16 +92,12 @@ test("speech volume smoothly changes the particle positions and stays normalized
     orb.level = 5;
     expect(orb.level).toBe(1);
     for (let time = 50; time <= 1000; time += 50) advance(time);
-    expect(Number(orb.style.getPropertyValue("--orb-level"))).toBeGreaterThan(
-        0.99,
-    );
+    expect(orb.energy).toBeGreaterThan(0.99);
     expect(context.arc.mock.calls.slice(-720)).not.toEqual(resting);
     orb.level = -1;
     expect(orb.level).toBe(0);
     for (let time = 1050; time <= 3000; time += 50) advance(time);
-    expect(Number(orb.style.getPropertyValue("--orb-level"))).toBeLessThan(
-        0.01,
-    );
+    expect(orb.energy).toBeLessThan(0.01);
     expect(context.arc.mock.calls.flat().every(Number.isFinite)).toBe(true);
 });
 

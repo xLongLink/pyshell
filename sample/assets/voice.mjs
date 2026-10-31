@@ -28,15 +28,13 @@ export function mountVoice(page = window) {
           ? "Stopping voice"
           : "Stop voice",
     );
-    if (orb) {
-      orb.state = !connected
-        ? "disabled"
-        : value === "off"
-          ? "idle"
-          : value === "on"
-            ? orb.level > 0.02 ? "speaking" : "listening"
-            : "connecting";
-    }
+    orb.state = !connected
+      ? "disabled"
+      : value === "off"
+        ? "idle"
+        : value === "on"
+          ? orb.level > 0.02 ? "speaking" : "listening"
+          : "connecting";
   }
 
   function send(action, sdp) {
@@ -48,7 +46,6 @@ export function mountVoice(page = window) {
   }
 
   function setLevel(level) {
-    if (!orb) return;
     orb.level = level;
     if (phase === "on") orb.state = level > 0.02 ? "speaking" : "listening";
   }
@@ -104,7 +101,7 @@ export function mountVoice(page = window) {
   function failVoice(text) {
     error(voiceError, text);
     stop();
-    if (orb) orb.state = "error";
+    orb.state = "error";
   }
 
   function waitForIce(current) {
@@ -229,7 +226,7 @@ export function mountVoice(page = window) {
         error(voiceError, event.text);
         stop(true);
         setPhase("stopping");
-        if (orb) orb.state = "error";
+        orb.state = "error";
       } else if (
         event.name === "answer" &&
         typeof event.sdp === "string" &&

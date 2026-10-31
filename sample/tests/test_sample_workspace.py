@@ -4,8 +4,7 @@ import asyncio
 from types import SimpleNamespace
 from pydantic import ValidationError
 from unittest.mock import AsyncMock
-from sample.src.shell import EXECUTION_UNCERTAIN
-from sample.src.events import Result
+from sample.src.shell import EXECUTION_UNCERTAIN, Result
 from sample.src.workspace import Workspace, Subscription
 from pydantic_ai.models.test import TestModel
 from sample.src.agents.script import Agent

@@ -4,7 +4,7 @@ import pytest
 import asyncio
 from types import SimpleNamespace
 from pydantic import ValidationError
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from pydantic_ai import Agent as RealtimeAgent
 from sample.src.shell import RemoteShell
 from pydantic_ai.messages import TextPart, ModelResponse
@@ -17,7 +17,7 @@ from pydantic_ai.models.function import FunctionModel
 @pytest.fixture
 def call_factory(monkeypatch):
     @asynccontextmanager
-    async def create(*, phase=None, outcome="complete", hold_cleanup=False, integrated=False):
+    async def create(*, phase=None, outcome="complete", hold_cleanup=False):
         entered = asyncio.Event()
         release = asyncio.Event()
         working = asyncio.Event()
@@ -47,19 +47,6 @@ def call_factory(monkeypatch):
             working.set()
             await finish_work.wait()
             return "accepted"
-
-        async def request(request):
-            if request.url.path == "/libraries":
-                return httpx2.Response(200, json=await inventory())
-            if request.url.path == "/execute/stream":
-                working.set()
-                await finish_work.wait()
-                return httpx2.Response(
-                    200,
-                    text='{"type":"result","stdout":"accepted","stderr":"","exception":null,"done":true}\n{"type":"execution_finished"}\n',
-                )
-            assert request.url.path == "/ui/context"
-            return httpx2.Response(200, json=await context())
 
         class Session:
             def enqueue(self, text):
@@ -102,39 +89,32 @@ def call_factory(monkeypatch):
             return Realtime()
 
         monkeypatch.setattr(RealtimeAgent, "realtime", realtime)
-        async with AsyncExitStack() as stack:
-            agent = SimpleNamespace(shell=SimpleNamespace(uncertain=False, inventory=inventory, context=context), arun=arun)
-            if integrated:
-                client = await stack.enter_async_context(
-                    httpx2.AsyncClient(base_url="http://execution", transport=httpx2.MockTransport(request))
-                )
-                model = FunctionModel(lambda messages, info: ModelResponse(parts=[TextPart("done()")], finish_reason="stop"))
-                agent = Agent(model, shell=RemoteShell(client))
-            workspace = Workspace(agent)
-            voice = VoiceSession(None, workspace, events.append)
-            try:
-                yield SimpleNamespace(
-                    voice=voice,
-                    task=lambda: voice._call.task if voice._call is not None else None,
-                    workspace=workspace,
-                    events=events,
-                    entered=entered,
-                    release=release,
-                    offers=offers,
-                    hangups=hangups,
-                    tools=tools,
-                    messages=messages,
-                    working=working,
-                    finish_work=finish_work,
-                    cleanup_started=cleanup_started,
-                    cleanup_release=cleanup_release,
-                    completed=completed,
-                )
-            finally:
-                finish_work.set()
-                cleanup_release.set()
-                await voice.stop(notify=False)
-                await workspace.close()
+        agent = SimpleNamespace(shell=SimpleNamespace(uncertain=False, inventory=inventory, context=context), arun=arun)
+        workspace = Workspace(agent)
+        voice = VoiceSession(None, workspace, events.append)
+        try:
+            yield SimpleNamespace(
+                voice=voice,
+                task=lambda: voice._call.task if voice._call is not None else None,
+                workspace=workspace,
+                events=events,
+                entered=entered,
+                release=release,
+                offers=offers,
+                hangups=hangups,
+                tools=tools,
+                messages=messages,
+                working=working,
+                finish_work=finish_work,
+                cleanup_started=cleanup_started,
+                cleanup_release=cleanup_release,
+                completed=completed,
+            )
+        finally:
+            finish_work.set()
+            cleanup_release.set()
+            await voice.stop(notify=False)
+            await workspace.close()
 
     return create
 
@@ -228,21 +208,42 @@ def test_direct_task_cancellation_notifies_once(call_factory):
 
 def test_hangup_preserves_accepted_workspace_work(call_factory):
     async def scenario():
-        async with call_factory(phase="active", integrated=True) as call:
-            await call.voice.handle(VoiceCommand(type="voice", action="start", sdp="offer"))
-            await asyncio.wait_for(call.entered.wait(), 1)
-            assert await call.tools["worker"].function("print('accepted')") == "Task accepted; completion will arrive separately."
-            task = call.workspace.task
-            await asyncio.wait_for(call.working.wait(), 1)
-            assert call.workspace.busy
-            await call.voice.stop()
-            assert not task.cancelled()
-            assert not task.done()
-            call.finish_work.set()
-            await call.workspace.close()
-            assert call.workspace.recent_tasks[0]["outcome"] == "completed"
-            assert not call.workspace.results
-            assert [event["name"] for event in call.events] == ["answer", "closed"]
+        working = asyncio.Event()
+        finish_work = asyncio.Event()
+
+        async def request(request):
+            if request.url.path == "/libraries":
+                return httpx2.Response(200, json=[])
+            if request.url.path == "/ui/context":
+                return httpx2.Response(200, json={"charts": []})
+            assert request.url.path == "/execute/stream"
+            working.set()
+            await finish_work.wait()
+            return httpx2.Response(
+                200, text='{"type":"result","stdout":"accepted","stderr":"","exception":null,"done":true}\n{"type":"execution_finished"}\n'
+            )
+
+        async with httpx2.AsyncClient(base_url="http://execution", transport=httpx2.MockTransport(request)) as client:
+            async with call_factory(phase="active") as call:
+                model = FunctionModel(lambda messages, info: ModelResponse(parts=[TextPart("done()")], finish_reason="stop"))
+                call.workspace.agent = Agent(model, shell=RemoteShell(client))
+                try:
+                    await call.voice.handle(VoiceCommand(type="voice", action="start", sdp="offer"))
+                    await asyncio.wait_for(call.entered.wait(), 1)
+                    assert await call.tools["worker"].function("print('accepted')") == "Task accepted; completion will arrive separately."
+                    task = call.workspace.task
+                    await asyncio.wait_for(working.wait(), 1)
+                    assert call.workspace.busy
+                    await call.voice.stop()
+                    assert not task.cancelled()
+                    assert not task.done()
+                    finish_work.set()
+                    await call.workspace.close()
+                    assert call.workspace.recent_tasks[0]["outcome"] == "completed"
+                    assert not call.workspace.results
+                    assert [event["name"] for event in call.events] == ["answer", "closed"]
+                finally:
+                    finish_work.set()
 
     asyncio.run(scenario())
 

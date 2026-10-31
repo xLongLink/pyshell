@@ -1,9 +1,30 @@
 import httpx2
 import asyncio
-from typing import cast
-from sample.src.events import Result, Finished
+from typing import Literal, cast
+from pydantic import BaseModel, ConfigDict
 
 EXECUTION_UNCERTAIN = "Execution state is uncertain. Restart the execution container and web server before submitting more work."
+
+
+class Result(BaseModel):
+    """Confirm a completed Python execution."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    # A result includes failures as data, alongside captured output.
+    type: Literal["result"]
+    stdout: str
+    stderr: str
+    exception: str | None
+    done: bool
+
+
+class _Finished(BaseModel):
+    """Mark a clean end to the execution stream."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    type: Literal["execution_finished"]
 
 
 class RemoteShell:
@@ -34,7 +55,7 @@ class RemoteShell:
         if self.uncertain:
             raise RuntimeError(EXECUTION_UNCERTAIN)
 
-        events: list[Result | Finished] = []
+        events: list[Result | _Finished] = []
         received = 0
 
         # Once submitted, a broken stream leaves execution state uncertain.
@@ -52,7 +73,7 @@ class RemoteShell:
 
                     if len(events) == 2:
                         raise RuntimeError("Execution events arrived after the final result")
-                    events.append((Result, Finished)[len(events)].model_validate_json(line))
+                    events.append((Result, _Finished)[len(events)].model_validate_json(line))
 
             # EOF alone does not confirm that execution finished.
             if len(events) != 2:

@@ -422,25 +422,48 @@ test.each(["bars", "mixed", "duplicates"] as const)(
         }
         const props = figureProps.parse({ data });
         const { container } = render(<Figure {...props} />);
-        await waitFor(() => expect(
-            container.querySelectorAll(".recharts-bar-rectangle path"),
-        ).toHaveLength(kind === "mixed" ? 190 : 200));
+        await waitFor(() =>
+            expect(
+                container.querySelectorAll(".recharts-bar-rectangle path"),
+            ).toHaveLength(kind === "mixed" ? 190 : 200),
+        );
         const series = [...container.querySelectorAll(".recharts-bar")].map(
-            (series) => [...series.querySelectorAll(".recharts-bar-rectangle path")],
+            (series) => [
+                ...series.querySelectorAll(".recharts-bar-rectangle path"),
+            ],
         );
         const groups = x.flatMap((value, point) => {
             if (point > 0 && value === x[point - 1]) return [];
             const bars = series.map((bars) => bars[point]);
-            return [{
-                start: Math.min(...bars.map((bar) => Number(bar.getAttribute("x")))),
-                end: Math.max(...bars.map((bar) => Number(bar.getAttribute("x")) + Number(bar.getAttribute("width")))),
-            }];
+            return [
+                {
+                    start: Math.min(
+                        ...bars.map((bar) => Number(bar.getAttribute("x"))),
+                    ),
+                    end: Math.max(
+                        ...bars.map(
+                            (bar) =>
+                                Number(bar.getAttribute("x")) +
+                                Number(bar.getAttribute("width")),
+                        ),
+                    ),
+                },
+            ];
         });
         for (let index = 1; index < groups.length; index++) {
             expect(groups[index - 1].end).toBeLessThan(groups[index].start);
         }
+        const step = groups[1].start - groups[0].start;
+        for (const group of groups) {
+            expect(group.end - group.start).toBeCloseTo(step * 0.8, 3);
+        }
         for (const bars of series) {
-            expect(bars.every((bar) => Number(bar.getAttribute("width")) > 0)).toBe(true);
+            expect(
+                bars.every((bar) => {
+                    const width = Number(bar.getAttribute("width"));
+                    return Number.isFinite(width) && width > 0;
+                }),
+            ).toBe(true);
         }
     },
 );
