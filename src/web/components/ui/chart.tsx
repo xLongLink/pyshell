@@ -2,14 +2,13 @@ import * as React from "react";
 import { cn } from "cn";
 import * as RechartsPrimitive from "recharts";
 import type { TooltipPayloadEntry } from "recharts";
+import { plotClassName } from "@/components/plot/common";
 
 const INITIAL_DIMENSION = { width: 320, height: 200 } as const;
 
 function ChartContainer({
-    className,
     children,
 }: {
-    className?: string;
     children: React.ComponentProps<
         typeof RechartsPrimitive.ResponsiveContainer
     >["children"];
@@ -19,7 +18,7 @@ function ChartContainer({
             data-slot="chart"
             className={cn(
                 "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
-                className,
+                plotClassName,
             )}
         >
             <RechartsPrimitive.ResponsiveContainer

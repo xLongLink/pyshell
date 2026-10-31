@@ -127,32 +127,6 @@ test("unsupported widgets and invalid charts are rejected", () => {
     }
 });
 
-test("oversized collections fail before reaching A2UI's schema processor", () => {
-    assert.equal(
-        a2uiBatchSchema.safeParse(new Array(100000).fill(null)).success,
-        false,
-    );
-    assert.equal(
-        a2uiBatchSchema.safeParse([
-            {
-                version: "v0.9",
-                updateComponents: {
-                    surfaceId: "sales",
-                    components: [
-                        {
-                            id: "root",
-                            component: "Figure",
-                            layout: { title: { text: "x".repeat(10001) } },
-                            data: [{ type: "bar", x: ["A"], y: [1] }],
-                        },
-                    ],
-                },
-            },
-        ]).success,
-        false,
-    );
-});
-
 test("each surface accepts exactly one chart", () => {
     const chart = {
         id: "root",

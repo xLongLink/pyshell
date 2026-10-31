@@ -13,12 +13,7 @@ import {
     ChartLegendContent,
     ChartTooltipContent,
 } from "@/components/ui/chart";
-import {
-    plotClassName,
-    traceColor,
-    type FigureProps,
-    type Trace,
-} from "./common";
+import { traceColor, type FigureProps, type Trace } from "./common";
 
 type CartesianTrace = Extract<Trace, { type: "bar" | "scatter" }>;
 
@@ -73,7 +68,7 @@ export function Cartesian({
         });
     });
     return (
-        <ChartContainer className={plotClassName}>
+        <ChartContainer>
             <ComposedChart
                 data={bars}
                 accessibilityLayer

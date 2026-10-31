@@ -12,23 +12,14 @@ def test_widgets_publish_a2ui_messages_and_preserve_python_state():
     assert result["exception"] is None
     assert result["done"] is True
     assert result["stdout"] == "42\n"
-    assert result["ui"] == [
-        {"version": "v0.9", "createSurface": {"surfaceId": "revenue", "catalogId": "urn:pyshell:catalog:v3"}},
-        {
-            "version": "v0.9",
-            "updateComponents": {
-                "surfaceId": "revenue",
-                "components": [
-                    {
-                        "id": "root",
-                        "component": "Figure",
-                        "data": [{"type": "bar", "name": "", "x": ["Revenue"], "y": [42]}],
-                        "layout": {"title": {"text": ""}, "xaxis": {"title": {"text": ""}}, "showlegend": True},
-                    }
-                ],
-            },
-        },
-    ]
+    created, updated = result["ui"]
+    assert created["createSurface"]["surfaceId"] == "revenue"
+    assert updated["updateComponents"]["surfaceId"] == "revenue"
+    (component,) = updated["updateComponents"]["components"]
+    assert component["id"] == "root"
+    assert component["component"] == "Figure"
+    (trace,) = component["data"]
+    assert (trace["type"], trace["x"], trace["y"]) == ("bar", ["Revenue"], [42])
     assert execute(api_client, "print(amount)")["ui"] == []
 
     # Replacing a named surface deletes its old protocol state first.

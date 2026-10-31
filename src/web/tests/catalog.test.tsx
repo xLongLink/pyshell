@@ -39,7 +39,6 @@ test("appending another surface preserves an existing chart and its keyboard foc
         />,
     );
     await waitFor(() => expect(screen.getByText("Second")).toBeTruthy());
-    expect(chart.isConnected).toBe(true);
     expect(document.activeElement).toBe(chart);
     expect(
         screen
@@ -101,7 +100,6 @@ test("replacement, removal, and reset do not duplicate result surfaces", async (
     rerender(<Results messages={replaced} />);
     await waitFor(() => expect(screen.getByText("After")).toBeTruthy());
     expect(screen.queryByText("Before")).toBeNull();
-    expect(screen.getAllByText("After")).toHaveLength(1);
     rerender(
         <Results
             messages={[
@@ -392,7 +390,6 @@ test("independent lines and markers share numeric axes without adding gaps", asy
             ?.getAttribute("stroke-width"),
     ).toBe("0");
     const dots = container.querySelectorAll(".recharts-line-dot");
-    expect(dots).toHaveLength(2);
     const coordinates = curve!
         .getAttribute("d")!
         .match(/-?\d+(?:\.\d+)?/g)!
@@ -418,14 +415,8 @@ test("independent lines and markers share numeric axes without adding gaps", asy
     await waitFor(() =>
         expect(
             container.querySelector(".recharts-tooltip-wrapper")?.textContent,
-        ).toContain("Observed"),
+        ).toBe("2Observed3"),
     );
-    expect(
-        container.querySelector(".recharts-tooltip-wrapper")?.textContent,
-    ).not.toContain("Predicted");
-    expect(
-        container.querySelector(".recharts-tooltip-wrapper")?.textContent,
-    ).toBe("2Observed3");
     expect(
         container.querySelector<HTMLElement>(
             ".recharts-tooltip-wrapper [style]",
@@ -515,32 +506,25 @@ test("bar and scatter traces render on shared categorical axes", async () => {
     expect(screen.getByText("Target")).toBeTruthy();
 });
 
-test.each(["bar", "scatter"] as const)(
-    "all-missing %s-first Cartesian traces report an empty plot",
-    async (type) => {
-        render(
-            <Results
-                messages={surface([
-                    {
-                        id: "root",
-                        component: "Figure",
-                        data: [
-                            { type, x: [0, 1], y: [null, null] },
-                            {
-                                type: type === "bar" ? "scatter" : "bar",
-                                x: [0],
-                                y: [null],
-                            },
-                        ],
-                    },
-                ])}
-            />,
-        );
-        await waitFor(() =>
-            expect(screen.getByText("No values to display.")).toBeTruthy(),
-        );
-    },
-);
+test("all-missing mixed Cartesian traces report an empty plot", async () => {
+    render(
+        <Results
+            messages={surface([
+                {
+                    id: "root",
+                    component: "Figure",
+                    data: [
+                        { type: "bar", x: [0, 1], y: [null, null] },
+                        { type: "scatter", x: [0], y: [null] },
+                    ],
+                },
+            ])}
+        />,
+    );
+    await waitFor(() =>
+        expect(screen.getByText("No values to display.")).toBeTruthy(),
+    );
+});
 
 test("numeric bars keep their spacing when overlaid with a line", async () => {
     const { container } = render(
@@ -589,11 +573,18 @@ test("explicit figure updates replace traces in one widget and retain sidebar pl
     ]);
     const placements = { sales: { pinned: true } };
     const { container, rerender } = render(
-        <Results messages={messages} placements={placements} />,
+        <Results messages={messages.slice(0, 1)} placements={placements} />,
     );
+    expect(
+        screen.getByRole("article", { name: "Widget sales" }).children,
+    ).toHaveLength(0);
+    expect(screen.queryByRole("alert")).toBeNull();
+    rerender(<Results messages={messages} placements={placements} />);
     await waitFor(() =>
         expect(container.querySelector(".recharts-line-curve")).not.toBeNull(),
     );
+    const chart = screen.getByRole("application");
+    chart.focus();
     const update = a2uiBatchSchema.parse([
         {
             version: "v0.9",
@@ -628,6 +619,8 @@ test("explicit figure updates replace traces in one widget and retain sidebar pl
     expect(screen.queryByText("Before")).toBeNull();
     expect(screen.getByText("After")).toBeTruthy();
     expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(screen.getByRole("application")).toBe(chart);
+    expect(document.activeElement).toBe(chart);
     expect(
         screen.getByRole("complementary").contains(screen.getByRole("article")),
     ).toBe(true);

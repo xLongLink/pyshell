@@ -32,7 +32,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             timeout=httpx.Timeout(180, connect=10),
             trust_env=False,
         ) as client:
-            app.state.execution_client = client
             model = OpenAIResponsesModel(settings.openai_model, provider=provider)
             workspace = Workspace(Agent(model, shell=RemoteShell(client)))
             app.state.workspace = workspace

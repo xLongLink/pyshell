@@ -78,7 +78,6 @@ function browser(t) {
       connectionState = "new";
       closed = 0;
       answers = [];
-      events = new Map();
       constructor() {
         peers.push(this);
       }
@@ -92,12 +91,6 @@ function browser(t) {
       }
       async setRemoteDescription(answer) {
         this.answers.push(answer);
-      }
-      addEventListener(name, handler) {
-        this.events.set(name, handler);
-      }
-      removeEventListener(name) {
-        this.events.delete(name);
       }
       close() {
         this.closed++;

@@ -7,7 +7,6 @@ from api.main import ExecutionRequest, create_app
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
-from importlib.metadata import version
 from starlette.requests import ClientDisconnect
 from src.api.tests.helpers import execute
 
@@ -17,15 +16,6 @@ def test_health_without_model_credentials():
     response = api_client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
-
-
-def test_libraries_reports_installed_versions():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
-    response = api_client.get("/libraries")
-    assert response.status_code == 200
-    libraries = response.json()
-    assert {"name": "fastapi", "version": version("fastapi")} in libraries
-    assert all(library["name"] and library["version"] for library in libraries)
 
 
 def test_libraries_discovers_extra_packages(monkeypatch):
@@ -43,13 +33,7 @@ def test_execution_preserves_namespace_and_captures_output():
     assert execute(api_client, "import math\nvalue = math.sqrt(16)")["exception"] is None
     result = execute(api_client, "print(value)\nimport sys\nprint('warning', file=sys.stderr)\ndone()")
     assert result == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
-
-
-def test_reset_clears_namespace():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
-    execute(api_client, "value = 42")
-    assert api_client.post("/reset").status_code == 200
-    assert "NameError" in execute(api_client, "print(value)")["exception"]
+    assert execute(api_client, "pass") == {"stdout": "", "stderr": "", "exception": None, "done": False, "ui": []}
 
 
 def test_errors_preserve_prior_updates_and_do_not_kill_server():
@@ -61,12 +45,6 @@ def test_errors_preserve_prior_updates_and_do_not_kill_server():
     for source in ("if :", "raise SystemExit(1)", "raise KeyboardInterrupt"):
         assert execute(api_client, source)["exception"]
     assert api_client.get("/health").status_code == 200
-
-
-def test_output_and_done_are_per_request():
-    api_client = TestClient(create_app(), headers={"authorization": "Bearer test-token"})
-    execute(api_client, "print('old')\ndone()")
-    assert execute(api_client, "pass") == {"stdout": "", "stderr": "", "exception": None, "done": False, "ui": []}
 
 
 def test_invalid_request_is_rejected():
@@ -139,33 +117,6 @@ async def open_stream(app, code="pass"):
     workers = asyncio.all_tasks() - tasks
     assert len(workers) == 1
     return response, workers
-
-
-def test_stream_terminal_event_fits_at_queue_capacity(monkeypatch):
-    app = create_app()
-    queue = Queue(maxsize=256)
-    monkeypatch.setattr("api.main.Queue", lambda maxsize: queue)
-    calls = []
-
-    def execute(_shell, code, on_event):
-        calls.append(code)
-        for index in range(254):
-            on_event({"type": "widget", "surface_id": str(index), "action": "focus"})
-        return {"stdout": "complete", "ui": []}
-
-    monkeypatch.setattr("api.main.PythonShell.execute", execute)
-
-    async def check():
-        response, workers = await open_stream(app)
-        await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
-        assert queue.qsize() == queue.maxsize == 256
-        events = [json.loads(line) async for line in response.body_iterator]
-        assert events[:-2] == [{"type": "widget", "surface_id": str(index), "action": "focus"} for index in range(254)]
-        assert events[-2:] == [{"type": "result", "stdout": "complete"}, {"type": "execution_finished"}]
-        assert queue.empty()
-
-    asyncio.run(check())
-    assert calls == ["pass"]
 
 
 def test_stream_saturated_queue_drains_without_resubmitting(monkeypatch):

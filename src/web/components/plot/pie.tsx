@@ -4,7 +4,7 @@ import {
     ChartTooltipContent,
     ChartLegendContent,
 } from "@/components/ui/chart";
-import { plotClassName, traceColor, type Trace } from "./common";
+import { traceColor, type Trace } from "./common";
 
 export function PiePlot({
     trace,
@@ -33,7 +33,7 @@ export function PiePlot({
         );
     }
     return (
-        <ChartContainer className={plotClassName}>
+        <ChartContainer>
             <PieChart accessibilityLayer>
                 <Pie
                     data={slices}

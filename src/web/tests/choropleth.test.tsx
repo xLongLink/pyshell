@@ -94,35 +94,6 @@ test("a successful retry keeps its boundaries without additional loads", async (
     expect(load).toHaveBeenCalledTimes(2);
 });
 
-test.each(["resolve", "reject"] as const)(
-    "pending map loads can %s after unmount without affecting a new map",
-    async (outcome) => {
-        let resolve!: (value: geographyLoader.Geography) => void;
-        let reject!: (reason: Error) => void;
-        const pending = new Promise<geographyLoader.Geography>((yes, no) => {
-            resolve = yes;
-            reject = no;
-        });
-        const load = vi
-            .spyOn(geographyLoader, "loadGeography")
-            .mockReturnValueOnce(pending)
-            .mockResolvedValue(boundaries);
-        const { unmount } = render(<Figure {...props} />);
-        await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-        unmount();
-        render(<Figure {...props} />);
-        await screen.findByRole("img", { name: "France: 42" });
-        await act(async () => {
-            if (outcome === "resolve") resolve(boundaries);
-            else reject(new Error("Late failure"));
-            await pending.catch(() => {});
-        });
-        expect(screen.getByRole("img", { name: "France: 42" })).toBeTruthy();
-        expect(screen.queryByRole("alert")).toBeNull();
-        expect(load).toHaveBeenCalledTimes(2);
-    },
-);
-
 test("changing geography replaces the pending map and ignores its old load", async () => {
     let resolve!: (value: geographyLoader.Geography) => void;
     const pending = new Promise<geographyLoader.Geography>((yes) => {

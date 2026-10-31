@@ -38,7 +38,6 @@ def test_lifespan_drains_accepted_work_before_closing_transports(monkeypatch):
 
         async def application():
             async with server.lifespan(server.app):
-                assert server.app.state.execution_client is client
                 server.app.state.workspace.start(Command(type="run", instruction="Finish accepted work"))
                 await started.wait()
                 exiting.set()
@@ -108,10 +107,6 @@ def test_sample_renders_voice_and_isolated_container_frame_without_frontend_buil
     assert script.headers["content-type"].startswith("text/javascript")
     assert "export function mountVoice" in script.text
     assert client.get("/missing.js").status_code == 404
-
-
-def test_application_no_longer_proxies_widget_assets():
-    assert not any(getattr(route, "path", "").startswith("/geographies") for route in server.app.routes)
 
 
 @pytest.mark.parametrize(

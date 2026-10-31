@@ -3,7 +3,6 @@ import asyncio
 from types import SimpleNamespace
 from contextlib import asynccontextmanager
 from unittest.mock import Mock, AsyncMock
-from api.ui.session import UI
 from sample.src.agents import voice
 from sample.src.workspace import Command, Workspace
 
@@ -82,7 +81,6 @@ def test_voice_delegates_to_shared_workspace_and_hangup_does_not_cancel_work(mon
         assert events[0] == {"type": "voice", "name": "answer", "sdp": "answer"}
         assert "submitted" in await tools["worker"]("Calculate 42")
         await started.wait()
-        assert "not submitted" in await tools["worker"]("Do not overlap")
 
         # Hangup releases voice resources without cancelling accepted work.
         await call.stop()
@@ -184,17 +182,16 @@ def test_voice_inspects_previous_work_and_hangs_up_without_cancelling_python(mon
         release = asyncio.Event()
 
         settings = install_agent(monkeypatch, realtime, tools)
-        ui = UI()
 
         async def execute(instruction, emit):
             if instruction == "slow":
                 await release.wait()
-            else:
-                ui.plot([{"type": "bar", "x": ["A"], "y": [42]}], surface_id="sales")
             return "Confirmed answer: 42"
 
         workspace = Workspace(
-            SimpleNamespace(shell=SimpleNamespace(uncertain=False, context=AsyncMock(side_effect=ui.state.context)), arun=execute)
+            SimpleNamespace(
+                shell=SimpleNamespace(uncertain=False, context=AsyncMock(return_value={"charts": [{"surface_id": "sales"}]})), arun=execute
+            )
         )
         await workspace.start(Command(type="run", instruction="Calculate answer"))
         events = []

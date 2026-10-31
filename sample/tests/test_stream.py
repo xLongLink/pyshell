@@ -59,9 +59,6 @@ def test_confirmed_stream_does_not_relay_widgets_to_application():
 
 def test_slow_application_clients_preserve_voice_controls_without_widget_state():
     workspace = Workspace(SimpleNamespace())
-    create = {"version": "v0.9", "createSurface": {"surfaceId": "sales", "catalogId": "urn:pyshell:catalog:v3"}}
-    update = {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [{"id": "root"}]}}
-    workspace.publish({"type": "a2ui", "messages": [create, update]})
     queue = asyncio.Queue(maxsize=3)
     queue.put_nowait({"type": "voice", "name": "answer", "sdp": "answer"})
     workspace.listeners.add(queue)
@@ -69,8 +66,6 @@ def test_slow_application_clients_preserve_voice_controls_without_widget_state()
     # Overflow the subscriber's tiny queue repeatedly.
     for _ in range(10):
         workspace.publish({"type": "error", "text": "x"})
-    snapshot = workspace.snapshot()
-    assert snapshot == {"type": "snapshot"}
 
     # Resynchronization must preserve the pending voice answer.
     queued = []

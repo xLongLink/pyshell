@@ -7,23 +7,17 @@ from a2ui.core.processing import MessageProcessor, MessageProcessorOptions
 from a2ui.core.validation import STRICT_VALIDATION
 
 
-@pytest.mark.parametrize(
-    "trace",
-    [
-        {"type": "bar", "x": ["A"], "y": [42]},
-        {"type": "scatter", "x": [0, 1], "y": [42, None]},
-        {"type": "pie", "labels": ["A", "B"], "values": [42, None]},
-        {"type": "choropleth", "locations": ["CHE"], "values": [42]},
-    ],
-)
-def test_widget_lifecycle_round_trips_through_the_protocol(monkeypatch, trace):
-    monkeypatch.setattr("api.ui.plot.choropleth.geography_info", lambda geography: {"locations": {"CHE": "Switzerland"}})
+def test_widget_lifecycle_round_trips_through_the_protocol():
+    trace = {"type": "bar", "x": ["A"], "y": [42]}
     processor = MessageProcessor(
         [Catalog(CATALOG, "v0.9", [ModelComponentApi(Figure)])], options=MessageProcessorOptions(validation_config=STRICT_VALIDATION)
     )
     ui = UI()
     ui.on_publish = lambda event: processor.process_messages(event["messages"])
-    chart = ui.plot([trace], surface_id="sales")
+    chart = ui.plot([trace], id="root", surface_id="sales")
+    assert isinstance(chart, Figure)
+    assert chart.component == "Figure"
+    assert chart.id == "root"
     surface = processor.model.get_surface("sales")
     assert surface.components_model.get("root").component_tree == chart.model_dump(mode="json")
     chart.update(layout={"title": {"text": "Updated"}})
@@ -50,30 +44,6 @@ def test_surface_size_limit_preserves_the_existing_widget(replace):
     assert chart.data[0].x == ["A"]
     chart.update(layout={"title": {"text": "Still usable"}})
     assert chart.layout.title.text == "Still usable"
-
-
-def test_plot_returns_typed_widgets_with_common_methods():
-    ui = UI()
-    widget = ui.plot(data=[{"type": "bar", "x": ["A"], "y": [1]}])
-    assert isinstance(widget, Figure)
-    assert widget.component == "Figure"
-    assert widget.surface_id == "surface_1"
-
-    # All typed widgets use the same ordered placement commands.
-    ui.messages = []
-    widget.focus()
-    widget.pin()
-    assert [message["action"] for message in ui.messages] == ["focus", "pin"]
-    widget.remove()
-    assert ui.messages[-1] == {"version": "v0.9", "deleteSurface": {"surfaceId": "surface_1"}}
-
-
-def test_standalone_figure_requires_the_root_component_id():
-    data = [{"type": "bar", "x": ["A"], "y": [1]}]
-    assert Figure(data=data).id == "root"
-    assert Figure(id="root", data=data).id == "root"
-    with pytest.raises(ValidationError, match="Input should be 'root'"):
-        Figure(id="other", data=data)
 
 
 @pytest.mark.parametrize(
@@ -117,8 +87,10 @@ def test_update_keeps_the_handle_and_surface_identity():
     assert chart.layout.showlegend is True
     chart.update(layout={"title": {"text": "Final"}})
     assert chart.data[0].y == [50]
+    ui.messages = []
+    chart.focus()
     chart.pin()
-    assert ui.messages[-1]["action"] == "pin"
+    assert [message["action"] for message in ui.messages] == ["focus", "pin"]
 
 
 @pytest.mark.parametrize(

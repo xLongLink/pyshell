@@ -27,7 +27,9 @@ def test_continues_until_done_and_preserves_execution_context():
             headers={"authorization": "Bearer test-token"},
         ) as client:
             shell = RemoteShell(client)
-            assert {"name": "fastapi", "version": version("fastapi")} in await shell.inventory()
+            libraries = await shell.inventory()
+            assert {"name": "fastapi", "version": version("fastapi")} in libraries
+            assert all(library["name"] and library["version"] for library in libraries)
             agent = Agent(FunctionModel(respond), shell=shell)
             assert "8.0\n" in await agent.arun("calculate")
             feedback = json.loads(requests[1][0][-1].parts[0].content)
@@ -111,38 +113,13 @@ def test_incomplete_response_never_executes(finish_reason):
     assert len(requests) == 1
 
 
-def test_library_inventory_is_lazy_and_cached_across_turns():
-    requests = []
-    libraries = [{"name": "example", "version": "1.0"}]
-
-    def respond(messages, info):
-        requests.append(info.instructions)
-        return ModelResponse(parts=[TextPart("done()")], finish_reason="stop")
-
-    shell = SimpleNamespace(
-        inventory=AsyncMock(return_value=libraries),
-        stream=AsyncMock(return_value={"stdout": "", "stderr": "", "exception": None, "done": True}),
-    )
-    agent = Agent(FunctionModel(respond), shell=shell)
-    shell.inventory.assert_not_awaited()
-
-    async def run():
-        await agent.arun("first turn")
-        await agent.arun("second turn")
-        assert len(requests) == 2
-        assert json.dumps(libraries) in requests[0]
-        assert requests[1] == requests[0]
-
-    asyncio.run(run())
-    shell.inventory.assert_awaited_once_with()
-    assert shell.stream.await_count == 2
-
-
 def test_library_discovery_failure_prevents_model_request_and_retries():
     requests = []
+    instructions = []
 
     def respond(messages, info):
         requests.append(messages)
+        instructions.append(info.instructions)
         return ModelResponse(parts=[TextPart("done()")], finish_reason="stop")
 
     libraries = [{"name": "example", "version": "1.0"}]
@@ -151,6 +128,7 @@ def test_library_discovery_failure_prevents_model_request_and_retries():
         stream=AsyncMock(return_value={"stdout": "", "stderr": "", "exception": None, "done": True}),
     )
     agent = Agent(FunctionModel(respond), shell=shell)
+    shell.inventory.assert_not_awaited()
     agent.pending_feedback = "previous feedback"
 
     async def run():
@@ -168,6 +146,8 @@ def test_library_discovery_failure_prevents_model_request_and_retries():
         assert "previous feedback" in requests[0][-1].parts[0].content
         assert "ConnectError: unavailable" in requests[0][-1].parts[0].content
         await agent.arun("next turn")
+        assert json.dumps(libraries) in instructions[0]
+        assert instructions[1] == instructions[0]
 
     asyncio.run(run())
     assert shell.inventory.await_count == 2
