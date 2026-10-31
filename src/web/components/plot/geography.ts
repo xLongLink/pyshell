@@ -2,7 +2,7 @@ import { geoArea, geoCentroid, geoEqualEarth, geoMercator } from "d3-geo";
 import type { FeatureCollection } from "geojson";
 import { z } from "zod";
 
-const position = z.tuple([z.number().finite(), z.number().finite()]);
+const position = z.tuple([z.number(), z.number()]);
 const polygon = z.array(z.array(position));
 const geographySchema = z.object({
     type: z.literal("FeatureCollection"),

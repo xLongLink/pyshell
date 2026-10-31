@@ -154,9 +154,6 @@ class VoiceSession:
                         if isinstance(event, RealtimeSessionErrorEvent) and event.code != "conversation_already_has_active_response":
                             raise RuntimeError(f"Voice provider error: {event.code}: {event.message}")
 
-        # Hangup cancellation must propagate instead of becoming a voice error.
-        except asyncio.CancelledError:
-            raise
         except Exception:
             logger.exception("Voice call failed")
 

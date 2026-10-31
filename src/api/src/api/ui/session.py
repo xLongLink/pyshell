@@ -1,5 +1,5 @@
 import json
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 from api.ui.state import UIState
 from api.ui.types import Action, Identifier
 from collections.abc import Callable
@@ -7,6 +7,12 @@ from api.ui.plot.figure import Figure
 from a2ui.core.schema.v0_9 import server_to_client
 
 CATALOG = "urn:pyshell:catalog:v3"
+identifier_adapter = TypeAdapter(Identifier)
+action_adapter = TypeAdapter(Action)
+
+
+def _serialize(message: BaseModel) -> dict[str, object]:
+    return message.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 class UI:
@@ -34,7 +40,7 @@ class UI:
                 surface_id = f"surface_{self._sequence}"
 
         # Validate the entire replacement before publishing or changing handles.
-        identifier = TypeAdapter(Identifier).validate_python(surface_id)
+        identifier = identifier_adapter.validate_python(surface_id)
         if identifier not in self._widgets and len(self._widgets) >= 20:
             raise ValueError("At most 20 surfaces may be displayed; remove an existing surface first")
         messages = [self._create(identifier), self._content(identifier, widget)]
@@ -56,7 +62,7 @@ class UI:
     def _create(self, surface_id: str) -> dict[str, object]:
         body = server_to_client.CreateSurface(surfaceId=surface_id, catalogId=CATALOG)
         message = server_to_client.CreateSurfaceMessage(createSurface=body)
-        return message.model_dump(mode="json", by_alias=True, exclude_none=True)
+        return _serialize(message)
 
     def _content(self, surface_id: str, widget: Figure) -> dict[str, object]:
         component = widget.model_dump(mode="json")
@@ -64,12 +70,12 @@ class UI:
             raise ValueError("A surface must not exceed 256 KiB")
         body = server_to_client.UpdateComponents(surfaceId=surface_id, components=[component])
         message = server_to_client.UpdateComponentsMessage(updateComponents=body)
-        return message.model_dump(mode="json", by_alias=True, exclude_none=True)
+        return _serialize(message)
 
     def _delete(self, surface_id: str) -> dict[str, object]:
         body = server_to_client.DeleteSurface(surfaceId=surface_id)
         message = server_to_client.DeleteSurfaceMessage(deleteSurface=body)
-        return message.model_dump(mode="json", by_alias=True, exclude_none=True)
+        return _serialize(message)
 
     def _publish(self, messages: list[dict[str, object]]) -> None:
         if self._closed:
@@ -120,7 +126,7 @@ class UI:
     def action(self, widget: Figure, action: Action) -> None:
         """Preserve placement commands in the same order as content updates."""
         self._active(widget)
-        action = TypeAdapter(Action).validate_python(action)
+        action = action_adapter.validate_python(action)
         self._publish([{"type": "widget", "surface_id": widget.surface_id, "action": action}])
 
     def remove_widget(self, widget: Figure) -> None:

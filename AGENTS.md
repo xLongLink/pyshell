@@ -23,8 +23,7 @@
 │   ├── src/
 │   │   ├── agents/    # Execution agent loop and voice assistant
 │   │   ├── shell.py   # Execution container client
-│   │   ├── settings.py # Shared application settings
-│   │   └── page.py    # Load and render the HTML document
+│   │   └── settings.py # Shared application settings
 │   ├── pyproject.toml # Client dependencies
 │   └── uv.lock
 ├── README.md          # Setup and usage

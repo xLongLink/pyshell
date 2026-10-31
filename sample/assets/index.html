@@ -4,31 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PyShell</title>
-    <style>
-        body { margin: 0; background: #f8f9f6; color: #202b25; font-family: system-ui, sans-serif; }
-        main { display: flex; flex-direction: column; height: 100dvh; }
-        iframe { flex: 1; min-height: 0; width: 100%; border: 0; }
-        #workspace-error { margin: 0; padding: 1rem; }
-        [role="alert"] { color: #bd3939; font-size: .875rem; }
-        .voice { position: fixed; right: 1.25rem; bottom: 1.25rem; display: flex;
-            flex-direction: row-reverse; align-items: center; gap: .75rem; max-width: 20rem; }
-        #voice { position: relative; width: 4.5rem; height: 4.5rem; flex-shrink: 0;
-            border-radius: 50%; border: 1px solid #ffd45c; cursor: pointer;
-            background: radial-gradient(circle at 32% 25%, #fff6b0, #ffda44 42%, #f5a623 85%);
-            box-shadow: 0 0 45px #ffc83d66, inset 0 0 24px #fff8c480; }
-        #voice:focus-visible { outline: 3px solid #315c45; outline-offset: 8px; }
-        #voice:disabled { cursor: wait; opacity: .5; }
-        #voice span { position: absolute; inset: -9%; pointer-events: none;
-            border-radius: 46% 54% 51% 49%; border: 2px solid #ffd45c80; }
-        #voice[data-state="on"] span { animation: orbit 7s linear infinite; box-shadow: 0 0 12px #ffc83d80; }
-        @keyframes orbit { to { rotate: 360deg; } }
-        @media (prefers-reduced-motion: reduce) { #voice span { animation: none !important; } }
-    </style>
+    <link rel="stylesheet" href="/index.css">
 </head>
 <body>
     <main>
         <p id="workspace-error" role="alert" hidden></p>
-        <iframe title="Python workspace" src="$widgets" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+        <iframe title="Python workspace" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
     </main>
     <div class="voice">
         <button id="voice" type="button" data-state="off" aria-label="Start voice" aria-pressed="false" disabled>
@@ -37,7 +18,10 @@
         <p id="voice-error" role="alert" hidden></p>
     </div>
     <script type="module">
-        import { mountVoice } from "/voice.js";
+        import { mountVoice } from "/voice.mjs";
+        const widgets = new URL("/", window.location.href);
+        widgets.port = "8000";
+        document.querySelector("iframe").src = widgets.href;
         mountVoice();
     </script>
 </body>

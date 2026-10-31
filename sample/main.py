@@ -1,15 +1,14 @@
 import httpx
 import asyncio
 from httpx import AsyncClient
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pathlib import Path
 from pydantic import TypeAdapter, ValidationError
 from contextlib import suppress, asynccontextmanager
 from collections.abc import AsyncGenerator
-from sample.src.page import render_page
 from sample.src.shell import RemoteShell
 from sample.src.settings import settings
-from starlette.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sample.src.workspace import Command, Workspace
 from sample.src.agents.voice import VoiceCommand, VoiceSession
 from sample.src.agents.script import Agent
@@ -115,13 +114,4 @@ async def workspace_socket(socket: WebSocket) -> None:
         await voice.stop(notify=False)
 
 
-@app.get("/", response_class=HTMLResponse)
-def website(request: Request) -> str:
-    """Serve the sample without a frontend build."""
-    return render_page(f"{request.url.scheme}://{request.url.hostname}:8000/")
-
-
-@app.get("/voice.js")
-def voice_script() -> FileResponse:
-    """Serve the browser's microphone and voice signaling controller."""
-    return FileResponse(Path(__file__).parent / "assets" / "voice.mjs", media_type="text/javascript")
+app.mount("/", StaticFiles(directory=Path(__file__).parent / "assets", html=True), name="assets")

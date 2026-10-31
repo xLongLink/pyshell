@@ -3,7 +3,7 @@ import { z } from "zod";
 export const catalogId = "urn:pyshell:catalog:v3";
 export const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const text = z.string().max(10000);
-const number = z.number().finite();
+const number = z.number();
 const coordinates = {
     name: text.default(""),
     x: z
@@ -163,4 +163,4 @@ export const a2uiBatchSchema = z.preprocess((value, context) => {
         return z.NEVER;
     }
     return value;
-}, z.array(a2uiMessageSchema).max(100));
+}, z.array(a2uiMessageSchema));
