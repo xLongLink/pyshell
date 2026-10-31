@@ -29,13 +29,13 @@ jobs:
     strategy:
       matrix:
         include:
-          - project: api
+          - project: src/api
             python: '3.10'
-          - project: api
+          - project: src/api
             python: '3.12'
-          - project: web
+          - project: sample
             python: '3.11'
-          - project: web
+          - project: sample
             python: '3.12'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,7 +53,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker build -t pyshell:test api
+      - run: docker build -t pyshell:test -f src/api/Dockerfile src
       - name: Check startup with a read-only filesystem
         run: |
           docker run --rm --network none --read-only \
@@ -64,7 +64,7 @@ jobs:
           docker run --rm --network none --entrypoint python pyshell:test -c '
           import os
           from pathlib import Path
-          import main
+          import api.main
           assert os.getuid() != 0
           assert Path.cwd() == Path("/workspace")
           path = Path("smoke.txt")
@@ -74,6 +74,7 @@ jobs:
       - name: Check persistent execution API
         run: |
           docker run --detach --name pyshell-api-check --network none --read-only \
+            --env PYSHELL_EXECUTION_TOKEN=ci-token \
             --tmpfs /tmp:size=512m,mode=1777,exec pyshell:test
           trap 'docker rm --force pyshell-api-check' EXIT
           docker exec -i pyshell-api-check python - <<'PY'
@@ -95,11 +96,14 @@ jobs:
 
           def execute(code):
               request = urllib.request.Request(
-                  url, data=json.dumps({"code": code}).encode(),
-                  headers={"Content-Type": "application/json"},
+                  url + "execute/stream", data=json.dumps({"code": code}).encode(),
+                  headers={"Content-Type": "application/json", "Authorization": "Bearer ci-token"},
               )
               with urllib.request.urlopen(request, timeout=5) as response:
-                  return json.load(response)
+                  events = [json.loads(line) for line in response]
+                  assert events[-1] == {"type": "execution_finished"}
+                  assert events[-2]["type"] == "result"
+                  return events[-2]
 
           assert execute("value = 42")["exception"] is None
           assert execute("print(value)")["stdout"] == "42\n"

@@ -7,17 +7,17 @@
 ## Project layout
 
 ```bash
-├── api/
-│   ├── main.py        # FastAPI application and endpoints
-│   ├── src/           # Execution API and persistent Python namespace
-│   │   └── ui/        # One module per UI element
-│   ├── tests/         # Server tests
-│   ├── Dockerfile     # Execution container image
+├── src/
+│   ├── api/           # Execution backend project
+│   │   ├── src/api/   # FastAPI endpoints, Python namespace, and widget library
+│   │   ├── tests/     # Server tests
+│   │   ├── Dockerfile # Execution container image
+│   │   ├── pyproject.toml # API dependencies
+│   │   └── uv.lock
+│   ├── web/           # Container-owned widget frontend and tests
 │   ├── .dockerignore
-│   ├── pyproject.toml # API dependencies
-│   ├── uv.lock
 │   └── compose.yaml   # Execution environment configuration
-├── web/
+├── sample/
 │   ├── main.py        # Browser-facing FastAPI app and shared workspace
 │   ├── src/
 │   │   ├── agents/    # Execution agent loop and voice assistant

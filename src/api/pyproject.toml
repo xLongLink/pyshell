@@ -1,0 +1,61 @@
+[project]
+name = "pyshell"
+version = "0.0.0"
+description = "Persistent Python execution API"
+requires-python = ">=3.10"
+dependencies = [
+    "a2ui-core==0.4.0",
+    "fastapi>=0.115,<1",
+    "numpy>=1.26,<3",
+    "openpyxl>=3.1,<4",
+    "pandas>=2.2,<4",
+    "scipy>=1.14,<2",
+    "uvicorn[standard]>=0.34,<1",
+]
+
+[dependency-groups]
+dev = ["httpx>=0.28,<1", "pytest>=8,<10"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+artifacts = ["src/api/static/**"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "../.."]
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+line-length = 140
+target-version = "py310"
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+preview = true
+select = [
+    "F", "UP", "D", "DTZ", "I", "ICN", "PIE", "RET", "ARG", "N",
+    "PERF", "PTH", "A", "S", "ASYNC", "ANN", "B006", "E302", "E305",
+    "E262", "E265", "C403", "C419",
+    "PGH003", "PT", "RUF100", "TID252",
+]
+ignore = ["D100", "D104", "D202", "D203", "D213"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "ARG", "D", "N803", "S"]
+"src/api/shell.py" = ["S102"]
+
+[tool.ruff.lint.isort]
+no-sections = true
+length-sort = true
+split-on-trailing-comma = false

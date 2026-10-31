@@ -31,10 +31,10 @@ jobs:
           python3 - <<'PY'
           import os
           import tomllib
-          with open("api/pyproject.toml", "rb") as file:
+          with open("src/api/pyproject.toml", "rb") as file:
               version = tomllib.load(file)["project"]["version"]
           if os.environ["RELEASE_TAG"] != f"v{version}":
-              raise SystemExit("Release tag must match the version in api/pyproject.toml")
+              raise SystemExit("Release tag must match the version in src/api/pyproject.toml")
           PY
 
   tests:
@@ -59,8 +59,8 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: api
-          file: api/Dockerfile
+          context: src
+          file: src/api/Dockerfile
           platforms: linux/amd64
           push: true
           tags: |
