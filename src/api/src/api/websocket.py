@@ -3,8 +3,8 @@ from collections.abc import Coroutine
 from starlette.websockets import WebSocketDisconnect
 
 
-async def run_websocket(send: Coroutine[None, None, None], receive: Coroutine[None, None, None]) -> None:
-    """Run both socket directions until either ends, then drain both tasks."""
+async def run_websocket(send: Coroutine[None, None, object], receive: Coroutine[None, None, object]) -> None:
+    """Run paired socket operations until either ends, then drain both tasks."""
     tasks = (asyncio.create_task(send), asyncio.create_task(receive))
     try:
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

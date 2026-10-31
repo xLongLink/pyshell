@@ -11,6 +11,25 @@ import { figureProps } from "../lib/a2ui";
 
 afterEach(cleanup);
 
+test("compact figures remove legend and axis-title space without changing the full layout", () => {
+    const props = figureProps.parse({
+        data: [{ type: "bar", name: "Population", x: [2000, 2050], y: [1, 2] }],
+        layout: {
+            title: { text: "Population trend" },
+            xaxis: { title: { text: "Year" } },
+            showlegend: true,
+        },
+    });
+    const { container, rerender } = render(<Figure {...props} compact />);
+    expect(screen.getByText("Population trend")).toBeTruthy();
+    expect(screen.queryByText("Year")).toBeNull();
+    expect(container.querySelector(".recharts-legend-wrapper")).toBeNull();
+
+    rerender(<Figure {...props} />);
+    expect(screen.getByText("Year")).toBeTruthy();
+    expect(container.querySelector(".recharts-legend-wrapper")).not.toBeNull();
+});
+
 test("categorical coordinates keep first-seen order and repeated positions across traces", async () => {
     const props = figureProps.parse({
         data: [

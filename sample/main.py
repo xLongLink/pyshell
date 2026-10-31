@@ -89,16 +89,9 @@ async def workspace_socket(socket: WebSocket) -> None:
             except (ValidationError, ValueError, RuntimeError) as error:
                 subscription.publish({"type": "error", "text": str(error)})
 
-    transport = asyncio.create_task(run_websocket(send(), receive()))
-    closed = asyncio.create_task(subscription.closed.wait())
     try:
-        done, _ = await asyncio.wait((transport, closed), return_when=asyncio.FIRST_COMPLETED)
-        if transport in done:
-            transport.result()
+        await run_websocket(run_websocket(send(), receive()), subscription.closed.wait())
     finally:
-        transport.cancel()
-        closed.cancel()
-        await asyncio.gather(transport, closed, return_exceptions=True)
         overloaded = subscription.closed.is_set()
         subscription.close()
         try:

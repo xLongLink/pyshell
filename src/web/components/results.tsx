@@ -26,11 +26,10 @@ export function Results({
                         centered.length === 3 &&
                         index === 2 &&
                         "md:col-span-2",
-                    !center &&
-                        "overflow-hidden [&_.recharts-legend-wrapper]:hidden [&_.plot-xaxis-title]:hidden",
+                    !center && "overflow-hidden",
                 )}
             >
-                <Figure {...surface.props} />
+                <Figure {...surface.props} compact={!center} />
             </article>
         );
     }
@@ -48,7 +47,7 @@ export function Results({
                     className={cn(
                         "grid min-w-0 auto-rows-[minmax(20rem,1fr)] gap-4 md:h-[calc(100dvh-4rem)] md:auto-rows-fr",
                         centered.length === 1 &&
-                            "h-[calc(100dvh-2rem)] min-h-80 p-6 md:min-h-80 md:p-12",
+                            "h-[calc(100dvh-2rem)] min-h-80 md:min-h-80",
                         centered.length > 1 &&
                             "md:min-h-[40rem] md:grid-rows-2",
                         centered.length >= 3 && "md:grid-cols-2",
