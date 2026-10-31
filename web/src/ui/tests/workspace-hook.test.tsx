@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import {
+    act,
+    cleanup,
+    render,
+    renderHook,
+    screen,
+} from "@testing-library/react";
 import { useWorkspace } from "../lib/hooks/useWorkspace";
 import { catalogId } from "../lib/a2ui";
+import { Results } from "../components/results";
 
 const sockets: Socket[] = [];
 
@@ -55,10 +62,7 @@ test("workspace restores widgets and handles live placement", () => {
     const socket = sockets[0];
     socket.receive({
         type: "snapshot",
-        events: [
-            { type: "instruction", text: "Plot sales" },
-            { type: "a2ui", messages },
-        ],
+        events: [{ type: "a2ui", messages }],
         placements: { sales: { pinned: true } },
     });
     expect(result.current.connected).toBe(true);
@@ -86,6 +90,69 @@ test("workspace restores widgets and handles live placement", () => {
     });
     expect(result.current.uiMessages).toEqual([]);
     expect(result.current.placements).toEqual({});
+});
+
+test("history compaction preserves an unaffected chart and its keyboard focus", () => {
+    const { result } = renderHook(useWorkspace);
+    const socket = sockets[0];
+    const created = {
+        version: "v0.9",
+        createSurface: { surfaceId: "other", catalogId },
+    };
+    const removed = {
+        version: "v0.9",
+        deleteSurface: { surfaceId: "other" },
+    };
+    socket.receive({
+        type: "snapshot",
+        events: [{ type: "a2ui", messages: [...messages, created] }],
+    });
+    const { rerender } = render(
+        <Results messages={result.current.uiMessages} />,
+    );
+    const chart = screen.getByRole("application");
+    chart.focus();
+    for (let batch = 0; batch < 2; batch++) {
+        socket.receive({
+            type: "a2ui",
+            messages: Array.from({ length: 98 }, (_, index) =>
+                index % 2 === 0 ? removed : created,
+            ),
+        });
+        rerender(<Results messages={result.current.uiMessages} />);
+    }
+    expect(result.current.uiMessages).toHaveLength(199);
+    socket.receive({ type: "a2ui", messages: [removed, created] });
+    expect(result.current.uiMessages).toHaveLength(3);
+    rerender(<Results messages={result.current.uiMessages} />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("application")).toBe(chart);
+    expect(document.activeElement).toBe(chart);
+    expect(
+        screen.getByRole("article", { name: "Widget other" }).children,
+    ).toHaveLength(0);
+});
+
+test("invalid snapshots do not replace current widgets or placements", () => {
+    const { result } = renderHook(useWorkspace);
+    const socket = sockets[0];
+    socket.receive({
+        type: "snapshot",
+        events: [{ type: "a2ui", messages }],
+        placements: { sales: { pinned: true } },
+    });
+    const restored = result.current;
+    socket.receive({
+        type: "snapshot",
+        events: [{ type: "instruction", text: "Not snapshot data" }],
+        placements: {},
+    });
+    expect(result.current.error).toBe(
+        "The API sent an invalid workspace event.",
+    );
+    expect(result.current.uiMessages).toBe(restored.uiMessages);
+    expect(result.current.placements).toBe(restored.placements);
+    expect(result.current.connected).toBe(true);
 });
 
 test("reconnect snapshots replace widget history and stale sockets cannot change state", () => {

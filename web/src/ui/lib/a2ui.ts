@@ -13,51 +13,41 @@ const coordinates = {
     y: z.array(number.nullable()).min(1).max(200),
 };
 export const traceSchema = z.discriminatedUnion("type", [
-    z
-        .object({
-            type: z.literal("scatter"),
-            ...coordinates,
-            mode: z
-                .enum(["lines", "markers", "lines+markers"])
-                .default("lines"),
-        })
-        .strict(),
-    z.object({ type: z.literal("bar"), ...coordinates }).strict(),
-    z
-        .object({
-            type: z.literal("pie"),
-            name: text.default(""),
-            labels: z.array(text).min(1).max(200),
-            values: z.array(number.nonnegative().nullable()).min(1).max(200),
-        })
-        .strict(),
-    z
-        .object({
-            type: z.literal("choropleth"),
-            name: text.default(""),
-            geography: z
-                .string()
-                .regex(/^(world|[A-Z]{3})$/)
-                .default("world"),
-            level: z.enum(["country", "region"]).default("country"),
-            locations: z.array(text).min(1).max(200),
-            values: z.array(number.nullable()).min(1).max(200),
-        })
-        .strict(),
+    z.strictObject({
+        type: z.literal("scatter"),
+        ...coordinates,
+        mode: z.enum(["lines", "markers", "lines+markers"]).default("lines"),
+    }),
+    z.strictObject({ type: z.literal("bar"), ...coordinates }),
+    z.strictObject({
+        type: z.literal("pie"),
+        name: text.default(""),
+        labels: z.array(text).min(1).max(200),
+        values: z.array(number.nonnegative().nullable()).min(1).max(200),
+    }),
+    z.strictObject({
+        type: z.literal("choropleth"),
+        name: text.default(""),
+        geography: z
+            .string()
+            .regex(/^(world|[A-Z]{3})$/)
+            .default("world"),
+        level: z.enum(["country", "region"]).default("country"),
+        locations: z.array(text).min(1).max(200),
+        values: z.array(number.nullable()).min(1).max(200),
+    }),
 ]);
-const title = z.object({ text: text.default("") }).strict();
-const axis = z.object({ title: title.default({}) }).strict();
-const layout = z
-    .object({
-        title: title.default({}),
-        xaxis: axis.default({}),
-        showlegend: z.boolean().default(true),
-    })
-    .strict();
+const title = z.strictObject({ text: text.default("") });
+const axis = z.strictObject({ title: title.prefault({}) });
+const layout = z.strictObject({
+    title: title.prefault({}),
+    xaxis: axis.prefault({}),
+    showlegend: z.boolean().default(true),
+});
 
 const figureFields = {
     data: z.array(traceSchema).min(1).max(20),
-    layout: layout.default({}),
+    layout: layout.prefault({}),
 };
 
 function validateFigure(
@@ -101,46 +91,34 @@ function validateFigure(
 }
 
 export const figureProps = z
-    .object(figureFields)
-    .strict()
+    .strictObject(figureFields)
     .superRefine(validateFigure);
 export const componentSchema = z
-    .object({
+    .strictObject({
         id: z.literal("root"),
         component: z.literal("Figure"),
         ...figureFields,
     })
-    .strict()
     .superRefine(validateFigure);
 
 const components = z.array(componentSchema).length(1);
 
 export const a2uiMessageSchema = z.union([
-    z
-        .object({
-            version: z.literal("v0.9"),
-            createSurface: z
-                .object({
-                    surfaceId: identifier,
-                    catalogId: z.literal(catalogId),
-                })
-                .strict(),
-        })
-        .strict(),
-    z
-        .object({
-            version: z.literal("v0.9"),
-            updateComponents: z
-                .object({ surfaceId: identifier, components })
-                .strict(),
-        })
-        .strict(),
-    z
-        .object({
-            version: z.literal("v0.9"),
-            deleteSurface: z.object({ surfaceId: identifier }).strict(),
-        })
-        .strict(),
+    z.strictObject({
+        version: z.literal("v0.9"),
+        createSurface: z.strictObject({
+            surfaceId: identifier,
+            catalogId: z.literal(catalogId),
+        }),
+    }),
+    z.strictObject({
+        version: z.literal("v0.9"),
+        updateComponents: z.strictObject({ surfaceId: identifier, components }),
+    }),
+    z.strictObject({
+        version: z.literal("v0.9"),
+        deleteSurface: z.strictObject({ surfaceId: identifier }),
+    }),
 ]);
 
 export type A2uiMessage = z.infer<typeof a2uiMessageSchema>;

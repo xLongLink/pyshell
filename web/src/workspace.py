@@ -3,6 +3,7 @@ import asyncio
 from uuid import uuid4
 from typing import Literal
 from pydantic import Field, BaseModel, ConfigDict
+from dataclasses import dataclass
 from web.src.events import WidgetCommand
 from collections.abc import Callable
 from web.src.agents.script import Agent
@@ -16,6 +17,15 @@ class Command(BaseModel):
     instruction: str = Field(default="", max_length=8000)
 
 
+@dataclass
+class Surface:
+    """Keep published content and placement under one lifecycle."""
+
+    messages: list[dict[str, object]]
+    pinned: bool = False
+    focused_at: int = 0
+
+
 class Workspace:
     """Own shared execution, history, widgets, and browser subscriptions."""
 
@@ -25,8 +35,8 @@ class Workspace:
         self.agent = agent
         self.listeners: set[asyncio.Queue[dict[str, object]]] = set()
         self.task: asyncio.Task[None] | None = None
-        self.placements: dict[str, dict[str, bool]] = {}
-        self.surfaces: dict[str, list[dict[str, object]]] = {}
+        self.surfaces: dict[str, Surface] = {}
+        self._focus_sequence = 0
 
         self.closing = False
         self.results: set[Callable[[str], None]] = set()
@@ -52,8 +62,8 @@ class Workspace:
     def context(self) -> dict[str, object]:
         """Summarize recent work and current charts without copying their datasets."""
         charts = []
-        for identifier, messages in self.surfaces.items():
-            for message in messages:
+        for identifier, surface in self.surfaces.items():
+            for message in surface.messages:
                 for component in message.get("updateComponents", {}).get("components", []):
                     if component.get("component") != "Figure":
                         continue
@@ -63,25 +73,26 @@ class Workspace:
                             "title": component.get("layout", {}).get("title", {}).get("text", "")[:300],
                             "trace_types": list(dict.fromkeys(trace["type"] for trace in component.get("data", []))),
                             "series": [trace.get("name", "")[:100] for trace in component.get("data", [])],
-                            "pinned": self.placements[identifier]["pinned"],
+                            "pinned": surface.pinned,
                         }
                     )
         return {"recent_tasks": [dict(task) for task in self.recent_tasks], "charts": charts}
 
     def snapshot(self) -> dict[str, object]:
         """Copy current state without replaying any submitted operation."""
-        events = [{"type": "a2ui", "messages": messages} for messages in self.surfaces.values()]
+        events = [{"type": "a2ui", "messages": surface.messages} for surface in self.surfaces.values()]
 
         # Reconnecting tabs receive state without resubmitting work.
         return {"type": "snapshot", "events": events, "placements": self._copy_placements()}
 
-    def publish(self, event: dict[str, object]) -> None:
+    def publish(self, event: dict[str, object] | WidgetCommand) -> None:
         """Apply ordered mutations and broadcast without waiting on slow tabs."""
+        if isinstance(event, WidgetCommand):
+            self.place(event)
+            return
         if event["type"] in {"code_start", "execution_start"}:
             if self.busy:
                 self.phase = "generating_code" if event["type"] == "code_start" else "executing_python"
-            return
-        if event["type"] == "result":
             return
         if event["type"] == "widget":
             self.place(WidgetCommand.model_validate(event))
@@ -95,21 +106,20 @@ class Workspace:
                     identifier = message["createSurface"]["surfaceId"]
 
                     # New surfaces start centered and may evict an older widget.
-                    self.surfaces[identifier] = [message]
-                    self.placements[identifier] = {"pinned": False}
+                    self.surfaces[identifier] = Surface([message])
                     self._focus(identifier)
                     placement_changed = True
 
                 # Component updates replace content but retain surface creation.
                 elif "updateComponents" in message:
                     identifier = message["updateComponents"]["surfaceId"]
-                    self.surfaces[identifier] = [self.surfaces[identifier][0], message]
+                    surface = self.surfaces[identifier]
+                    surface.messages = [surface.messages[0], message]
 
                 # Removed surfaces must disappear from reconnect snapshots too.
                 elif "deleteSurface" in message:
                     identifier = message["deleteSurface"]["surfaceId"]
                     self.surfaces.pop(identifier, None)
-                    self.placements.pop(identifier, None)
                     placement_changed = True
 
         # Slow tabs resynchronize from state rather than blocking execution.
@@ -143,30 +153,31 @@ class Workspace:
             self._placement_event()
 
     def _copy_placements(self) -> dict[str, dict[str, bool]]:
-        return {key: dict(value) for key, value in self.placements.items()}
+        return {key: {"pinned": surface.pinned} for key, surface in sorted(self.surfaces.items(), key=lambda item: item[1].focused_at)}
 
     def _placement_event(self) -> None:
         self.publish({"type": "placement", "widgets": self._copy_placements()})
 
     def _focus(self, surface_id: str) -> None:
-        placement = self.placements.pop(surface_id)
-        placement["pinned"] = False
-        self.placements[surface_id] = placement
-        centered = [value for value in self.placements.values() if not value["pinned"]]
+        surface = self.surfaces[surface_id]
+        self._focus_sequence += 1
+        surface.focused_at = self._focus_sequence
+        surface.pinned = False
+        centered = sorted((surface for surface in self.surfaces.values() if not surface.pinned), key=lambda surface: surface.focused_at)
         for oldest in centered[:-4]:
-            oldest["pinned"] = True
+            oldest.pinned = True
 
     def place(self, command: WidgetCommand) -> None:
         """Keep Python widget placement authoritative across all tabs."""
-        placement = self.placements.get(command.surface_id)
-        if placement is None:
+        surface = self.surfaces.get(command.surface_id)
+        if surface is None:
             raise ValueError("Unknown or removed widget")
 
         # Focusing can evict the oldest centered widget to the sidebar.
         if command.action == "focus":
             self._focus(command.surface_id)
         else:
-            placement["pinned"] = True
+            surface.pinned = True
         self._placement_event()
 
     def start(self, command: Command) -> asyncio.Task[None]:

@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Literal, Annotated
 from pydantic import Field, PrivateAttr, model_validator
 from src.ui.model import UIModel
-from src.ui.types import Identifier
 from src.ui.plot.bar import Bar
 from src.ui.plot.pie import Pie
 from src.ui.plot.layout import Layout
@@ -17,7 +16,7 @@ Trace = Annotated[Scatter | Bar | Pie | Choropleth, Field(discriminator="type")]
 class Figure(UIModel):
     """Publish a bounded Plotly-style figure on one surface."""
 
-    id: Identifier = "root"
+    id: Literal["root"] = "root"
     component: Literal["Figure"] = "Figure"
     data: Annotated[list[Trace], Field(min_length=1, max_length=20)]
     layout: Layout = Field(default_factory=Layout)

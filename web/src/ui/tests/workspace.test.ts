@@ -46,6 +46,35 @@ test("placement events and snapshots use one pinned flag", () => {
     );
 });
 
+test("snapshots accept UI batches but reject live-only events", () => {
+    const events = [
+        {
+            type: "a2ui",
+            messages: [
+                {
+                    version: "v0.9",
+                    createSurface: { surfaceId: "sales", catalogId },
+                },
+            ],
+        },
+    ];
+    const snapshot = { type: "snapshot", events, placements: {} };
+    assert.deepEqual(messageSchema.parse(snapshot), snapshot);
+    for (const event of [
+        { type: "instruction", text: "Plot sales" },
+        { type: "error", text: "Execution failed" },
+        { type: "placement", widgets: { sales: { pinned: true } } },
+        { type: "voice", name: "closed" },
+    ]) {
+        assert.equal(messageSchema.safeParse(event).success, true);
+        assert.equal(
+            messageSchema.safeParse({ ...snapshot, events: [...events, event] })
+                .success,
+            false,
+        );
+    }
+});
+
 test("surface IDs and placement keys enforce the same boundaries", () => {
     for (const [surfaceId, valid] of [
         ["", false],

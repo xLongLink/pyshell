@@ -5,6 +5,7 @@ from main import ExecutionRequest, create_app
 from queue import Queue
 from types import SimpleNamespace
 from threading import Event
+from api.tests.helpers import execute
 from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 from importlib.metadata import version
@@ -39,51 +40,57 @@ def test_libraries_discovers_extra_packages(monkeypatch):
 
 def test_execution_preserves_namespace_and_captures_output():
     api_client = TestClient(create_app())
-    assert api_client.post("/", json={"code": "import math\nvalue = math.sqrt(16)"}).status_code == 200
-    response = api_client.post("/", json={"code": "print(value)\nimport sys\nprint('warning', file=sys.stderr)\ndone()"})
-    assert response.json() == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
+    assert execute(api_client, "import math\nvalue = math.sqrt(16)")["exception"] is None
+    result = execute(api_client, "print(value)\nimport sys\nprint('warning', file=sys.stderr)\ndone()")
+    assert result == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
 
 
 def test_reset_clears_namespace():
     api_client = TestClient(create_app())
-    api_client.post("/", json={"code": "value = 42"})
+    execute(api_client, "value = 42")
     assert api_client.post("/reset").status_code == 200
-    assert "NameError" in api_client.post("/", json={"code": "print(value)"}).json()["exception"]
+    assert "NameError" in execute(api_client, "print(value)")["exception"]
 
 
 def test_errors_preserve_prior_updates_and_do_not_kill_server():
     api_client = TestClient(create_app())
-    result = api_client.post("/", json={"code": "value = 42\nprint('before')\n1 / 0\nvalue = 99"}).json()
+    result = execute(api_client, "value = 42\nprint('before')\n1 / 0\nvalue = 99")
     assert result["stdout"] == "before\n"
     assert "ZeroDivisionError" in result["exception"]
-    assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "42\n"
+    assert execute(api_client, "print(value)")["stdout"] == "42\n"
     for source in ("if :", "raise SystemExit(1)", "raise KeyboardInterrupt"):
-        assert api_client.post("/", json={"code": source}).json()["exception"]
+        assert execute(api_client, source)["exception"]
     assert api_client.get("/health").status_code == 200
 
 
 def test_output_and_done_are_per_request():
     api_client = TestClient(create_app())
-    api_client.post("/", json={"code": "print('old')\ndone()"})
-    assert api_client.post("/", json={"code": "pass"}).json() == {"stdout": "", "stderr": "", "exception": None, "done": False, "ui": []}
+    execute(api_client, "print('old')\ndone()")
+    assert execute(api_client, "pass") == {"stdout": "", "stderr": "", "exception": None, "done": False, "ui": []}
 
 
 def test_invalid_request_is_rejected():
     api_client = TestClient(create_app())
-    assert api_client.post("/", json={"command": "print(42)"}).status_code == 422
+    assert api_client.post("/execute/stream", json={"command": "print(42)"}).status_code == 422
 
 
-def test_requests_are_serialized():
+def test_synchronous_execution_endpoint_is_retired():
     api_client = TestClient(create_app())
-    api_client.post("/", json={"code": "value = 0\nimport time"})
+    assert api_client.post("/", json={"code": "raise RuntimeError('must not execute')"}).status_code == 404
+    assert "/" not in api_client.get("/openapi.json").json()["paths"]
+
+
+def test_stream_requests_are_serialized():
+    api_client = TestClient(create_app())
+    execute(api_client, "value = 0\nimport time")
 
     def increment(_):
-        return api_client.post("/", json={"code": "previous = value\ntime.sleep(0.01)\nvalue = previous + 1"})
+        return execute(api_client, "previous = value\ntime.sleep(0.01)\nvalue = previous + 1")
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        responses = list(executor.map(increment, range(8)))
-    assert all(response.status_code == 200 for response in responses)
-    assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "8\n"
+        results = list(executor.map(increment, range(8)))
+    assert all(result["exception"] is None for result in results)
+    assert execute(api_client, "print(value)")["stdout"] == "8\n"
 
 
 def test_stream_preserves_widget_placement_and_final_output_order():
@@ -107,7 +114,7 @@ def test_stream_preserves_widget_placement_and_final_output_order():
     assert events[0]["messages"][0]["createSurface"]["surfaceId"] == "sales"
     assert events[1] == {"type": "widget", "surface_id": "sales", "action": "pin"}
     assert events[-2] == {"type": "result", "stdout": "before\nafter\n", "stderr": "", "exception": None, "done": True}
-    assert api_client.post("/", json={"code": "print(chart.surface_id)"}).json()["stdout"] == "sales\n"
+    assert execute(api_client, "print(chart.surface_id)")["stdout"] == "sales\n"
 
 
 def test_stream_reports_partial_output_and_python_failure():
@@ -119,7 +126,7 @@ def test_stream_reports_partial_output_and_python_failure():
     assert "ZeroDivisionError" in events[-2]["exception"]
     assert events[-2]["done"] is False
     assert events[-1] == {"type": "execution_finished"}
-    assert api_client.post("/", json={"code": "print(value)"}).json()["stdout"] == "42\n"
+    assert execute(api_client, "print(value)")["stdout"] == "42\n"
 
 
 async def open_stream(app, code="pass"):
@@ -251,45 +258,3 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
 
     asyncio.run(check())
     assert calls == ["pass", "completed"]
-
-
-def test_stream_and_regular_requests_share_execution_lock(monkeypatch):
-    app = create_app()
-    entered = Event()
-    release = Event()
-    calls = []
-
-    def execute(_shell, code, on_event=None):
-        calls.append(code)
-        if code == "stream":
-            entered.set()
-            assert release.wait(timeout=2)
-        return {"stdout": code, "ui": []}
-
-    monkeypatch.setattr("main.PythonShell.execute", execute)
-
-    async def check():
-        response, workers = await open_stream(app, "stream")
-        assert await asyncio.to_thread(entered.wait, 2)
-        endpoint = next(route.endpoint for route in app.routes if route.path == "/")
-        submitted = Event()
-
-        def regular_request():
-            submitted.set()
-            return endpoint(ExecutionRequest(code="regular"))
-
-        regular = asyncio.create_task(asyncio.to_thread(regular_request))
-        try:
-            assert await asyncio.to_thread(submitted.wait, 2)
-            assert calls == ["stream"]
-            assert not regular.done()
-        finally:
-            release.set()
-        await asyncio.wait_for(asyncio.gather(*workers, regular), timeout=2)
-        assert [json.loads(line) async for line in response.body_iterator] == [
-            {"type": "result", "stdout": "stream"},
-            {"type": "execution_finished"},
-        ]
-
-    asyncio.run(check())
-    assert calls == ["stream", "regular"]

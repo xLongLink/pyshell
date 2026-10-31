@@ -4,6 +4,7 @@ import pytest
 import asyncio
 from types import SimpleNamespace
 from web.src.shell import RemoteShell
+from web.src.events import WidgetCommand
 from web.src.workspace import Workspace
 
 
@@ -38,7 +39,7 @@ def test_unconfirmed_stream_is_not_replayed_and_blocks_more_work(events):
     asyncio.run(run())
 
 
-def test_confirmed_stream_forwards_events_in_order_without_terminal_marker():
+def test_confirmed_stream_forwards_only_ui_events_in_order():
     events = [
         {"type": "a2ui", "messages": [{"version": "v0.9", "createSurface": {"surfaceId": "sales", "catalogId": "urn:pyshell:catalog:v3"}}]},
         {"type": "widget", "surface_id": "sales", "action": "pin"},
@@ -52,7 +53,7 @@ def test_confirmed_stream_forwards_events_in_order_without_terminal_marker():
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             shell = RemoteShell(client)
             result = await shell.stream("print('output')", received.append)
-            assert received == events[:-1]
+            assert received == [events[0], WidgetCommand.model_validate(events[1])]
             assert result == {"stdout": "output\n", "stderr": "warning\n", "exception": None, "done": True}
             assert shell.uncertain is False
 

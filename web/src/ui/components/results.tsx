@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useMemo } from "react";
 import { Figure } from "@/components/plot/figure";
 import type { FigureProps } from "@/components/plot/common";
 import type { A2uiMessage } from "@/lib/a2ui";
@@ -14,33 +14,10 @@ export function Results({
     messages: A2uiMessage[];
     placements?: Placements;
 }) {
-    const [surfaces, setSurfaces] = useState<Surface[]>([]);
-    const [error, setError] = useState("");
-    const stream = useRef<{
-        surfaces: Map<string, Surface>;
-        messages: A2uiMessage[];
-    } | null>(null);
-
-    useEffect(() => {
-        let current = stream.current;
-        if (
-            current &&
-            !current.messages.every(
-                (message, index) => messages[index] === message,
-            )
-        ) {
-            current = null;
-        }
-        if (!current) {
-            current = {
-                surfaces: new Map(),
-                messages: [],
-            };
-            stream.current = current;
-        }
-        const active = current.surfaces;
+    const { surfaces, error } = useMemo(() => {
+        const active = new Map<string, Surface>();
         try {
-            for (const message of messages.slice(current.messages.length)) {
+            for (const message of messages) {
                 if ("createSurface" in message) {
                     if (
                         active.has(message.createSurface.surfaceId) ||
@@ -61,15 +38,12 @@ export function Results({
                     active.set(id, { id, props: { data, layout } });
                 }
             }
-            current.messages = messages;
-            setSurfaces(Array.from(active.values()));
-            setError("");
+            return { surfaces: Array.from(active.values()), error: "" };
         } catch {
-            stream.current = null;
-            setSurfaces([]);
-            setError(
-                "The generated interface could not be rendered. Check the server console for execution details.",
-            );
+            return {
+                surfaces: [],
+                error: "The generated interface could not be rendered. Check the server console for execution details.",
+            };
         }
     }, [messages]);
 

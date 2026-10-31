@@ -11,9 +11,9 @@ const geographySchema = z.object({
     level: z.enum(["country", "region"]),
     source: z.object({
         source: z.string(),
-        url: z.string().url(),
+        url: z.url(),
         license: z.string(),
-        licenseUrl: z.string().url(),
+        licenseUrl: z.url(),
         year: z.string().optional(),
     }),
     features: z

@@ -2,6 +2,7 @@ import json
 import asyncio
 from pydantic_ai import Agent as PydanticAgent
 from web.src.shell import RemoteShell
+from web.src.events import WidgetCommand
 from collections.abc import Callable
 from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai.models import Model
@@ -104,7 +105,7 @@ class Agent:
             + json.dumps(self._libraries)
         )
 
-    async def arun(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> str:
+    async def arun(self, instruction: str, on_event: Callable[[dict[str, object] | WidgetCommand], None] | None = None) -> str:
         """Generate complete code and consume live execution feedback."""
         emit = on_event if on_event is not None else lambda _event: None
         usage = RunUsage()

@@ -515,22 +515,32 @@ test("bar and scatter traces render on shared categorical axes", async () => {
     expect(screen.getByText("Target")).toBeTruthy();
 });
 
-test("all-missing Cartesian traces report an empty plot", async () => {
-    render(
-        <Results
-            messages={surface([
-                {
-                    id: "root",
-                    component: "Figure",
-                    data: [{ type: "scatter", x: [0, 1], y: [null, null] }],
-                },
-            ])}
-        />,
-    );
-    await waitFor(() =>
-        expect(screen.getByText("No values to display.")).toBeTruthy(),
-    );
-});
+test.each(["bar", "scatter"] as const)(
+    "all-missing %s-first Cartesian traces report an empty plot",
+    async (type) => {
+        render(
+            <Results
+                messages={surface([
+                    {
+                        id: "root",
+                        component: "Figure",
+                        data: [
+                            { type, x: [0, 1], y: [null, null] },
+                            {
+                                type: type === "bar" ? "scatter" : "bar",
+                                x: [0],
+                                y: [null],
+                            },
+                        ],
+                    },
+                ])}
+            />,
+        );
+        await waitFor(() =>
+            expect(screen.getByText("No values to display.")).toBeTruthy(),
+        );
+    },
+);
 
 test("numeric bars keep their spacing when overlaid with a line", async () => {
     const { container } = render(

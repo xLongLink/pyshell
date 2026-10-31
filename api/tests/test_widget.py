@@ -68,13 +68,32 @@ def test_plot_returns_typed_widgets_with_common_methods():
     assert ui.messages[-1] == {"version": "v0.9", "deleteSurface": {"surfaceId": "surface_1"}}
 
 
-@pytest.mark.parametrize("attributes", [{}, {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True}])
+def test_standalone_figure_requires_the_root_component_id():
+    data = [{"type": "bar", "x": ["A"], "y": [1]}]
+    assert Figure(data=data).id == "root"
+    assert Figure(id="root", data=data).id == "root"
+    with pytest.raises(ValidationError, match="Input should be 'root'"):
+        Figure(id="other", data=data)
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        {},
+        {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True},
+        {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "id": "other"},
+    ],
+)
 def test_invalid_plot_arguments_do_not_publish(attributes):
     ui = UI()
+    events = []
+    ui.on_publish = events.append
     with pytest.raises(ValidationError):
         ui.plot(**attributes)
     assert ui.messages == []
     assert ui.surfaces == set()
+    assert events == []
+    assert ui.plot([{"type": "bar", "x": ["A"], "y": [1]}]).surface_id == "surface_1"
 
 
 def test_update_keeps_the_handle_and_surface_identity():
@@ -107,7 +126,9 @@ def test_update_keeps_the_handle_and_surface_identity():
     [
         {"data": [{"type": "pie", "labels": ["A"], "values": [-1]}]},
         {"id": "other"},
+        {"id": "root"},
         {"component": "Other"},
+        {"component": "Figure"},
         {"unknown": True},
         {"layout": {"yaxis": {"title": {"text": "Amount"}}}},
         {"layout": {"title": {"text": "Not published"}}, "data": [{"type": "scatter", "x": [1, 2], "y": [1]}]},
@@ -168,7 +189,7 @@ def test_removed_replaced_and_reset_handles_cannot_mutate_new_widgets(invalidate
     [
         ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "component": "Unknown"}, "Input should be 'Figure'"),
         ({"data": [{"type": "pie", "labels": ["A"], "values": [-1]}]}, "greater than or equal to 0"),
-        ({"id": "other", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}, "component ID 'root'"),
+        ({"id": "other", "data": [{"type": "bar", "x": ["A"], "y": [1]}]}, "Input should be 'root'"),
         ({"data": [{"type": "bar", "x": ["A"], "y": [1]}], "layout": {"yaxis": {"title": {"text": "Amount"}}}}, "Extra inputs"),
     ],
 )
@@ -176,9 +197,14 @@ def test_invalid_replacement_does_not_destroy_the_existing_surface(attributes, m
     ui = UI()
     original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}}, surface_id="notice")
     ui.messages = []
+    events = []
+    ui.on_publish = events.append
     with pytest.raises(ValueError, match=message):
         ui.plot(**attributes, surface_id="notice")
     assert ui.messages == []
+    assert events == []
+    assert ui.surfaces == {"notice"}
+    assert original.layout.title.text == "Original"
     original.update(layout={"title": {"text": "Still usable"}})
     assert original.layout.title.text == "Still usable"
 

@@ -1,7 +1,7 @@
 import httpx
 import asyncio
 from typing import TypedDict
-from web.src.events import execution_event
+from web.src.events import WidgetCommand, execution_event
 from collections.abc import Callable
 
 
@@ -28,7 +28,7 @@ class RemoteShell:
         response.raise_for_status()
         return response.json()
 
-    async def stream(self, code: str, emit: Callable[[dict[str, object]], None]) -> ExecutionResult:
+    async def stream(self, code: str, emit: Callable[[dict[str, object] | WidgetCommand], None]) -> ExecutionResult:
         """Submit once and consume ordered output until completion is confirmed."""
         if self.uncertain:
             raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
@@ -52,23 +52,22 @@ class RemoteShell:
                         raise RuntimeError("Execution stream exceeded 16 MiB")
 
                     # Validate each event before applying completion transitions.
-                    event = execution_event.validate_json(line).model_dump()
-                    if finished or (result is not None and event["type"] != "execution_finished"):
+                    event = execution_event.validate_json(line)
+                    if finished or (result is not None and event.type != "execution_finished"):
                         raise RuntimeError("Execution events arrived after the final result")
 
                     # A finish marker confirms a result, never substitutes for it.
-                    if event["type"] == "execution_finished" and result is None:
+                    if event.type == "execution_finished" and result is None:
                         raise RuntimeError("Execution finished without a result")
 
                     # Remember the terminal marker until the transport reaches EOF.
-                    if event["type"] == "execution_finished":
+                    if event.type == "execution_finished":
                         finished = True
 
+                    elif event.type == "result":
+                        result = event.model_dump(exclude={"type"})
                     else:
-                        if event["type"] == "result":
-                            result = dict(event)
-                            result.pop("type")
-                        emit(event)
+                        emit(event if isinstance(event, WidgetCommand) else event.model_dump())
 
             # EOF alone does not confirm that execution finished.
             if not finished or result is None:

@@ -22,8 +22,6 @@ class UI:
     def plot(self, data: object = None, *, surface_id: str | None = None, **attributes: object) -> Figure:
         """Validate and publish a figure, accepting positional or keyword data."""
         widget = Figure.model_validate({"data": data, **attributes})
-        if widget.id != "root":
-            raise ValueError("A figure requires the component ID 'root'")
 
         # Automatic IDs must not replace explicitly named surfaces.
         if surface_id is None:

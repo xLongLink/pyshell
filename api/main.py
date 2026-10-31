@@ -2,7 +2,7 @@ import json
 import asyncio
 from queue import Full, Queue
 from fastapi import FastAPI, HTTPException
-from pydantic import Field, BaseModel, JsonValue
+from pydantic import BaseModel
 from src.shell import PythonShell
 from threading import Lock
 from collections.abc import Iterator
@@ -22,17 +22,6 @@ class ExecutionRequest(BaseModel):
     """Python source submitted for execution."""
 
     code: str
-
-
-class ExecutionResult(BaseModel):
-    """Captured output and completion state of an execution."""
-
-    # Match the response fields to the captured execution state.
-    ui: list[dict[str, JsonValue]] = Field(default_factory=list)
-    done: bool
-    stderr: str
-    stdout: str
-    exception: str | None
 
 
 def create_app() -> FastAPI:
@@ -63,11 +52,6 @@ def create_app() -> FastAPI:
         except (OSError, ValueError) as error:
             raise HTTPException(status_code=503, detail="Map data is unavailable") from error
         return FileResponse(path, media_type="application/geo+json", headers={"Cache-Control": "public, max-age=3600"})
-
-    @app.post("/", response_model=ExecutionResult)
-    def execute(request: ExecutionRequest) -> dict[str, object]:
-        with lock:
-            return shell.execute(request.code)
 
     @app.post("/execute/stream")
     async def stream(request: ExecutionRequest) -> StreamingResponse:

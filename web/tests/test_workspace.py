@@ -3,7 +3,47 @@ import pytest
 import asyncio
 from types import SimpleNamespace
 from src.ui.session import UI
+from web.src.events import WidgetCommand
 from web.src.workspace import Command, Workspace
+
+
+def test_focus_recency_controls_eviction_without_reordering_surface_replay():
+    workspace = Workspace(SimpleNamespace())
+    ui = UI()
+    ui.on_publish = workspace.publish
+    charts = [ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id=f"chart_{index}") for index in range(5)]
+    before = workspace.snapshot()
+    assert before["placements"]["chart_0"] == {"pinned": True}
+    charts[0].focus()
+    charts[2].pin()
+    charts[1].focus()
+    snapshot = workspace.snapshot()
+    assert snapshot["placements"] == {
+        "chart_2": {"pinned": True},
+        "chart_3": {"pinned": False},
+        "chart_4": {"pinned": False},
+        "chart_0": {"pinned": False},
+        "chart_1": {"pinned": False},
+    }
+    assert list(snapshot["placements"]) == ["chart_2", "chart_3", "chart_4", "chart_0", "chart_1"]
+    assert snapshot["events"] == before["events"]
+    assert before["placements"]["chart_0"] == {"pinned": True}
+    charts[2].focus()
+    assert workspace.snapshot()["placements"]["chart_3"] == {"pinned": True}
+
+
+def test_typed_widget_commands_preserve_unknown_surface_rejection_and_wire_events():
+    workspace = Workspace(SimpleNamespace())
+    command = WidgetCommand(type="widget", surface_id="sales", action="pin")
+    with pytest.raises(ValueError, match="Unknown or removed widget"):
+        workspace.publish(command)
+    ui = UI()
+    ui.on_publish = workspace.publish
+    ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="sales")
+    queue = asyncio.Queue(maxsize=10)
+    workspace.listeners.add(queue)
+    workspace.publish(command)
+    assert queue.get_nowait() == {"type": "placement", "widgets": {"sales": {"pinned": True}}}
 
 
 def test_workspace_inspection_tracks_phases_charts_and_recent_results():
@@ -55,14 +95,7 @@ def test_workspace_inspection_tracks_phases_charts_and_recent_results():
     asyncio.run(run())
 
 
-@pytest.mark.parametrize(
-    "event",
-    [
-        {"type": "result", "stdout": "output", "stderr": "", "exception": None, "done": True},
-        {"type": "code_start"},
-        {"type": "execution_start"},
-    ],
-)
+@pytest.mark.parametrize("event", [{"type": "code_start"}, {"type": "execution_start"}])
 def test_idle_execution_events_are_not_retained_or_broadcast_and_remain_unchanged(event):
     workspace = Workspace(SimpleNamespace())
     queue = asyncio.Queue(maxsize=10)

@@ -52,9 +52,7 @@ export function useWorkspace() {
                         setPlacements(event.placements);
                         setUiMessages(
                             retainWidgets(
-                                event.events.flatMap((item) =>
-                                    item.type === "a2ui" ? item.messages : [],
-                                ),
+                                event.events.flatMap((item) => item.messages),
                             ),
                         );
                         setError("");

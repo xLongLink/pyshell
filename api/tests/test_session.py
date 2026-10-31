@@ -1,10 +1,7 @@
 import pytest
 from main import create_app
+from api.tests.helpers import execute
 from fastapi.testclient import TestClient
-
-
-def execute(client, code):
-    return client.post("/", json={"code": code}).json()
 
 
 def test_widgets_publish_a2ui_messages_and_preserve_python_state():
