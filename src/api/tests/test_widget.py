@@ -82,7 +82,7 @@ def test_surface_size_limit_preserves_the_existing_widget(ui, replace):
     with pytest.raises(ValueError, match="256 KiB"):
         publish()
     assert ui.state.messages == messages
-    assert chart.data[0].x == ["A"]
+    assert chart.data[0].x == ("A",)
     chart.update(layout={"title": {"text": "Still usable"}})
     assert chart.layout.title.text == "Still usable"
 
@@ -115,7 +115,7 @@ def test_update_keeps_the_handle_and_surface_identity(ui):
     ui.state.messages.clear()
     chart.update(layout={"title": {"text": "After"}}, data=[{"type": "scatter", "x": ["Jan"], "y": [50]}])
     assert chart.layout.title.text == "After"
-    assert chart.data[0].y == [50]
+    assert chart.data[0].y == (50,)
     assert chart.surface_id == "sales"
 
     # Updates publish once without replacing the original handle.
@@ -124,7 +124,7 @@ def test_update_keeps_the_handle_and_surface_identity(ui):
     assert ui.state.messages[0]["updateComponents"]["components"][0]["layout"]["title"]["text"] == "After"
     assert chart.layout.showlegend is True
     chart.update(layout={"title": {"text": "Final"}})
-    assert chart.data[0].y == [50]
+    assert chart.data[0].y == (50,)
     ui.state.messages.clear()
     chart.focus()
     chart.pin()
@@ -150,7 +150,7 @@ def test_rejected_update_preserves_attributes_and_published_state(ui, attributes
 
     # Rejection is atomic and leaves the handle usable for a later valid update.
     assert chart.layout.title.text == "Original"
-    assert chart.data[0].values == [42]
+    assert chart.data[0].values == (42,)
     assert chart.id == "root"
     assert ui.state.messages == []
     chart.update(layout={"title": {"text": "Valid update"}})
@@ -184,9 +184,9 @@ def test_removed_and_replaced_handles_cannot_mutate_successors(ui, invalidate):
             operation()
     assert ui.state.messages == previous
     assert ui.state.snapshot() == snapshot
-    assert successor.data[0].y == [2]
+    assert successor.data[0].y == (2,)
     successor.update(data=[{"type": "scatter", "x": ["A"], "y": [3]}])
-    assert successor.data[0].y == [3]
+    assert successor.data[0].y == (3,)
     assert ui.state.snapshot()["events"][0]["messages"][-1]["updateComponents"]["components"][0]["data"][0]["y"] == [3]
 
 

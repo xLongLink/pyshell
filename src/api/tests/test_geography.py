@@ -89,7 +89,7 @@ def test_cached_geography_with_boundary_id_remains_readable(monkeypatch, tmp_pat
     assert response.json() == cached
     assert geography.geography_path("CHE") == path
     assert geography.geography_info("CHE") == {"name": "Switzerland", "level": "region", "locations": {"CH-BE": "Bern"}}
-    assert Choropleth(geography="CHE", locations=["CH-BE"], values=[1]).locations == ["CH-BE"]
+    assert Choropleth(geography="CHE", locations=["CH-BE"], values=[1]).locations == ("CH-BE",)
 
 
 def test_public_geography_info_does_not_expose_cached_mutable_data(monkeypatch, tmp_path):
@@ -104,7 +104,7 @@ def test_public_geography_info_does_not_expose_cached_mutable_data(monkeypatch, 
     info["locations"]["FRA"] = "France"
 
     assert geography.geography_info() == {"name": "World", "level": "country", "locations": {"CHE": "Switzerland"}}
-    assert Choropleth(locations=["CHE"], values=[1]).locations == ["CHE"]
+    assert Choropleth(locations=["CHE"], values=[1]).locations == ("CHE",)
     with pytest.raises(ValueError, match="Unknown location for this geography"):
         Choropleth(locations=["FRA"], values=[1])
 

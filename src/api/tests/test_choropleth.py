@@ -64,7 +64,7 @@ def test_location_membership_refreshes_when_cached_file_changes(monkeypatch, tmp
     data = {"name": "World", "level": "country", "features": [{"id": "CHE", "properties": {"name": "Switzerland"}}]}
     path.write_text(json.dumps(data))
     revision = path.stat().st_mtime_ns
-    assert Choropleth(locations=["CHE"], values=[1]).locations == ["CHE"]
+    assert Choropleth(locations=["CHE"], values=[1]).locations == ("CHE",)
     with pytest.raises(ValidationError, match="Unknown location for this geography"):
         Choropleth(locations=["FRA"], values=[1])
 
@@ -72,7 +72,7 @@ def test_location_membership_refreshes_when_cached_file_changes(monkeypatch, tmp
     path.write_text(json.dumps(data))
     os.utime(path, ns=(revision + 1_000_000_000, revision + 1_000_000_000))
 
-    assert Choropleth(locations=["FRA"], values=[1]).locations == ["FRA"]
+    assert Choropleth(locations=["FRA"], values=[1]).locations == ("FRA",)
     assert geography.geography_info()["locations"] == {"FRA": "France"}
     with pytest.raises(ValidationError, match="Unknown location for this geography"):
         Choropleth(locations=["CHE"], values=[1])

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from pydantic import ValidationError
 from sample.src.shell import RemoteShell
 from pydantic_ai.messages import TextPart, ModelResponse
-from sample.src.workspace import Workspace
+from sample.src.workspace import Workspace, Subscription
 from sample.src.agents.script import Agent
 from pydantic_ai.models.function import FunctionModel
 
@@ -76,17 +76,46 @@ def test_inspection_keeps_outcomes_only_in_recent_tasks(finish_reason, charts_av
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("instruction", [None, 123, b"calculate", "x" * 8001, " " * 8001])
-def test_direct_submission_validates_before_changing_state(instruction):
+@pytest.mark.parametrize("closing", [False, True])
+@pytest.mark.parametrize("busy", [False, True])
+@pytest.mark.parametrize("uncertain", [False, True])
+@pytest.mark.parametrize("instruction", [None, 123, b"calculate", "x" * 8001, " " * 8001, " \n\t", "calculate"])
+def test_direct_submission_admission_order(instruction, closing, busy, uncertain):
+    async def arun(instruction, publish):
+        return "completed"
+
+    async def accepted():
+        await workspace.start(instruction)
+
     workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False)))
-    listener = asyncio.Queue()
-    workspace.listeners.add(listener)
-    with pytest.raises(ValidationError):
+    workspace.agent.arun = arun
+    workspace.closing = closing
+    workspace.current_instruction = "existing" if busy else None
+    workspace.agent.shell.uncertain = uncertain
+    status = workspace.status()
+    listener = Subscription(workspace)
+    assert listener.queue.get_nowait() == {"type": "snapshot"}
+    if not isinstance(instruction, str) or len(instruction) > 8000:
+        error, message = ValidationError, "valid string|8000"
+    elif closing:
+        error, message = RuntimeError, "shutting down"
+    elif busy:
+        error, message = RuntimeError, "busy"
+    elif not instruction.strip():
+        error, message = ValueError, "Enter an instruction."
+    elif uncertain:
+        error, message = RuntimeError, "uncertain"
+    else:
+        asyncio.run(accepted())
+        assert listener.queue.get_nowait() == {"type": "instruction", "text": instruction}
+        assert workspace.recent_tasks[-1]["outcome"] == "completed"
+        return
+    with pytest.raises(error, match=message):
         workspace.start(instruction)
-    assert workspace.status() == {"busy": False, "phase": "idle", "instruction": None, "execution_uncertain": False}
+    assert workspace.status() == status
     assert workspace.task is None
     assert not workspace.recent_tasks
-    assert listener.empty()
+    assert listener.queue.empty()
 
 
 def test_direct_submission_accepts_limit_and_strips_whitespace():

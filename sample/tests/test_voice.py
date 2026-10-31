@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from contextlib import asynccontextmanager
 from sample.src.agents import voice
 from pydantic_ai.messages import TextPart, SpeechPart, PartEndEvent, PartDeltaEvent, SpeechPartDelta
-from sample.src.workspace import Workspace
+from sample.src.workspace import Workspace, Subscription
 
 
 @pytest.fixture
@@ -14,6 +14,7 @@ def call(monkeypatch):
     messages = []
     teardown_subscribers = []
     hangups = []
+    executions = []
     provider_events = []
     state = SimpleNamespace(failure=None, reject_results=False, block_hangup=False)
 
@@ -21,6 +22,7 @@ def call(monkeypatch):
         return {"charts": []}
 
     async def arun(instruction, publish):
+        executions.append(instruction)
         return "completed"
 
     workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=False, context=context), arun=arun))
@@ -112,6 +114,7 @@ def call(monkeypatch):
         messages=messages,
         teardown_subscribers=teardown_subscribers,
         hangups=hangups,
+        executions=executions,
         state=state,
         publish_result=publish_result,
     )
@@ -153,8 +156,7 @@ def test_completed_voice_transcripts_are_printed_once(call, capsys):
     assert [event["name"] for event in call.events] == ["answer", "closed"]
 
 
-@pytest.mark.parametrize("state", ["idle", "busy", "uncertain", "closing"])
-@pytest.mark.parametrize("instruction", ["x" * 8001, 123, None, b"calculate", " \n\t", "calculate"])
+@pytest.mark.parametrize(("state", "instruction"), [("busy", "calculate"), ("idle", 123), ("idle", "calculate")])
 def test_worker_validates_shared_workspace_submission(call, state, instruction):
     async def run():
         task = asyncio.create_task(call.voice.connect("offer"))
@@ -164,8 +166,8 @@ def test_worker_validates_shared_workspace_submission(call, state, instruction):
             workspace.current_instruction = "existing" if state == "busy" else None
             workspace.agent.shell.uncertain = state == "uncertain"
             workspace.closing = state == "closing"
-            listener = asyncio.Queue()
-            workspace.listeners.add(listener)
+            listener = Subscription(workspace)
+            listener.queue.get_nowait()
             status = workspace.status()
             messages = list(call.messages)
 
@@ -173,7 +175,8 @@ def test_worker_validates_shared_workspace_submission(call, state, instruction):
             if state == "idle" and instruction == "calculate":
                 assert "submitted once" in result
                 await workspace.task
-                assert listener.get_nowait() == {"type": "instruction", "text": "calculate"}
+                assert call.executions == ["calculate"]
+                assert listener.queue.get_nowait() == {"type": "instruction", "text": "calculate"}
                 assert workspace.recent_tasks[-1]["instruction"] == "calculate"
                 assert '"instruction": "calculate"' in call.messages[-1]
                 return
@@ -194,7 +197,7 @@ def test_worker_validates_shared_workspace_submission(call, state, instruction):
             assert workspace.status() == status
             assert workspace.task is None
             assert not workspace.recent_tasks
-            assert listener.empty()
+            assert listener.queue.empty()
             assert call.messages == messages
         finally:
             call.session.finish.set()
@@ -208,12 +211,12 @@ def test_worker_accepts_trimmed_instruction_at_limit(call):
         task = asyncio.create_task(call.voice.connect("offer"))
         try:
             await call.session.ready.wait()
-            listener = asyncio.Queue()
-            call.workspace.listeners.add(listener)
+            listener = Subscription(call.workspace)
+            listener.queue.get_nowait()
             result = await call.tools["worker"](" " + "x" * 7998 + " ")
             assert "submitted once" in result
             await call.workspace.task
-            assert listener.get_nowait() == {"type": "instruction", "text": "x" * 7998}
+            assert listener.queue.get_nowait() == {"type": "instruction", "text": "x" * 7998}
             assert call.workspace.recent_tasks[-1] == {"instruction": "x" * 2000, "outcome": "completed", "result": "completed"}
             assert not call.workspace.busy
         finally:
@@ -240,6 +243,22 @@ def test_results_use_active_session_and_enqueue_failure_preserves_workspace(call
         assert '"instruction": "again"' in call.messages[-1]
         call.session.finish.set()
         await task
+
+    asyncio.run(run())
+
+
+def test_overloaded_answer_stops_call_and_unregisters_results(call):
+    async def run():
+        subscription = Subscription(call.workspace, maxsize=1)
+        call.voice.emit = subscription.emit
+        await call.voice.handle(voice.VoiceCommand(type="voice", action="start", sdp="offer"))
+        async with asyncio.timeout(2):
+            await subscription.closed.wait()
+            await call.voice.stop(notify=False)
+        assert not call.workspace.results
+        assert call.teardown_subscribers == [0]
+        assert call.hangups == ["provider-session"]
+        assert call.voice.task is None
 
     asyncio.run(run())
 

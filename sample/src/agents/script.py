@@ -98,7 +98,7 @@ class Agent:
         self._instruction_text: str | None = None
 
         # Resolve the execution environment's package inventory on the first turn.
-        self.agent = PydanticAgent(model, instructions=self._instructions, model_settings={"openai_reasoning_effort": "low"})
+        self.agent = PydanticAgent(model, instructions=self._instructions)
 
         # Conversation state is committed only after execution succeeds.
         self.message_history = []

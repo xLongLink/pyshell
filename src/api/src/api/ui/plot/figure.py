@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Literal, Annotated
 from pydantic import Field, PrivateAttr, model_validator
 from api.ui.model import UIModel
+from api.ui.types import ImmutableList
 from api.ui.plot.bar import Bar
 from api.ui.plot.pie import Pie
 from api.ui.plot.layout import Layout
@@ -18,7 +19,7 @@ class Figure(UIModel):
 
     id: Literal["root"] = "root"
     component: Literal["Figure"] = "Figure"
-    data: Annotated[list[Trace], Field(min_length=1, max_length=20)]
+    data: Annotated[ImmutableList[Trace], Field(min_length=1, max_length=20)]
     layout: Layout = Field(default_factory=Layout)
 
     # Publication metadata is private and excluded from the wire model.

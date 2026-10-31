@@ -6,7 +6,38 @@ from pydantic import Field, TypeAdapter
 from collections.abc import Callable
 from sample.src.agents.script import Agent
 
-instruction_adapter = TypeAdapter(Annotated[str, Field(strict=True, max_length=8000)])
+Instruction = Annotated[str, Field(strict=True, max_length=8000)]
+instruction_adapter = TypeAdapter(Instruction)
+
+
+class Subscription:
+    """Bound one browser's pending events without delaying shared work."""
+
+    def __init__(self, workspace: "Workspace", *, maxsize: int = 256) -> None:
+        """Register a connection and its initial readiness event."""
+        self.workspace = workspace
+        self.queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=maxsize)
+        self.closed = asyncio.Event()
+        workspace.listeners.add(self)
+        self.publish(workspace.snapshot())
+
+    def publish(self, event: dict[str, object]) -> None:
+        """Detach an overloaded browser instead of losing queued events."""
+        if self.closed.is_set():
+            return
+        try:
+            self.queue.put_nowait(event)
+        except asyncio.QueueFull:
+            self.close()
+
+    async def emit(self, event: dict[str, object]) -> None:
+        """Use the same nonblocking policy for voice signaling."""
+        self.publish(event)
+
+    def close(self) -> None:
+        """Wake the connection owner and stop receiving broadcasts."""
+        self.workspace.listeners.discard(self)
+        self.closed.set()
 
 
 class Workspace:
@@ -16,7 +47,7 @@ class Workspace:
         """Keep workspace resources independent of browser connections."""
         self.id = str(uuid4())
         self.agent = agent
-        self.listeners: set[asyncio.Queue[dict[str, object]]] = set()
+        self.listeners: set[Subscription] = set()
         self.task: asyncio.Task[None] | None = None
 
         self.closing = False
@@ -50,7 +81,7 @@ class Workspace:
         return {"recent_tasks": recent_tasks, "charts": charts}
 
     def snapshot(self) -> dict[str, object]:
-        """Copy current state without replaying any submitted operation."""
+        """Signal readiness without implying state replay."""
         return {"type": "snapshot"}
 
     def publish(self, event: dict[str, object]) -> None:
@@ -62,33 +93,8 @@ class Workspace:
         if event["type"] not in {"instruction", "error"}:
             return
 
-        # Slow tabs resynchronize from state rather than blocking execution.
-        for listener in self.listeners:
-            if listener.full():
-                controls = []
-
-                # Preserve voice signaling while discarding stale replay events.
-                while not listener.empty():
-                    queued = listener.get_nowait()
-
-                    # Voice answers cannot be reconstructed from workspace state.
-                    if queued["type"] == "voice":
-                        controls.append(queued)
-
-                # Reserve queue capacity for the replacement snapshot first.
-                listener.put_nowait(self.snapshot())
-
-                # A snapshot can consume the subscriber's entire queue.
-                for control in controls[-max(1, listener.maxsize - 1) :]:
-                    if listener.full():
-                        break
-
-                    # Restore voice controls only while capacity remains.
-                    listener.put_nowait(control)
-
-            # Healthy subscribers receive each ordered event directly.
-            else:
-                listener.put_nowait(event)
+        for listener in tuple(self.listeners):
+            listener.publish(event)
 
     def start(self, instruction: str) -> asyncio.Task[None]:
         """Submit text or voice work once, outside the socket's lifetime."""

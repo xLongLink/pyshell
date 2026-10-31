@@ -1,7 +1,7 @@
 from typing import Literal, Annotated
 from pydantic import Field, model_validator
 from api.ui.model import UIModel
-from api.ui.types import Number, TextValue
+from api.ui.types import Number, TextValue, ImmutableList
 from api.ui.plot.geography import _geography_info
 
 
@@ -11,8 +11,8 @@ class Choropleth(UIModel):
     type: Literal["choropleth"] = "choropleth"
     name: TextValue = ""
     geography: Annotated[TextValue, Field(pattern=r"^(world|[A-Z]{3})$")] = "world"
-    locations: Annotated[list[TextValue], Field(min_length=1, max_length=200)]
-    values: Annotated[list[Number | None], Field(min_length=1, max_length=200)]
+    locations: Annotated[ImmutableList[TextValue], Field(min_length=1, max_length=200)]
+    values: Annotated[ImmutableList[Number | None], Field(min_length=1, max_length=200)]
 
     @model_validator(mode="after")
     def locations_match(self) -> "Choropleth":
