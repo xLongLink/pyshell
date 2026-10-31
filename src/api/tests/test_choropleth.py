@@ -36,12 +36,12 @@ def test_location_membership_refreshes_when_cached_file_changes(monkeypatch, tmp
 
 
 @pytest.mark.parametrize("trace", INVALID_TRACES)
-def test_validation_checks_input_structure_before_fetching(monkeypatch, trace):
+def test_validation_checks_input_structure_before_geography_lookup(monkeypatch, trace):
     # Arrange
-    def unexpected_download(url):
-        pytest.fail("Invalid input must be rejected before fetching geography")
+    def unexpected_lookup(name):
+        pytest.fail("Invalid input must be rejected before geography lookup")
 
-    monkeypatch.setattr(geography, "download", unexpected_download)
+    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", unexpected_lookup)
 
     # Act
     # Assert

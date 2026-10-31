@@ -80,8 +80,9 @@ def test_widgets_update_directly_and_reconnect_without_reexecuting_python():
             assert restored.receive_json() == {"type": "snapshot", "events": [], "placements": {}}
             assert client.get("/ui/context").json() == {"charts": []}
             assert "NameError" in execute(client, "print(count)")["exception"]
-            fresh = execute(client, "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [2]}], surface_id='sales')")["ui"]
-            assert fresh[0]["createSurface"]["surfaceId"] == "sales"
+            execute(client, "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [2]}], surface_id='sales')")
+            fresh = restored.receive_json()
+            assert fresh["events"][0]["messages"][0]["createSurface"]["surfaceId"] == "sales"
 
 
 def test_widget_connection_cannot_submit_python():

@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { messageSchema, type Placements } from "@/lib/workspace";
-import type { A2uiMessage } from "@/lib/a2ui";
+import { messageSchema } from "@/lib/workspace";
+import type { z } from "zod";
 
 export function useWorkspace() {
     const [error, setError] = useState("");
-    const [uiMessages, setUiMessages] = useState<A2uiMessage[]>([]);
-    const [placements, setPlacements] = useState<Placements>({});
+    const [snapshot, setSnapshot] = useState<z.infer<typeof messageSchema>>({
+        surfaces: [],
+        placements: {},
+    });
 
     useEffect(() => {
         let disposed = false;
@@ -22,10 +24,7 @@ export function useWorkspace() {
                     const snapshot = messageSchema.parse(
                         JSON.parse(message.data),
                     );
-                    setUiMessages(
-                        snapshot.events.flatMap((event) => event.messages),
-                    );
-                    setPlacements(snapshot.placements);
+                    setSnapshot(snapshot);
                     setError("");
                 } catch {
                     setError("The container sent an invalid widget snapshot.");
@@ -48,5 +47,5 @@ export function useWorkspace() {
         };
     }, []);
 
-    return { uiMessages, placements, error };
+    return { ...snapshot, error };
 }

@@ -5,11 +5,10 @@ from api.shell import PythonShell
 def test_execution_logs_source_and_streams_output_before_completion(capsys):
     shell = PythonShell()
     observed = []
-    events = []
     shell.namespace["observe"] = lambda: observed.append(capsys.readouterr())
     source = "import sys\nprint('running')\nprint('warning', file=sys.stderr)\nobserve()\nprint('finished')"
 
-    result = shell.execute(source, on_event=events.append)
+    result = shell.execute(source)
 
     assert observed[0].out == source + "\nrunning\n"
     assert observed[0].err == "warning\n"
@@ -19,7 +18,6 @@ def test_execution_logs_source_and_streams_output_before_completion(capsys):
     assert result["stdout"] == "running\nfinished\n"
     assert result["stderr"] == "warning\n"
     assert result["exception"] is None
-    assert events == []
 
 
 def test_execution_logs_errors_and_keeps_them_in_response(capsys):

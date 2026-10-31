@@ -102,14 +102,14 @@ test("batch complexity limits stop validation before message parsing", () => {
     }
 });
 
-test("batch count and UTF-8 byte limits are preserved", () => {
+test("snapshot batches reject histories and retain UTF-8 byte limits", () => {
     const create = {
         version: "v0.9",
         createSurface: { surfaceId: "sales", catalogId },
     };
     assert.equal(
         a2uiBatchSchema.safeParse(Array(100).fill(create)).success,
-        true,
+        false,
     );
     const large = {
         version: "v0.9",
@@ -131,8 +131,12 @@ test("batch count and UTF-8 byte limits are preserved", () => {
             ],
         },
     };
-    assert.equal(a2uiBatchSchema.safeParse([large]).success, true);
-    for (const payload of [Array(101).fill(create), Array(100).fill(large)]) {
+    assert.equal(a2uiBatchSchema.safeParse([create, large]).success, true);
+    const oversized = Array(60).fill(large);
+    const serialized = JSON.stringify(oversized);
+    assert.ok(serialized.length < 1048576);
+    assert.ok(new TextEncoder().encode(serialized).length > 1048576);
+    for (const payload of [Array(101).fill(create), oversized]) {
         const parsed = a2uiBatchSchema.safeParse(payload);
         assert.equal(parsed.success, false);
         if (!parsed.success)
@@ -143,22 +147,12 @@ test("batch count and UTF-8 byte limits are preserved", () => {
     }
 });
 
-test("scatter x rejects nonfinite values", () => {
-    assert.equal(
-        figureProps.safeParse({
-            data: [{ type: "scatter", x: [Infinity], y: [1] }],
-        }).success,
-        false,
-    );
-});
-
-test("other numeric fields reject nonfinite values", () => {
-    for (const trace of [
-        { type: "scatter", x: [1], y: [Infinity] },
-        { type: "pie", labels: ["A"], values: [Infinity] },
-    ]) {
-        assert.equal(figureProps.safeParse({ data: [trace] }).success, false);
-    }
+test.each([
+    { type: "scatter", x: [Infinity], y: [1] },
+    { type: "scatter", x: [1], y: [Infinity] },
+    { type: "pie", labels: ["A"], values: [Infinity] },
+])("numeric fields reject nonfinite values: %j", (trace) => {
+    assert.equal(figureProps.safeParse({ data: [trace] }).success, false);
 });
 
 test("map defaults and nonfinite values match Python", () => {

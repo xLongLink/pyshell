@@ -24,8 +24,8 @@ def test_execution_preserves_namespace_and_captures_output():
     api_client = TestClient(create_app())
     assert execute(api_client, "import math\nvalue = math.sqrt(16)")["exception"] is None
     result = execute(api_client, "print(value)\nimport sys\nprint('warning', file=sys.stderr)\ndone()")
-    assert result == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": True, "ui": []}
-    assert execute(api_client, "pass") == {"stdout": "", "stderr": "", "exception": None, "done": False, "ui": []}
+    assert result == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": True}
+    assert execute(api_client, "pass") == {"stdout": "", "stderr": "", "exception": None, "done": False}
 
 
 def test_invalid_request_is_rejected():
@@ -55,7 +55,7 @@ def test_stream_requests_are_serialized():
     assert execute(api_client, "print(value)")["stdout"] == "8\n"
 
 
-def test_stream_preserves_widget_placement_and_final_output_order():
+def test_stream_only_confirms_execution_while_widgets_publish_directly():
     api_client = TestClient(create_app())
     response = api_client.post(
         "/execute/stream",
@@ -72,10 +72,12 @@ def test_stream_preserves_widget_placement_and_final_output_order():
     events = [json.loads(line) for line in response.text.splitlines()]
 
     assert response.headers["content-type"].startswith("application/x-ndjson")
-    assert [event["type"] for event in events] == ["a2ui", "widget", "result", "execution_finished"]
-    assert events[0]["messages"][0]["createSurface"]["surfaceId"] == "sales"
-    assert events[1] == {"type": "widget", "surface_id": "sales", "action": "pin"}
+    assert [event["type"] for event in events] == ["result", "execution_finished"]
     assert events[-2] == {"type": "result", "stdout": "before\nafter\n", "stderr": "", "exception": None, "done": True}
+    with api_client.websocket_connect("/ui/ws", headers={"origin": "http://localhost:8000"}) as socket:
+        snapshot = socket.receive_json()
+        assert snapshot["events"][0]["messages"][0]["createSurface"]["surfaceId"] == "sales"
+        assert snapshot["placements"] == {"sales": {"pinned": True}}
     assert execute(api_client, "print(chart.surface_id)")["stdout"] == "sales\n"
 
 
@@ -99,15 +101,14 @@ def test_stream_reports_partial_output_and_python_failure():
 
     # Assert
     assert response.status_code == 200
-    assert [event["type"] for event in events] == ["a2ui", "result", "execution_finished"]
-    assert events[0]["messages"][0]["createSurface"]["surfaceId"] == "notice"
+    assert [event["type"] for event in events] == ["result", "execution_finished"]
+    assert api_client.get("/ui/context").json()["charts"][0]["surface_id"] == "notice"
     assert events[-2]["stdout"] == "before\n"
     assert "ZeroDivisionError" in events[-2]["exception"]
     assert events[-2]["done"] is False
     assert events[-1] == {"type": "execution_finished"}
     subsequent = execute(api_client, "print(value)")
     assert subsequent["stdout"] == "42\n"
-    assert subsequent["ui"] == []
     for source, error in (("if :", "SyntaxError"), ("raise SystemExit(1)", "SystemExit"), ("raise KeyboardInterrupt", "KeyboardInterrupt")):
         assert error in execute(api_client, source)["exception"]
     assert api_client.get("/health").status_code == 200
@@ -125,8 +126,7 @@ async def open_stream(app, code="pass"):
 def test_stream_worker_failure_still_emits_terminal_event(monkeypatch):
     app = create_app()
 
-    def execute(_shell, _code, on_event):
-        on_event({"type": "widget", "surface_id": "before", "action": "pin"})
+    def execute(_shell, _code):
         raise RuntimeError("worker failed")
 
     monkeypatch.setattr("api.main.PythonShell.execute", execute)
@@ -136,10 +136,7 @@ def test_stream_worker_failure_still_emits_terminal_event(monkeypatch):
         errors = await asyncio.wait_for(asyncio.gather(*workers, return_exceptions=True), timeout=2)
         assert isinstance(errors[0], RuntimeError)
         assert str(errors[0]) == "worker failed"
-        assert [json.loads(line) async for line in response.body_iterator] == [
-            {"type": "widget", "surface_id": "before", "action": "pin"},
-            {"type": "execution_finished"},
-        ]
+        assert [json.loads(line) async for line in response.body_iterator] == [{"type": "execution_finished"}]
 
     asyncio.run(check())
 
@@ -149,12 +146,9 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
     disconnected = Event()
     calls = []
 
-    def execute(_shell, code, on_event):
+    def execute(_shell, code):
         calls.append(code)
-        on_event({"type": "widget", "surface_id": "before", "action": "pin"})
         assert disconnected.wait(timeout=2)
-        for index in range(300):
-            on_event({"type": "widget", "surface_id": str(index), "action": "focus"})
         calls.append("completed")
         return {"stdout": "complete", "ui": []}
 
@@ -166,7 +160,7 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
 
         async def send(message):
             sent.append(message)
-            if message["type"] == "http.response.body":
+            if message["type"] == "http.response.start":
                 raise OSError("connection closed")
 
         async def receive():
@@ -178,9 +172,9 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
         finally:
             disconnected.set()
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
-        assert json.loads(sent[-1]["body"]) == {"type": "widget", "surface_id": "before", "action": "pin"}
+        assert sent[-1]["type"] == "http.response.start"
         events = [json.loads(line) async for line in response.body_iterator]
-        assert events == [{"type": "widget", "surface_id": str(index), "action": "focus"} for index in range(256)]
+        assert events == [{"type": "result", "stdout": "complete"}, {"type": "execution_finished"}]
 
     asyncio.run(check())
     assert calls == ["pass", "completed"]

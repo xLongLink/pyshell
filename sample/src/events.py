@@ -1,28 +1,11 @@
 from typing import Literal, Annotated
-from pydantic import Field, BaseModel, JsonValue, ConfigDict, TypeAdapter
+from pydantic import Field, BaseModel, ConfigDict, TypeAdapter
 
 
 class Event(BaseModel):
     """Validate execution events at the container boundary."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-
-
-class Content(Event):
-    """Carry validated UI protocol messages."""
-
-    type: Literal["a2ui"]
-
-    # Protocol messages retain their nested JSON structure.
-    messages: list[dict[str, JsonValue]]
-
-
-class WidgetCommand(Event):
-    """Address one existing widget's placement."""
-
-    type: Literal["widget"]
-    action: Literal["focus", "pin"]
-    surface_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class Result(Event):
@@ -42,4 +25,4 @@ class Finished(Event):
     type: Literal["execution_finished"]
 
 
-execution_event = TypeAdapter(Annotated[Content | WidgetCommand | Result | Finished, Field(discriminator="type")])
+execution_event = TypeAdapter(Annotated[Result | Finished, Field(discriminator="type")])

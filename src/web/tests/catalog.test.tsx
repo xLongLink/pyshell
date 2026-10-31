@@ -8,36 +8,37 @@ import {
     within,
 } from "@testing-library/react";
 import { Results } from "../components/results";
-import { a2uiBatchSchema, catalogId } from "../lib/a2ui";
+import { figureProps } from "../lib/a2ui";
+import type { Surface } from "../lib/workspace";
 
 afterEach(cleanup);
 
-function surface(components: unknown[], surfaceId = "sales") {
-    return a2uiBatchSchema.parse([
-        { version: "v0.9", createSurface: { surfaceId, catalogId } },
-        { version: "v0.9", updateComponents: { surfaceId, components } },
-    ]);
+function surface(surfaceId = "sales"): Surface[] {
+    return [{ id: surfaceId, props: undefined }];
 }
 
-function bar(title: string) {
-    return {
-        id: "root",
-        component: "Figure",
-        layout: { title: { text: title } },
-        data: [{ type: "bar", x: ["A"], y: [42] }],
-    };
+function figure(
+    data: unknown[],
+    layout?: unknown,
+    surfaceId = "sales",
+): Surface[] {
+    return [{ id: surfaceId, props: figureProps.parse({ data, layout }) }];
+}
+
+function bar(title: string, surfaceId = "sales") {
+    return figure(
+        [{ type: "bar", x: ["A"], y: [42] }],
+        { title: { text: title } },
+        surfaceId,
+    );
 }
 
 test("appending another surface preserves an existing chart and its keyboard focus", async () => {
-    const messages = surface([bar("First")], "first");
-    const { rerender } = render(<Results messages={messages} />);
+    const surfaces = bar("First", "first");
+    const { rerender } = render(<Results surfaces={surfaces} />);
     const chart = await screen.findByRole("application");
     chart.focus();
-    rerender(
-        <Results
-            messages={[...messages, ...surface([bar("Second")], "second")]}
-        />,
-    );
+    rerender(<Results surfaces={[...surfaces, ...bar("Second", "second")]} />);
     await waitFor(() => expect(screen.getByText("Second")).toBeTruthy());
     expect(document.activeElement).toBe(chart);
     expect(
@@ -47,93 +48,33 @@ test("appending another surface preserves an existing chart and its keyboard foc
     ).toBe(chart);
 });
 
-test("replacement snapshots rebuild surfaces even when their history has the same length", async () => {
-    const { rerender } = render(
-        <Results messages={surface([bar("Old")], "old")} />,
-    );
+test("replacement snapshots replace surfaces even when their count is unchanged", async () => {
+    const { rerender } = render(<Results surfaces={bar("Old", "old")} />);
     await waitFor(() => expect(screen.getByText("Old")).toBeTruthy());
-    rerender(<Results messages={surface([bar("New")], "new")} />);
+    rerender(<Results surfaces={bar("New", "new")} />);
     await waitFor(() => expect(screen.getByText("New")).toBeTruthy());
     expect(screen.queryByText("Old")).toBeNull();
     expect(screen.getAllByRole("article")).toHaveLength(1);
 });
 
-test.each([
-    {
-        name: "duplicate",
-        addition: a2uiBatchSchema.parse([
-            {
-                version: "v0.9",
-                createSurface: { surfaceId: "sales", catalogId },
-            },
-        ]),
-    },
-    {
-        name: "unknown update",
-        addition: surface([bar("Unknown")], "unknown").slice(1),
-    },
-    {
-        name: "unknown delete",
-        addition: a2uiBatchSchema.parse([
-            { version: "v0.9", deleteSurface: { surfaceId: "unknown" } },
-        ]),
-    },
-    {
-        name: "capacity",
-        addition: Array.from({ length: 20 }, (_, index) =>
-            surface([bar(`Extra ${index}`)], `extra_${index}`),
-        ).flat(),
-    },
-])(
-    "invalid appended lifecycle messages fail closed: $name",
-    async ({ addition }) => {
-        // Arrange
-        const messages = surface([bar("Valid")]);
-        const { rerender } = render(<Results messages={messages} />);
-        await waitFor(() => expect(screen.getByText("Valid")).toBeTruthy());
-
-        // Act
-        rerender(<Results messages={[...messages, ...addition]} />);
-
-        // Assert
-        await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
-        expect(screen.queryByRole("article")).toBeNull();
-        rerender(<Results messages={surface([bar("Recovered")])} />);
-        await waitFor(() => expect(screen.getByText("Recovered")).toBeTruthy());
-        expect(screen.queryByRole("alert")).toBeNull();
-    },
-);
-
 test("replacement, removal, and reset do not duplicate result surfaces", async () => {
-    const messages = surface([bar("Before")]);
-    const { rerender } = render(<Results messages={messages} />);
+    const surfaces = bar("Before");
+    const { rerender } = render(<Results surfaces={surfaces} />);
     await waitFor(() => expect(screen.getByText("Before")).toBeTruthy());
-    const replaced = a2uiBatchSchema.parse([
-        ...messages,
-        { version: "v0.9", deleteSurface: { surfaceId: "sales" } },
-        ...surface([bar("After")]),
-    ]);
-    rerender(<Results messages={replaced} />);
+    rerender(<Results surfaces={bar("After")} />);
     await waitFor(() => expect(screen.getByText("After")).toBeTruthy());
     expect(screen.queryByText("Before")).toBeNull();
-    rerender(
-        <Results
-            messages={[
-                ...replaced,
-                { version: "v0.9", deleteSurface: { surfaceId: "sales" } },
-            ]}
-        />,
-    );
+    rerender(<Results surfaces={[]} />);
     await waitFor(() => expect(screen.queryByText("After")).toBeNull());
-    rerender(<Results messages={messages} />);
+    rerender(<Results surfaces={surfaces} />);
     await waitFor(() => expect(screen.getByText("Before")).toBeTruthy());
-    rerender(<Results messages={[]} />);
+    rerender(<Results surfaces={[]} />);
     await waitFor(() => expect(screen.queryByLabelText("Results")).toBeNull());
 });
 
 test("chart titles remain inert even when they contain HTML", async () => {
     const text = '<img src=x onerror="alert(1)">';
-    const { container } = render(<Results messages={surface([bar(text)])} />);
+    const { container } = render(<Results surfaces={bar(text)} />);
     await waitFor(() => expect(screen.getByText(text)).toBeTruthy());
     expect(container.querySelector("img")).toBeNull();
 });
@@ -141,20 +82,16 @@ test("chart titles remain inert even when they contain HTML", async () => {
 test("pie rendering preserves missing slice positions and colors", async () => {
     const { container } = render(
         <Results
-            messages={surface([
-                {
-                    id: "root",
-                    component: "Figure",
-                    layout: { title: { text: "Revenue" } },
-                    data: [
-                        {
-                            type: "pie",
-                            labels: ["Apples", "Pears", "Oranges"],
-                            values: [42, null, 84],
-                        },
-                    ],
-                },
-            ])}
+            surfaces={figure(
+                [
+                    {
+                        type: "pie",
+                        labels: ["Apples", "Pears", "Oranges"],
+                        values: [42, null, 84],
+                    },
+                ],
+                { title: { text: "Revenue" } },
+            )}
         />,
     );
     await waitFor(() => expect(screen.getByText("Revenue")).toBeTruthy());
@@ -183,13 +120,7 @@ test("pie legends and tooltips resolve slice labels as inert text", async () => 
     const label = '</style><img src=x onerror="alert(1)">';
     const { container } = render(
         <Results
-            messages={surface([
-                {
-                    id: "root",
-                    component: "Figure",
-                    data: [{ type: "pie", labels: [label], values: [42] }],
-                },
-            ])}
+            surfaces={figure([{ type: "pie", labels: [label], values: [42] }])}
         />,
     );
     await waitFor(() => expect(screen.getAllByText(label)).toHaveLength(1));
@@ -216,15 +147,9 @@ test.each(["bar", "scatter"] as const)(
         const name = '<img src=x onerror="alert(1)">__proto__';
         const { container } = render(
             <Results
-                messages={surface([
-                    {
-                        id: "root",
-                        component: "Figure",
-                        data: [
-                            { type, name, x: ["A"], y: [1234.5] },
-                            { type, x: ["B"], y: [10] },
-                        ],
-                    },
+                surfaces={figure([
+                    { type, name, x: ["A"], y: [1234.5] },
+                    { type, x: ["B"], y: [10] },
                 ])}
             />,
         );
@@ -256,14 +181,15 @@ test.each(["bar", "scatter"] as const)(
 );
 
 test("charts keep independent labels and colors when another chart changes", async () => {
-    const pie = (labels: string[]) => ({
-        id: "root",
-        component: "Figure",
-        data: [{ type: "pie", labels, values: labels.map(() => 42) }],
-    });
-    const second = surface([pie(["Other", "Shared"])], "second");
+    const pie = (labels: string[], surfaceId = "sales") =>
+        figure(
+            [{ type: "pie", labels, values: labels.map(() => 42) }],
+            undefined,
+            surfaceId,
+        );
+    const second = pie(["Other", "Shared"], "second");
     const { rerender } = render(
-        <Results messages={[...surface([pie(["Shared"])]), ...second]} />,
+        <Results surfaces={[...pie(["Shared"]), ...second]} />,
     );
     const widget = await screen.findByRole("article", {
         name: "Widget second",
@@ -279,11 +205,7 @@ test("charts keep independent labels and colors when another chart changes", asy
             widget.querySelector(".recharts-tooltip-wrapper")?.textContent,
         ).toBe("Shared42"),
     );
-    rerender(
-        <Results
-            messages={[...surface([pie(["Changed", "Shared"])]), ...second]}
-        />,
-    );
+    rerender(<Results surfaces={[...pie(["Changed", "Shared"]), ...second]} />);
     await screen.findByText("Changed");
     const updated = screen.getByRole("article", { name: "Widget second" });
     const updatedSlice = updated.querySelectorAll(
@@ -305,17 +227,11 @@ test("charts keep independent labels and colors when another chart changes", asy
 test("a pie with zero or missing values reports an empty plot", async () => {
     render(
         <Results
-            messages={surface([
+            surfaces={figure([
                 {
-                    id: "root",
-                    component: "Figure",
-                    data: [
-                        {
-                            type: "pie",
-                            labels: ["Zero", "Unknown"],
-                            values: [0, null],
-                        },
-                    ],
+                    type: "pie",
+                    labels: ["Zero", "Unknown"],
+                    values: [0, null],
                 },
             ])}
         />,
@@ -328,31 +244,25 @@ test("a pie with zero or missing values reports an empty plot", async () => {
 test("independent lines and markers share numeric axes without adding gaps", async () => {
     const { container } = render(
         <Results
-            messages={surface([
-                {
-                    id: "root",
-                    component: "Figure",
-                    layout: {
-                        xaxis: { title: { text: "Time" } },
+            surfaces={figure(
+                [
+                    {
+                        type: "scatter",
+                        name: "Predicted",
+                        mode: "lines",
+                        x: [0, 5, 10],
+                        y: [1, 4, 8],
                     },
-                    data: [
-                        {
-                            type: "scatter",
-                            name: "Predicted",
-                            mode: "lines",
-                            x: [0, 5, 10],
-                            y: [1, 4, 8],
-                        },
-                        {
-                            type: "scatter",
-                            name: "Observed",
-                            mode: "markers",
-                            x: [2, 7],
-                            y: [3, 5],
-                        },
-                    ],
-                },
-            ])}
+                    {
+                        type: "scatter",
+                        name: "Observed",
+                        mode: "markers",
+                        x: [2, 7],
+                        y: [3, 5],
+                    },
+                ],
+                { xaxis: { title: { text: "Time" } } },
+            )}
         />,
     );
     await waitFor(() =>
@@ -408,22 +318,18 @@ test("independent lines and markers share numeric axes without adding gaps", asy
 test("lines+markers preserves input order, repeated x values, and missing gaps", async () => {
     const { container } = render(
         <Results
-            messages={surface([
-                {
-                    id: "root",
-                    component: "Figure",
-                    layout: { showlegend: false },
-                    data: [
-                        {
-                            type: "scatter",
-                            name: "Hidden legend",
-                            mode: "lines+markers",
-                            x: [2, 0, 2, 3, 4],
-                            y: [3, 1, null, 5, 2],
-                        },
-                    ],
-                },
-            ])}
+            surfaces={figure(
+                [
+                    {
+                        type: "scatter",
+                        name: "Hidden legend",
+                        mode: "lines+markers",
+                        x: [2, 0, 2, 3, 4],
+                        y: [3, 1, null, 5, 2],
+                    },
+                ],
+                { showlegend: false },
+            )}
         />,
     );
     await waitFor(() =>
@@ -447,31 +353,25 @@ test("lines+markers preserves input order, repeated x values, and missing gaps",
 test("bar and scatter traces render on shared categorical axes", async () => {
     const { container } = render(
         <Results
-            messages={surface([
+            surfaces={figure([
                 {
-                    id: "root",
-                    component: "Figure",
-                    data: [
-                        {
-                            type: "bar",
-                            name: "Actual",
-                            x: ["A", "B"],
-                            y: [4, -2],
-                        },
-                        {
-                            type: "bar",
-                            name: "Previous",
-                            x: ["B", "C"],
-                            y: [3, 5],
-                        },
-                        {
-                            type: "scatter",
-                            name: "Target",
-                            mode: "lines+markers",
-                            x: ["A", "C"],
-                            y: [6, 7],
-                        },
-                    ],
+                    type: "bar",
+                    name: "Actual",
+                    x: ["A", "B"],
+                    y: [4, -2],
+                },
+                {
+                    type: "bar",
+                    name: "Previous",
+                    x: ["B", "C"],
+                    y: [3, 5],
+                },
+                {
+                    type: "scatter",
+                    name: "Target",
+                    mode: "lines+markers",
+                    x: ["A", "C"],
+                    y: [6, 7],
                 },
             ])}
         />,
@@ -490,39 +390,28 @@ test("bar and scatter traces render on shared categorical axes", async () => {
 test("all-missing mixed Cartesian traces report an empty plot", async () => {
     render(
         <Results
-            messages={surface([
-                {
-                    id: "root",
-                    component: "Figure",
-                    data: [
-                        { type: "bar", x: [0, 1], y: [null, null] },
-                        { type: "scatter", x: [0], y: [null] },
-                    ],
-                },
+            surfaces={figure([
+                { type: "bar", x: [0, 1], y: [null, null] },
+                { type: "scatter", x: [0], y: [null] },
             ])}
         />,
     );
     await waitFor(() =>
         expect(screen.getByText("No values to display.")).toBeTruthy(),
     );
+    expect(screen.queryByRole("application")).toBeNull();
 });
 
 test("numeric bars keep their spacing when overlaid with a line", async () => {
     const { container } = render(
         <Results
-            messages={surface([
+            surfaces={figure([
+                { type: "bar", x: [0, 2, 10], y: [2, -3, 4] },
                 {
-                    id: "root",
-                    component: "Figure",
-                    data: [
-                        { type: "bar", x: [0, 2, 10], y: [2, -3, 4] },
-                        {
-                            type: "scatter",
-                            mode: "lines",
-                            x: [1, 9],
-                            y: [1, 5],
-                        },
-                    ],
+                    type: "scatter",
+                    mode: "lines",
+                    x: [1, 9],
+                    y: [1, 5],
                 },
             ])}
         />,
@@ -544,54 +433,29 @@ test("numeric bars keep their spacing when overlaid with a line", async () => {
 });
 
 test("explicit figure updates replace traces in one widget and retain sidebar placement", async () => {
-    const messages = surface([
-        {
-            id: "root",
-            component: "Figure",
-            layout: { title: { text: "Before" } },
-            data: [{ type: "scatter", mode: "lines", x: [0, 1], y: [1, 2] }],
-        },
-    ]);
+    const surfaces = figure(
+        [{ type: "scatter", mode: "lines", x: [0, 1], y: [1, 2] }],
+        { title: { text: "Before" } },
+    );
     const placements = { sales: { pinned: true } };
     const { container, rerender } = render(
-        <Results messages={messages.slice(0, 1)} placements={placements} />,
+        <Results surfaces={surface()} placements={placements} />,
     );
     expect(
         screen.getByRole("article", { name: "Widget sales" }).children,
     ).toHaveLength(0);
     expect(screen.queryByRole("alert")).toBeNull();
-    rerender(<Results messages={messages} placements={placements} />);
+    rerender(<Results surfaces={surfaces} placements={placements} />);
     await waitFor(() =>
         expect(container.querySelector(".recharts-line-curve")).not.toBeNull(),
     );
     const chart = screen.getByRole("application");
     chart.focus();
-    const update = a2uiBatchSchema.parse([
-        {
-            version: "v0.9",
-            updateComponents: {
-                surfaceId: "sales",
-                components: [
-                    {
-                        id: "root",
-                        component: "Figure",
-                        layout: { title: { text: "After" } },
-                        data: [
-                            {
-                                type: "scatter",
-                                mode: "markers",
-                                x: [2, 7, 9],
-                                y: [3, 5, 4],
-                            },
-                        ],
-                    },
-                ],
-            },
-        },
-    ]);
-    rerender(
-        <Results messages={[...messages, ...update]} placements={placements} />,
+    const updated = figure(
+        [{ type: "scatter", mode: "markers", x: [2, 7, 9], y: [3, 5, 4] }],
+        { title: { text: "After" } },
     );
+    rerender(<Results surfaces={updated} placements={placements} />);
     await waitFor(() =>
         expect(container.querySelectorAll(".recharts-line-dot")).toHaveLength(
             3,
@@ -613,13 +477,8 @@ test("explicit figure updates replace traces in one widget and retain sidebar pl
 });
 
 test("backend placement moves widgets between center and sidebar without controls or visible IDs", () => {
-    const messages = a2uiBatchSchema.parse(
-        ["first", "second"].map((surfaceId) => ({
-            version: "v0.9",
-            createSurface: { surfaceId, catalogId },
-        })),
-    );
-    const { rerender } = render(<Results messages={messages} />);
+    const surfaces = [...surface("first"), ...surface("second")];
+    const { rerender } = render(<Results surfaces={surfaces} />);
     const second = screen.getByRole("article", { name: "Widget second" });
     expect(
         screen.getByRole("region", { name: "Center widgets" }).contains(second),
@@ -628,7 +487,7 @@ test("backend placement moves widgets between center and sidebar without control
     expect(screen.queryByText("second")).toBeNull();
     rerender(
         <Results
-            messages={messages}
+            surfaces={surfaces}
             placements={{
                 first: { pinned: false },
                 second: { pinned: true },
@@ -642,7 +501,7 @@ test("backend placement moves widgets between center and sidebar without control
     ).toBe(true);
     rerender(
         <Results
-            messages={messages}
+            surfaces={surfaces}
             placements={{
                 first: { pinned: false },
                 second: { pinned: false },
@@ -656,13 +515,10 @@ test("backend placement moves widgets between center and sidebar without control
 });
 
 test("the center holds at most four widgets and overflow stays visible on the side", () => {
-    const messages = a2uiBatchSchema.parse(
-        [1, 2, 3, 4, 5].map((index) => ({
-            version: "v0.9",
-            createSurface: { surfaceId: `chart_${index}`, catalogId },
-        })),
+    const surfaces = [1, 2, 3, 4, 5].flatMap((index) =>
+        surface(`chart_${index}`),
     );
-    render(<Results messages={messages} />);
+    render(<Results surfaces={surfaces} />);
     expect(
         screen
             .getByRole("region", { name: "Center widgets" })

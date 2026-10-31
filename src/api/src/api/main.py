@@ -1,13 +1,13 @@
 import json
 import asyncio
 from queue import Full, Queue
-from fastapi import Depends, FastAPI, Request, WebSocket, HTTPException, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Request, WebSocket, HTTPException
 from pathlib import Path
 from pydantic import BaseModel
 from api.shell import PythonShell
 from threading import Lock
-from contextlib import suppress
 from api.ui.state import UIState
+from api.websocket import run_websocket
 from collections.abc import Callable, Iterator, Awaitable
 from importlib.metadata import distributions
 from starlette.responses import Response, FileResponse, StreamingResponse
@@ -96,21 +96,10 @@ def create_app() -> FastAPI:
             await socket.receive_text()
             await socket.close(code=1008)
 
-        sender = asyncio.create_task(send())
-        receiver = asyncio.create_task(receive())
         try:
-            done, _ = await asyncio.wait({sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                task.result()
-        except WebSocketDisconnect:
-            pass
+            await run_websocket(send(), receive())
         finally:
             state.unsubscribe(queue)
-            for task in (sender, receiver):
-                task.cancel()
-            for task in (sender, receiver):
-                with suppress(asyncio.CancelledError, WebSocketDisconnect):
-                    await task
 
     @app.post("/execute/stream", dependencies=[Depends(require_server_request)])
     async def stream(request: ExecutionRequest) -> StreamingResponse:
@@ -132,7 +121,7 @@ def create_app() -> FastAPI:
         def execute() -> None:
             try:
                 with lock:
-                    result = shell.execute(request.code, on_event=emit)
+                    result = shell.execute(request.code)
                 emit({"type": "result", **{key: value for key, value in result.items() if key != "ui"}})
 
             # Terminate connected readers even when execution fails.

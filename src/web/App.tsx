@@ -3,7 +3,7 @@ import { Results } from "@/components/results";
 import { ErrorBoundary } from "react-error-boundary";
 
 export default function App() {
-    const { uiMessages, placements, error } = useWorkspace();
+    const { surfaces, placements, error } = useWorkspace();
 
     return (
         <div className="flex h-dvh flex-col">
@@ -15,7 +15,7 @@ export default function App() {
                         </p>
                     )}
                     <ErrorBoundary
-                        resetKeys={[uiMessages]}
+                        resetKeys={[surfaces]}
                         fallback={
                             <p
                                 role="alert"
@@ -26,10 +26,7 @@ export default function App() {
                             </p>
                         }
                     >
-                        <Results
-                            messages={uiMessages}
-                            placements={placements}
-                        />
+                        <Results surfaces={surfaces} placements={placements} />
                     </ErrorBoundary>
                 </div>
             </main>

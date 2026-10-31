@@ -100,25 +100,31 @@ export const componentSchema = figureProps.safeExtend({
 
 const components = z.array(componentSchema).length(1);
 
-export const a2uiMessageSchema = z.union([
-    z.strictObject({
-        version: z.literal("v0.9"),
-        createSurface: z.strictObject({
-            surfaceId: identifier,
-            catalogId: z.literal(catalogId),
-        }),
+const createSurfaceSchema = z.strictObject({
+    version: z.literal("v0.9"),
+    createSurface: z.strictObject({
+        surfaceId: identifier,
+        catalogId: z.literal(catalogId),
     }),
-    z.strictObject({
-        version: z.literal("v0.9"),
-        updateComponents: z.strictObject({ surfaceId: identifier, components }),
-    }),
-    z.strictObject({
-        version: z.literal("v0.9"),
-        deleteSurface: z.strictObject({ surfaceId: identifier }),
-    }),
-]);
+});
+const updateComponentsSchema = z.strictObject({
+    version: z.literal("v0.9"),
+    updateComponents: z.strictObject({ surfaceId: identifier, components }),
+});
 
-export type A2uiMessage = z.infer<typeof a2uiMessageSchema>;
+const surfaceBatchSchema = z
+    .tuple([createSurfaceSchema, updateComponentsSchema.optional()])
+    .superRefine(([creation, update], context) => {
+        if (
+            update &&
+            update.updateComponents.surfaceId !==
+                creation.createSurface.surfaceId
+        )
+            context.addIssue({
+                code: "custom",
+                message: "Surface update must match its creation",
+            });
+    });
 
 export const a2uiBatchSchema = z.preprocess((value, context) => {
     const pending: [unknown, number][] = [[value, 0]];
@@ -163,4 +169,4 @@ export const a2uiBatchSchema = z.preprocess((value, context) => {
         return z.NEVER;
     }
     return value;
-}, z.array(a2uiMessageSchema));
+}, surfaceBatchSchema);

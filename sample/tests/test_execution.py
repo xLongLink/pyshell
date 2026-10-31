@@ -28,7 +28,9 @@ def test_stream_returns_validated_result():
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("sequence", ["empty", "missing_finish", "missing_result", "duplicate_result", "after_finish", "invalid_result"])
+@pytest.mark.parametrize(
+    "sequence", ["empty", "missing_finish", "missing_result", "duplicate_result", "after_finish", "invalid_result", "widget", "a2ui"]
+)
 def test_invalid_stream_blocks_subsequent_execution(sequence):
     result = {"type": "result", "stdout": "", "stderr": "", "exception": None, "done": True}
     finished = {"type": "execution_finished"}
@@ -39,6 +41,8 @@ def test_invalid_stream_blocks_subsequent_execution(sequence):
         "duplicate_result": [result, result, finished],
         "after_finish": [result, finished, result],
         "invalid_result": [{**result, "done": "true"}, finished],
+        "widget": [{"type": "widget", "surface_id": "sales", "action": "pin"}, result, finished],
+        "a2ui": [{"type": "a2ui", "messages": []}, result, finished],
     }[sequence]
     transport = httpx.MockTransport(lambda _request: stream_response(events))
 

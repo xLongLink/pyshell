@@ -13,20 +13,26 @@ def test_widget_lifecycle_round_trips_through_the_protocol():
         [Catalog(CATALOG, "v0.9", [ModelComponentApi(Figure)])], options=MessageProcessorOptions(validation_config=STRICT_VALIDATION)
     )
     ui = UI()
-    ui.on_publish = lambda event: processor.process_messages(event["messages"])
     chart = ui.plot([trace], id="root", surface_id="sales")
+    processor.process_messages(ui.messages)
+    ui.messages = []
     assert isinstance(chart, Figure)
     assert chart.component == "Figure"
     assert chart.id == "root"
     surface = processor.model.get_surface("sales")
     assert surface.components_model.get("root").component_tree == chart.model_dump(mode="json")
     chart.update(layout={"title": {"text": "Updated"}})
+    processor.process_messages(ui.messages)
+    ui.messages = []
     assert processor.model.get_surface("sales") is surface
     assert surface.components_model.get("root").component_tree == chart.model_dump(mode="json")
     replacement = ui.plot([trace], surface_id="sales")
+    processor.process_messages(ui.messages)
+    ui.messages = []
     assert processor.model.get_surface("sales") is not surface
     assert processor.model.get_surface("sales").components_model.get("root").component_tree == replacement.model_dump(mode="json")
     replacement.remove()
+    processor.process_messages(ui.messages)
     assert processor.model.get_surface("sales") is None
     assert ui.surfaces == set()
 
@@ -57,13 +63,11 @@ def test_surface_size_limit_preserves_the_existing_widget(replace):
 )
 def test_invalid_plot_arguments_do_not_publish(attributes):
     ui = UI()
-    events = []
-    ui.on_publish = events.append
     with pytest.raises(ValidationError):
         ui.plot(**attributes)
     assert ui.messages == []
     assert ui.surfaces == set()
-    assert events == []
+    assert ui.state.snapshot()["events"] == []
     assert ui.plot([{"type": "bar", "x": ["A"], "y": [1]}]).surface_id == "surface_1"
 
 
@@ -134,37 +138,51 @@ def test_widget_attributes_cannot_be_assigned_without_publishing():
     assert len(ui.messages) == 2
 
 
-@pytest.mark.parametrize("invalidate", ["remove", "replace", "reset"])
-def test_removed_replaced_and_reset_handles_cannot_mutate_new_widgets(invalidate):
+@pytest.mark.parametrize("invalidate", ["remove", "replace"])
+def test_removed_and_replaced_handles_cannot_mutate_successors(invalidate):
     ui = UI()
     original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="notice")
 
-    # Each invalidation path must reject mutations through the old handle.
     if invalidate == "remove":
         original.remove()
-    elif invalidate == "replace":
-        ui.plot([{"type": "scatter", "x": ["A"], "y": [2]}], surface_id="notice")
-    else:
-        ui.close()
+    successor = ui.plot([{"type": "scatter", "x": ["A"], "y": [2]}], surface_id="notice")
 
-    # Stale operations must not append messages to the replacement session.
     previous = list(ui.messages)
+    snapshot = ui.state.snapshot()
     for operation in (original.pin, original.focus, original.remove, lambda: original.update(layout={"title": {"text": "Stale"}})):
         with pytest.raises(RuntimeError, match="removed, replaced, or reset"):
             operation()
     assert ui.messages == previous
+    assert ui.state.snapshot() == snapshot
+    assert successor.data[0].y == [2]
+    successor.update(data=[{"type": "scatter", "x": ["A"], "y": [3]}])
+    assert successor.data[0].y == [3]
+    assert ui.state.snapshot()["events"][0]["messages"][-1]["updateComponents"]["components"][0]["data"][0]["y"] == [3]
+
+
+def test_reset_handles_cannot_mutate_a_closed_session():
+    ui = UI()
+    original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="notice")
+    ui.close()
+    previous = list(ui.messages)
+    snapshot = ui.state.snapshot()
+
+    for operation in (original.pin, original.focus, original.remove, lambda: original.update(layout={"title": {"text": "Stale"}})):
+        with pytest.raises(RuntimeError, match="removed, replaced, or reset"):
+            operation()
+    assert ui.messages == previous
+    assert ui.state.snapshot() == snapshot
 
 
 def test_invalid_replacement_does_not_destroy_the_existing_surface():
     ui = UI()
     original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], layout={"title": {"text": "Original"}}, surface_id="notice")
     ui.messages = []
-    events = []
-    ui.on_publish = events.append
+    snapshot = ui.state.snapshot()
     with pytest.raises(ValueError, match="Input should be 'Figure'"):
         ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], component="Unknown", surface_id="notice")
     assert ui.messages == []
-    assert events == []
+    assert ui.state.snapshot() == snapshot
     assert ui.surfaces == {"notice"}
     assert original.layout.title.text == "Original"
     original.update(layout={"title": {"text": "Still usable"}})

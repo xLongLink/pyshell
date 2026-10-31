@@ -13,11 +13,10 @@ def standalone_traces(monkeypatch):
     }
 
 
-@pytest.mark.parametrize("kind", ["pie", "choropleth"])
-def test_standalone_traces_accept_a_single_trace(standalone_traces, kind):
-    chart = UI().plot([standalone_traces[kind]])
+def test_choropleth_accepts_a_single_trace(standalone_traces):
+    chart = UI().plot([standalone_traces["choropleth"]])
     assert len(chart.data) == 1
-    assert chart.data[0].type == kind
+    assert chart.data[0].type == "choropleth"
 
 
 @pytest.mark.parametrize(

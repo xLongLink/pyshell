@@ -2,7 +2,6 @@ import json
 from pydantic import BaseModel, TypeAdapter
 from api.ui.state import UIState
 from api.ui.types import Action, Identifier
-from collections.abc import Callable
 from api.ui.plot.figure import Figure
 from a2ui.core.schema.v0_9 import server_to_client
 
@@ -21,7 +20,6 @@ class UI:
     def __init__(self, state: UIState | None = None) -> None:
         """Keep protocol state local to one execution session."""
         self.messages: list[dict[str, object]] = []
-        self.on_publish: Callable[[dict[str, object]], None] | None = None
         self._widgets: dict[str, Figure] = {}
         self._sequence = 0
         self._closed = False
@@ -99,13 +97,8 @@ class UI:
             elif isinstance(item, list):
                 pending.extend((value, depth + 1) for value in item)
 
-        # Placement commands are workspace events, not A2UI protocol messages.
-        placement = messages[0].get("type") == "widget"
         self.state.publish(messages)
         self.messages.extend(messages)
-
-        if self.on_publish is not None:
-            self.on_publish(messages[0] if placement else {"type": "a2ui", "messages": messages})
 
     def _active(self, widget: Figure) -> None:
         if self._closed or self._widgets.get(widget.surface_id) is not widget:

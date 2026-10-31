@@ -1,18 +1,19 @@
 import httpx
 import asyncio
 from httpx import AsyncClient
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket
 from pathlib import Path
 from pydantic import TypeAdapter, ValidationError
-from contextlib import suppress, asynccontextmanager
+from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from sample.src.shell import RemoteShell
-from sample.src.settings import settings
 from fastapi.staticfiles import StaticFiles
+from sample.src.settings import settings
 from sample.src.workspace import Command, Workspace
 from sample.src.agents.voice import VoiceCommand, VoiceSession
 from sample.src.agents.script import Agent
 from pydantic_ai.models.openai import OpenAIResponsesModel
+from src.api.src.api.websocket import run_websocket
 from pydantic_ai.realtime.openai import OpenAIRealtimeModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -25,11 +26,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Own provider and workspace resources for the application lifetime."""
     provider = OpenAIProvider(api_key=settings.openai_api_key.get_secret_value())
     try:
-        async with AsyncClient(
-            base_url="http://127.0.0.1:8000",
-            timeout=httpx.Timeout(180, connect=10),
-            trust_env=False,
-        ) as client:
+        async with AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx.Timeout(180, connect=10), trust_env=False) as client:
             model = OpenAIResponsesModel(settings.openai_model, provider=provider)
             workspace = Workspace(Agent(model, shell=RemoteShell(client)))
             app.state.workspace = workspace
@@ -88,29 +85,10 @@ async def workspace_socket(socket: WebSocket) -> None:
             except (ValidationError, ValueError, RuntimeError) as error:
                 await queue.put({"type": "error", "text": str(error)})
 
-    sender = asyncio.create_task(send())
-    receiver = asyncio.create_task(receive())
-
-    # Either socket direction ending must release both tasks and the voice call.
     try:
-        done, _ = await asyncio.wait({sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
-        for task in done:
-            task.result()
-
-    # Browser disconnects are normal; other task failures remain visible.
-    except WebSocketDisconnect:
-        pass
+        await run_websocket(send(), receive())
     finally:
         workspace.listeners.discard(queue)
-
-        # Cancel both directions before awaiting either one.
-        for task in (sender, receiver):
-            task.cancel()
-
-        # Await cancellation before releasing the socket's voice resources.
-        for task in (sender, receiver):
-            with suppress(asyncio.CancelledError, WebSocketDisconnect):
-                await task
         await voice.stop(notify=False)
 
 

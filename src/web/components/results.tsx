@@ -1,53 +1,15 @@
-import { useMemo } from "react";
 import { Figure } from "@/components/plot/figure";
-import type { FigureProps } from "@/components/plot/common";
-import type { A2uiMessage } from "@/lib/a2ui";
-import type { Placements } from "@/lib/workspace";
+import type { Placements, Surface } from "@/lib/workspace";
 import { cn } from "cn";
 
-type Surface = { id: string; props?: FigureProps };
-
 export function Results({
-    messages,
+    surfaces,
     placements = {},
 }: {
-    messages: A2uiMessage[];
+    surfaces: Surface[];
     placements?: Placements;
 }) {
-    const { surfaces, error } = useMemo(() => {
-        const active = new Map<string, Surface>();
-        try {
-            for (const message of messages) {
-                if ("createSurface" in message) {
-                    if (
-                        active.has(message.createSurface.surfaceId) ||
-                        active.size >= 20
-                    )
-                        throw new Error("Invalid surface creation");
-                    const id = message.createSurface.surfaceId;
-                    active.set(id, { id });
-                } else if ("deleteSurface" in message) {
-                    if (!active.has(message.deleteSurface.surfaceId))
-                        throw new Error("Unknown surface");
-                    active.delete(message.deleteSurface.surfaceId);
-                } else {
-                    const id = message.updateComponents.surfaceId;
-                    if (!active.has(id)) throw new Error("Unknown surface");
-                    const { data, layout } =
-                        message.updateComponents.components[0];
-                    active.set(id, { id, props: { data, layout } });
-                }
-            }
-            return { surfaces: Array.from(active.values()), error: "" };
-        } catch {
-            return {
-                surfaces: [],
-                error: "The generated interface could not be rendered. Check the server console for execution details.",
-            };
-        }
-    }, [messages]);
-
-    if (!surfaces.length && !error) return null;
+    if (!surfaces.length) return null;
     const centered = surfaces
         .filter((surface) => !placements[surface.id]?.pinned)
         .slice(-4);
@@ -76,11 +38,6 @@ export function Results({
 
     return (
         <section aria-label="Results" className="space-y-4">
-            {error && (
-                <p role="alert" className="text-sm text-destructive">
-                    {error}
-                </p>
-            )}
             <div
                 className={cn(
                     "grid items-start gap-6",

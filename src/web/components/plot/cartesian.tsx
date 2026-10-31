@@ -32,8 +32,11 @@ export function Cartesian({
                 .filter((x): x is string => typeof x === "string"),
         ),
     ];
+    const categoryIndices = new Map(
+        categories.map((category, index) => [category, index]),
+    );
     const coordinate = (x: string | number) =>
-        typeof x === "number" ? x : categories.indexOf(x);
+        typeof x === "number" ? x : categoryIndices.get(x)!;
     const xs = [
         ...new Set(data.flatMap((trace) => trace.x.map(coordinate))),
     ].sort((a, b) => a - b);
