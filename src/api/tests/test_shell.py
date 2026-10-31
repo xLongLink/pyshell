@@ -68,26 +68,16 @@ def test_saved_stream_has_a_fresh_budget_and_does_not_capture_between_executions
     assert saved.getvalue() == first[stream]
     assert "outside execution\n" in getattr(capsys.readouterr(), "out" if stream == "stdout" else "err")
 
-    second = shell.execute("saved.write('é' * 524288)\nsaved.write('x')")
+    source = "saved.write('é' * 524288)\nsaved.write('x')\ndone()"
+    second = shell.execute(source)
 
     assert second[stream] == "é" * 524288
+    assert second["stderr" if stream == "stdout" else "stdout"] == ""
     assert "Python output exceeded 1 MiB per stream" in second["exception"]
+    assert second["done"] is False
+    output = capsys.readouterr()
+    assert output.out == source + "\n" + (second["stdout"] if stream == "stdout" else "")
+    assert output.err == second["stderr"] + second["exception"]
     assert first[stream] == "é" * 524288
     assert shell.execute("print('recovered', file=saved)")[stream] == "recovered\n"
-
-
-@pytest.mark.parametrize("stream", ["stdout", "stderr"])
-def test_execution_caps_each_output_stream_in_bytes_and_keeps_captured_output(stream, capsys):
-    shell = PythonShell()
-    source = f"import sys\nsys.{stream}.write('é' * 524288)\nsys.{stream}.write('x')\ndone()"
-
-    result = shell.execute(source)
-
-    assert result[stream] == "é" * 524288
-    assert result["stderr" if stream == "stdout" else "stdout"] == ""
-    assert "Python output exceeded 1 MiB per stream" in result["exception"]
-    assert result["done"] is False
-    output = capsys.readouterr()
-    assert output.out == source + "\n" + (result["stdout"] if stream == "stdout" else "")
-    assert output.err == result["stderr"] + result["exception"]
     assert shell.execute("pass")[stream] == ""

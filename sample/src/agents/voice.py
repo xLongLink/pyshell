@@ -3,7 +3,6 @@ import asyncio
 from typing import Literal, Annotated
 from pydantic import Field, BaseModel, ConfigDict, TypeAdapter
 from contextlib import suppress
-from dataclasses import dataclass
 from pydantic_ai import Agent
 from collections.abc import Callable
 from pydantic_ai.messages import SpeechPart, PartEndEvent
@@ -47,32 +46,28 @@ Installed packages in the worker's execution environment (distribution names may
 SdpOffer = Annotated[str, Field(min_length=1, max_length=65536)]
 
 
-class VoiceStart(BaseModel):
-    """Validate an offer to start a browser voice call."""
+class _VoiceCommand(BaseModel):
+    """Validate the shared browser voice command envelope."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
     type: Literal["voice"]
+
+
+class VoiceStart(_VoiceCommand):
+    """Validate an offer to start a browser voice call."""
+
     action: Literal["start"]
     sdp: SdpOffer
 
 
-class VoiceStop(BaseModel):
+class VoiceStop(_VoiceCommand):
     """Validate a request to stop a browser voice call."""
 
-    model_config = ConfigDict(extra="forbid", strict=True)
-    type: Literal["voice"]
     action: Literal["stop"]
-    sdp: SdpOffer | None = None
 
 
 VoiceCommand = Annotated[VoiceStart | VoiceStop, Field(discriminator="action")]
 voice_command_adapter = TypeAdapter(VoiceCommand)
-
-
-@dataclass
-class _VoiceCall:
-    task: asyncio.Task[None]
-    notify: bool = True
 
 
 class VoiceSession:
@@ -83,7 +78,7 @@ class VoiceSession:
         self.model = model
         self.workspace = workspace
         self.emit = emit
-        self._call: _VoiceCall | None = None
+        self._call: asyncio.Task[None] | None = None
 
     async def handle(self, command: VoiceCommand) -> None:
         """Reserve call setup before returning to the socket reader."""
@@ -91,19 +86,18 @@ class VoiceSession:
             await self.stop()
             return
         # Reserve setup before another start command can arrive.
-        if self._call is not None and not self._call.task.done():
+        if self._call is not None and not self._call.done():
             raise RuntimeError("Voice is already active.")
-        call = _VoiceCall(asyncio.create_task(self._connect(command.sdp)))
+        call = asyncio.create_task(self._connect(command.sdp))
         self._call = call
 
         def closed(_task: asyncio.Task[None]) -> None:
             if self._call is not call:
                 return
             self._call = None
-            if call.notify:
-                self.emit({"type": "voice", "name": "closed"})
+            self.emit({"type": "voice", "name": "closed"})
 
-        call.task.add_done_callback(closed)
+        call.add_done_callback(closed)
 
     async def _create_agent(self) -> Agent:
         """Build this call's workspace tools and instructions."""
@@ -197,7 +191,7 @@ class VoiceSession:
         call = self._call
         if call is not None:
             if not notify:
-                call.notify = False
-            if not call.task.cancelling():
-                call.task.cancel()
-            await asyncio.gather(call.task, return_exceptions=True)
+                self._call = None
+            if not call.cancelling():
+                call.cancel()
+            await asyncio.gather(call, return_exceptions=True)

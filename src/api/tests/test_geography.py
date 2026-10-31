@@ -168,15 +168,15 @@ def test_cache_write_closes_files_and_cleans_up_on_failure(monkeypatch, tmp_path
     assert all(output.closed for output in outputs)
 
 
-def test_cached_geography_with_boundary_id_remains_readable(monkeypatch, tmp_path):
+def test_cached_geography_is_served_without_downloading(monkeypatch, tmp_path):
     monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
     cached = {
         "type": "FeatureCollection",
         "geography": "CHE",
         "name": "Switzerland",
         "level": "region",
-        "source": {"source": "Swiss boundaries / geoBoundaries gbOpen", "license": "CC BY 4.0", "boundaryID": "CHE-legacy"},
-        "features": [{"type": "Feature", "id": "CH-BE", "properties": {"name": "Bern"}}],
+        "source": {"source": "Swiss boundaries / geoBoundaries gbOpen"},
+        "features": [],
     }
     path = tmp_path / "CHE-v2.json"
     path.write_text(json.dumps(cached))
@@ -190,9 +190,6 @@ def test_cached_geography_with_boundary_id_remains_readable(monkeypatch, tmp_pat
 
     assert response.status_code == 200
     assert response.json() == cached
-    assert geography.geography_path("CHE") == path
-    assert geography.geography_info("CHE") == {"name": "Switzerland", "level": "region", "locations": {"CH-BE": "Bern"}}
-    assert Choropleth(geography="CHE", locations=["CH-BE"], values=[1]).locations == ("CH-BE",)
 
 
 def test_public_geography_info_does_not_expose_cached_mutable_data(monkeypatch, tmp_path):

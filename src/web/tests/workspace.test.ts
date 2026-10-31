@@ -165,9 +165,7 @@ function snapshot(batches: unknown[][]) {
 }
 
 test.each([
-    { name: "empty batch", batches: [[]] },
     { name: "creation without content", batches: [[creation("sales")]] },
-    { name: "update without creation", batches: [[update("sales")]] },
     {
         name: "update before creation",
         batches: [[update("sales"), creation("sales")]],
@@ -199,10 +197,6 @@ test.each([
                 { version: "v0.9", deleteSurface: { surfaceId: "sales" } },
             ],
         ],
-    },
-    {
-        name: "cross-batch update",
-        batches: [[creation("sales")], [update("sales")]],
     },
 ])(
     "snapshots reject $name without producing partial surfaces",

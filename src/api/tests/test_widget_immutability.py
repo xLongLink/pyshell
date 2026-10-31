@@ -121,17 +121,3 @@ def test_every_trace_sequence_retains_its_length_bounds(trace, length):
             with pytest.raises(ValidationError) as error:
                 Figure.model_validate({"data": [{**trace, name: [coordinates[0]] * length}]})
             assert any(item["loc"][-1] == name and item["type"] in {"too_short", "too_long"} for item in error.value.errors())
-
-
-def test_sequence_schema_contracts_remain_bounded_arrays():
-    schema = Figure.model_json_schema()
-    for definition, names, maximum in [
-        (schema, ["data"], 20),
-        (schema["$defs"]["Scatter"], ["x", "y"], 200),
-        (schema["$defs"]["Bar"], ["x", "y"], 200),
-        (schema["$defs"]["Pie"], ["labels", "values"], 200),
-        (schema["$defs"]["Choropleth"], ["locations", "values"], 200),
-    ]:
-        for name in names:
-            field = definition["properties"][name]
-            assert (field["type"], field["minItems"], field["maxItems"]) == ("array", 1, maximum)

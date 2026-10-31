@@ -80,16 +80,12 @@ export class ParticlesOrb extends HTMLElement {
       this.suspended = true;
       this.pause();
     };
-    this.updateVisibility = () => {
+    this.refreshAnimation = () => {
       this.pause();
-      if (!this.ownerDocument.hidden) this.refresh();
+      this.refresh();
     };
     this.resume = () => {
       this.suspended = false;
-      this.refresh();
-    };
-    this.motionChanged = () => {
-      this.pause();
       this.refresh();
     };
   }
@@ -115,8 +111,8 @@ export class ParticlesOrb extends HTMLElement {
     const page = this.ownerDocument.defaultView;
     this.context = this.canvas.getContext("2d");
     this.motion = page.matchMedia("(prefers-reduced-motion: reduce)");
-    this.motion.addEventListener("change", this.motionChanged);
-    this.ownerDocument.addEventListener("visibilitychange", this.updateVisibility);
+    this.motion.addEventListener("change", this.refreshAnimation);
+    this.ownerDocument.addEventListener("visibilitychange", this.refreshAnimation);
     page.addEventListener("pagehide", this.suspend);
     page.addEventListener("pageshow", this.resume);
     if (!this.hasAttribute("role")) this.setAttribute("role", "img");
@@ -128,8 +124,8 @@ export class ParticlesOrb extends HTMLElement {
   disconnectedCallback() {
     const page = this.ownerDocument.defaultView;
     this.pause();
-    this.motion.removeEventListener("change", this.motionChanged);
-    this.ownerDocument.removeEventListener("visibilitychange", this.updateVisibility);
+    this.motion.removeEventListener("change", this.refreshAnimation);
+    this.ownerDocument.removeEventListener("visibilitychange", this.refreshAnimation);
     page.removeEventListener("pagehide", this.suspend);
     page.removeEventListener("pageshow", this.resume);
   }

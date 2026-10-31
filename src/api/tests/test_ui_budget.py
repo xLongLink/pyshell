@@ -7,14 +7,12 @@ from src.api.tests.ui_helpers import RecordingUIState
 
 
 @pytest.fixture
-def recorded_ui():
-    state = RecordingUIState()
-    return state, UI(state)
+def ui():
+    return UI(RecordingUIState())
 
 
 @pytest.mark.parametrize("split", [False, True])
-def test_byte_budget_matches_default_json_encoding_at_exact_limit(split, recorded_ui):
-    state, ui = recorded_ui
+def test_byte_budget_matches_default_json_encoding_at_exact_limit(split, ui):
     first = {"text": 'plainé雪😀\n\t"\\\ud800'}
     last = {"text": ""}
     last["text"] = "a" * (1048576 - len(json.dumps([first, last], allow_nan=False).encode()))
@@ -22,65 +20,61 @@ def test_byte_budget_matches_default_json_encoding_at_exact_limit(split, recorde
         ui._publish([first])
         with pytest.raises(ValueError, match="1 MiB"):
             ui._publish([{"text": last["text"] + "a"}])
-        assert state.messages == [first]
+        assert ui.state.messages == [first]
         ui._publish([])
         ui._publish([last])
     else:
         with pytest.raises(ValueError, match="1 MiB"):
             ui._publish([first, {"text": last["text"] + "a"}])
-        assert state.messages == []
+        assert ui.state.messages == []
         ui._publish([first, last])
-    assert len(json.dumps(state.messages, allow_nan=False).encode()) == 1048576
+    assert len(json.dumps(ui.state.messages, allow_nan=False).encode()) == 1048576
     with pytest.raises(ValueError, match="1 MiB"):
         ui._publish([{}])
-    assert state.messages == [first, last]
+    assert ui.state.messages == [first, last]
 
 
-def test_node_budget_counts_one_combined_root_and_accumulates_batches(recorded_ui):
-    state, ui = recorded_ui
+def test_node_budget_counts_one_combined_root_and_accumulates_batches(ui):
     ui._publish([{"items": [0] * 9997}])
     ui._publish([{"items": [0] * 9996}])
     with pytest.raises(ValueError, match="complexity"):
         ui._publish([{"items": [0]}])
     ui._publish([{"value": 0}])
-    assert len(state.messages) == 3
+    assert len(ui.state.messages) == 3
     with pytest.raises(ValueError, match="complexity"):
         ui._publish([{}])
-    assert len(state.messages) == 3
+    assert len(ui.state.messages) == 3
 
 
-def test_message_budget_accepts_exact_limit_after_rejected_batch(recorded_ui):
-    state, ui = recorded_ui
+def test_message_budget_accepts_exact_limit_after_rejected_batch(ui):
     ui._publish([{}] * 99)
     with pytest.raises(ValueError, match="100 messages"):
         ui._publish([{}, {}])
     ui._publish([{}])
-    assert len(state.messages) == 100
+    assert len(ui.state.messages) == 100
     with pytest.raises(ValueError, match="100 messages"):
         ui._publish([{}])
 
 
-def test_failed_state_publication_does_not_spend_any_budget(monkeypatch, recorded_ui):
-    state, ui = recorded_ui
+def test_failed_state_publication_does_not_spend_any_budget(monkeypatch, ui):
     message = {"items": ["a" * 900000] + [0] * 19000}
 
     def fail(messages):
         raise RuntimeError("publication failed")
 
     with monkeypatch.context() as patch:
-        patch.setattr(state, "publish", fail)
+        patch.setattr(ui.state, "publish", fail)
         with pytest.raises(RuntimeError, match="publication failed"):
             ui._publish([message] + [{}] * 99)
     ui._publish([message] + [{}] * 99)
-    assert len(state.messages) == 100
+    assert len(ui.state.messages) == 100
 
 
-def test_nonfinite_serialization_does_not_spend_budget(recorded_ui):
-    state, ui = recorded_ui
+def test_nonfinite_serialization_does_not_spend_budget(ui):
     with pytest.raises(ValueError, match="JSON"):
         ui._publish([{"value": float("nan")}])
     ui._publish([{}] * 100)
-    assert len(state.messages) == 100
+    assert len(ui.state.messages) == 100
 
 
 def test_surface_size_uses_default_json_encoding():

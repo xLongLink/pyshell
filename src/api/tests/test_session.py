@@ -17,11 +17,11 @@ def test_display_limits_reject_excess_surfaces(shell):
 
 
 def test_pending_message_limit_keeps_last_successful_surface(shell):
-    result = shell.execute("for number in range(40):\n    ui.plot([{'type': 'bar', 'x': ['A'], 'y': [number]}], surface_id='counter')")
+    result = shell.execute("for number in range(51):\n    ui.plot([{'type': 'bar', 'x': ['A'], 'y': [number]}], surface_id='counter')")
     assert "100 messages" in result["exception"]
-    assert len(shell.ui.state.messages) == 98
+    assert len(shell.ui.state.messages) == 100
     assert shell.ui.state.messages[-1]["updateComponents"]["surfaceId"] == "counter"
-    assert shell.ui.state.messages[-1]["updateComponents"]["components"][0]["data"][0]["y"] == [32]
+    assert shell.ui.state.messages[-1]["updateComponents"]["components"][0]["data"][0]["y"] == [49]
     snapshot = shell.ui.state.snapshot()
     assert snapshot["events"] == [{"type": "a2ui", "messages": shell.ui.state.messages[-2:]}]
     assert shell.execute("ui.remove('counter')")["exception"] is None

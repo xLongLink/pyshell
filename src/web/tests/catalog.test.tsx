@@ -1,7 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { Results } from "../components/results";
-import { figureProps } from "../lib/a2ui";
 import type { Surface } from "../lib/workspace";
 import type { FigureProps } from "../components/plot/common";
 
@@ -15,26 +14,21 @@ vi.mock("../components/plot/figure", () => ({
 
 afterEach(cleanup);
 
-function figure(
-    data: unknown[],
-    layout?: unknown,
-    surfaceId = "sales",
-): Surface[] {
+function bar(title: string, surfaceId = "sales"): Surface[] {
     return [
         {
             id: surfaceId,
             pinned: false,
-            props: figureProps.parse({ data, layout }),
+            props: {
+                data: [{ type: "bar", name: "", x: ["A"], y: [42] }],
+                layout: {
+                    title: { text: title },
+                    xaxis: { title: { text: "" } },
+                    showlegend: true,
+                },
+            },
         },
     ];
-}
-
-function bar(title: string, surfaceId = "sales") {
-    return figure(
-        [{ type: "bar", x: ["A"], y: [42] }],
-        { title: { text: title } },
-        surfaceId,
-    );
 }
 
 test("appending another surface preserves an existing chart and its keyboard focus", () => {
@@ -62,9 +56,7 @@ test("replacement snapshots replace surfaces even when their count is unchanged"
 });
 
 test("backend placement moves widgets between center and sidebar without controls or visible IDs", () => {
-    const surfaces = ["first", "second"].flatMap((id) =>
-        figure([{ type: "bar", x: ["A"], y: [null] }], undefined, id),
-    );
+    const surfaces = ["first", "second"].flatMap((id) => bar("", id));
     const { rerender } = render(<Results surfaces={surfaces} />);
     const second = screen.getByRole("article", { name: "Widget second" });
     expect(
@@ -111,11 +103,7 @@ test("backend placement moves widgets between center and sidebar without control
 
 test("the sidebar renders every backend-pinned widget in surface order", () => {
     const surfaces = [1, 2, 3, 4, 5, 6].flatMap((index) =>
-        figure(
-            [{ type: "bar", x: ["A"], y: [null] }],
-            undefined,
-            `chart_${index}`,
-        ),
+        bar("", `chart_${index}`),
     );
     render(
         <Results

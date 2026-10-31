@@ -40,8 +40,6 @@ class UI:
         if identifier not in self._widgets and len(self._widgets) >= 20:
             raise ValueError("At most 20 surfaces may be displayed; remove an existing surface first")
         messages = [{"version": "v0.9", "createSurface": {"surfaceId": identifier}}, self._content(identifier, widget)]
-        if identifier in self._widgets:
-            messages.insert(0, self._delete(identifier))
 
         # Bind the handle only after publication succeeds.
         self._publish(messages)
@@ -61,9 +59,6 @@ class UI:
         if _encoded_json_size(component) > 262144:
             raise ValueError("A surface must not exceed 256 KiB")
         return {"version": "v0.9", "updateComponents": {"surfaceId": surface_id, "components": [component]}}
-
-    def _delete(self, surface_id: str) -> dict[str, object]:
-        return {"version": "v0.9", "deleteSurface": {"surfaceId": surface_id}}
 
     def _publish(self, messages: list[dict[str, object]]) -> None:
         if self._closed:
@@ -126,7 +121,7 @@ class UI:
         """Remove a named surface and invalidate its widget handle."""
         if surface_id not in self._widgets:
             raise ValueError("Unknown surface ID")
-        self._publish([self._delete(surface_id)])
+        self._publish([{"version": "v0.9", "deleteSurface": {"surfaceId": surface_id}}])
         del self._widgets[surface_id]
 
     def close(self) -> None:

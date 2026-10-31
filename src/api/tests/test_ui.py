@@ -1,7 +1,6 @@
 import pytest
 import asyncio
 from api.main import create_app
-from threading import Thread
 from api.ui.state import UIState
 from api.ui.session import UI
 from starlette.routing import Mount
@@ -150,10 +149,7 @@ def test_slow_widget_subscriber_receives_latest_snapshot_without_blocking_execut
             for number in range(20):
                 chart.update(data=[{"type": "bar", "x": ["A"], "y": [number]}])
 
-        worker = Thread(target=update)
-        worker.start()
-        await asyncio.to_thread(worker.join, 2)
-        assert not worker.is_alive()
+        await asyncio.wait_for(asyncio.to_thread(update), timeout=2)
         await asyncio.sleep(0)
         assert queue.qsize() == 1
         snapshot = queue.get_nowait()

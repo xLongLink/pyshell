@@ -15,6 +15,10 @@ export function mountVoice(page = window) {
     element.hidden = !text;
   }
 
+  function speechState() {
+    return orb.level > 0.02 ? "speaking" : "listening";
+  }
+
   function setPhase(value) {
     phase = value;
     button.dataset.state = value;
@@ -33,7 +37,7 @@ export function mountVoice(page = window) {
       : value === "off"
         ? "idle"
         : value === "on"
-          ? orb.level > 0.02 ? "speaking" : "listening"
+          ? speechState()
           : "connecting";
   }
 
@@ -47,7 +51,7 @@ export function mountVoice(page = window) {
 
   function setLevel(level) {
     orb.level = level;
-    if (phase === "on") orb.state = level > 0.02 ? "speaking" : "listening";
+    if (phase === "on") orb.state = speechState();
   }
 
   function animateSpeech(current, stream) {

@@ -86,6 +86,7 @@ class UIState:
                         self.surfaces[identifier].pinned = True
                 elif "createSurface" in message:
                     identifier = message["createSurface"]["surfaceId"]
+                    self.surfaces.pop(identifier, None)
                     self.surfaces[identifier] = Surface(message, messages[index + 1])
                     self._focus(identifier)
                 elif "updateComponents" in message:

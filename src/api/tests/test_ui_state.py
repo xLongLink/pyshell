@@ -1,29 +1,25 @@
 import gc
-import pytest
 import asyncio
 from weakref import ref
 from api.ui.state import UIState
 from src.api.tests.ui_helpers import content, creation
 
 
-@pytest.mark.parametrize("resubscribe", [False, True])
-def test_unsubscribe_before_delivery_does_not_deliver_to_detached_queue(resubscribe):
+def test_unsubscribe_before_delivery_does_not_deliver_to_detached_queue():
     async def run():
         state = UIState()
         detached = state.subscribe()
         detached.get_nowait()
         state.publish([creation("sales"), content("sales")])
         state.unsubscribe(detached)
-        if resubscribe:
-            replacement = state.subscribe()
-            state.publish([content("sales", "Latest")])
+        replacement = state.subscribe()
+        state.publish([content("sales", "Latest")])
         await asyncio.sleep(0)
         assert detached.empty()
         assert not state.pending
-        if resubscribe:
-            assert replacement.qsize() == 1
-            assert replacement.get_nowait() == state.snapshot()
-            state.unsubscribe(replacement)
+        assert replacement.qsize() == 1
+        assert replacement.get_nowait() == state.snapshot()
+        state.unsubscribe(replacement)
 
     asyncio.run(run())
 

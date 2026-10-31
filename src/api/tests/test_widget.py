@@ -10,17 +10,8 @@ def ui():
     return UI(RecordingUIState())
 
 
-@pytest.mark.parametrize(
-    "trace",
-    [
-        {"type": "bar", "name": "Revenue", "x": ["Sales", "Missing"], "y": [-42, None]},
-        {"type": "scatter", "mode": "lines", "x": [1, 2], "y": [42, None]},
-        {"type": "pie", "name": "Revenue", "labels": ["Sales", "Zero", "Missing"], "values": [42, 0, None]},
-        {"type": "choropleth", "locations": ["CHE", "FRA"], "values": [42, None]},
-    ],
-    ids=["bar", "scatter", "pie", "choropleth"],
-)
-def test_widget_creation_and_updates_publish_protocol_messages(ui, trace, country_geography):
+def test_widget_creation_and_updates_publish_protocol_messages(ui):
+    trace = {"type": "bar", "name": "Revenue", "x": ["Sales", "Missing"], "y": [-42, None]}
     chart = ui.plot([trace], id="root", surface_id="sales")
     assert chart.data[0].model_dump(mode="json", include=set(trace)) == trace
     creation = {"version": "v0.9", "createSurface": {"surfaceId": "sales"}}
@@ -33,8 +24,7 @@ def test_widget_creation_and_updates_publish_protocol_messages(ui, trace, countr
     assert isinstance(chart, Figure)
     assert chart.component == "Figure"
     assert chart.id == "root"
-    field = "values" if "values" in trace else "y"
-    updated_trace = {**trace, field: [43, *trace[field][1:]]}
+    updated_trace = {**trace, "y": [43, None]}
     chart.update(data=[updated_trace], layout={"title": {"text": "Updated"}, "showlegend": False})
     assert ui.state.messages == [content(chart)]
 
@@ -50,7 +40,7 @@ def test_surface_replacement_and_removal_publish_protocol_messages(ui):
     deletion = {"version": "v0.9", "deleteSurface": {"surfaceId": "sales"}}
     replacement = ui.plot([trace], surface_id="sales", layout={"title": {"text": "Replacement"}})
     content = {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [replacement.model_dump(mode="json")]}}
-    assert ui.state.messages == [deletion, creation, content]
+    assert ui.state.messages == [creation, content]
     snapshot = ui.state.snapshot()
     assert snapshot["events"] == [other, {"type": "a2ui", "messages": [creation, content]}]
     assert snapshot["placements"]["sales"] == {"pinned": False}

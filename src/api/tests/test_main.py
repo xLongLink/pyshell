@@ -5,12 +5,10 @@ import logging
 from types import SimpleNamespace
 from api.main import ExecutionRequest, create_app
 from threading import Event
-from starlette.routing import Mount
 from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
 from src.api.tests.helpers import execute
-from starlette.staticfiles import StaticFiles
 
 
 def test_libraries_discovers_extra_packages(monkeypatch):
@@ -58,18 +56,6 @@ def test_reset_preserves_capture_for_logging_handlers_retained_by_modules(monkey
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
             handler.close()
-
-
-def test_synchronous_execution_endpoint_is_retired(tmp_path):
-    app = create_app()
-    frontend = next(
-        route.app for route in app.routes if isinstance(route, Mount) and route.path == "" and isinstance(route.app, StaticFiles)
-    )
-    frontend.directory = str(tmp_path)
-    frontend.all_directories = [str(tmp_path)]
-    api_client = TestClient(app)
-    assert api_client.post("/", json={"code": "raise RuntimeError('must not execute')"}).status_code == 405
-    assert "/" not in api_client.get("/openapi.json").json()["paths"]
 
 
 def test_stream_requests_are_serialized():

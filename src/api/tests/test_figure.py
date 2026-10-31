@@ -3,26 +3,26 @@ from pydantic import ValidationError
 from api.ui.session import UI
 
 
-@pytest.fixture
-def standalone_traces(country_geography):
-    return {
-        "pie": {"type": "pie", "labels": ["A"], "values": [1]},
-        "choropleth": {"type": "choropleth", "locations": ["CHE"], "values": [1]},
-        "scatter": {"type": "scatter", "x": [1], "y": [1]},
-    }
-
-
 @pytest.mark.parametrize(
-    ("kinds", "message"),
+    ("data", "message"),
     [
-        (("pie", "scatter"), "A pie figure requires exactly one pie trace"),
-        (("scatter", "choropleth"), "A map figure requires exactly one choropleth trace"),
-        (("pie", "choropleth"), "A map figure requires exactly one choropleth trace"),
+        (
+            [{"type": "pie", "labels": ["A"], "values": [1]}, {"type": "scatter", "x": [1], "y": [1]}],
+            "A pie figure requires exactly one pie trace",
+        ),
+        (
+            [{"type": "scatter", "x": [1], "y": [1]}, {"type": "choropleth", "locations": ["CHE"], "values": [1]}],
+            "A map figure requires exactly one choropleth trace",
+        ),
+        (
+            [{"type": "pie", "labels": ["A"], "values": [1]}, {"type": "choropleth", "locations": ["CHE"], "values": [1]}],
+            "A map figure requires exactly one choropleth trace",
+        ),
     ],
 )
-def test_standalone_traces_reject_mixed_figures(standalone_traces, kinds, message):
+def test_standalone_traces_reject_mixed_figures(data, message, country_geography):
     with pytest.raises(ValidationError) as error:
-        UI().plot([standalone_traces[kind] for kind in kinds])
+        UI().plot(data)
     assert error.value.errors()[0]["msg"] == f"Value error, {message}"
 
 

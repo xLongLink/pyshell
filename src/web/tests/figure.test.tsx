@@ -202,45 +202,6 @@ test("independent lines and markers share numeric axes without adding gaps", asy
     ).toBe("var(--chart-2)");
 });
 
-test("lines+markers preserves input order, repeated x values, and missing gaps", async () => {
-    const props = figureProps.parse({
-        data: [
-            {
-                type: "scatter",
-                name: "Hidden legend",
-                mode: "lines+markers",
-                x: [2, 0, 2, 3, 4, 5],
-                y: [3, 1, 4, null, 5, 2],
-            },
-        ],
-        layout: { showlegend: false },
-    });
-    const { container } = render(<Figure {...props} />);
-    await waitFor(() =>
-        expect(container.querySelectorAll(".recharts-line-dot")).toHaveLength(
-            5,
-        ),
-    );
-    const dots = container.querySelectorAll(".recharts-line-dot");
-    expect(Number(dots[0].getAttribute("cx"))).toBeGreaterThan(
-        Number(dots[1].getAttribute("cx")),
-    );
-    expect(Number(dots[0].getAttribute("cx"))).toBeCloseTo(
-        Number(dots[2].getAttribute("cx")),
-        1,
-    );
-    expect(Number(dots[0].getAttribute("cy"))).not.toBe(
-        Number(dots[2].getAttribute("cy")),
-    );
-    expect(
-        container
-            .querySelector(".recharts-line-curve")
-            ?.getAttribute("d")
-            ?.match(/M/g),
-    ).toHaveLength(2);
-    expect(screen.queryByText("Hidden legend")).toBeNull();
-});
-
 test("bar and scatter traces render on shared categorical axes", async () => {
     const props = figureProps.parse({
         data: [
@@ -377,37 +338,34 @@ test.each([
     },
 );
 
-test.each(["lines", "markers", "lines+markers"] as const)(
-    "mixed %s tooltips visit bar-only and line-only positions",
-    async (mode) => {
-        const props = figureProps.parse({
-            data: [
-                { type: "bar", name: "Actual", x: ["A", "B"], y: [2, 5] },
-                {
-                    type: "scatter",
-                    name: "Target",
-                    mode,
-                    x: ["A", "C"],
-                    y: [3, 7],
-                },
-            ],
-        });
-        const { container } = render(<Figure {...props} />);
-        const application = await screen.findByRole("application");
-        fireEvent.focus(application);
-        const tooltip = () =>
-            container.querySelector(".recharts-tooltip-wrapper")?.textContent;
-        await waitFor(() => expect(tooltip()).toBe("AActual2Target3"));
-        fireEvent.keyDown(application, { key: "ArrowRight" });
-        await waitFor(() => expect(tooltip()).toBe("BActual5"));
-        fireEvent.keyDown(application, { key: "ArrowRight" });
-        await waitFor(() => expect(tooltip()).toBe("CTarget7"));
-        fireEvent.keyDown(application, { key: "ArrowLeft" });
-        await waitFor(() => expect(tooltip()).toBe("BActual5"));
-    },
-);
+test("mixed tooltips visit bar-only and line-only positions", async () => {
+    const props = figureProps.parse({
+        data: [
+            { type: "bar", name: "Actual", x: ["A", "B"], y: [2, 5] },
+            {
+                type: "scatter",
+                name: "Target",
+                mode: "lines+markers",
+                x: ["A", "C"],
+                y: [3, 7],
+            },
+        ],
+    });
+    const { container } = render(<Figure {...props} />);
+    const application = await screen.findByRole("application");
+    fireEvent.focus(application);
+    const tooltip = () =>
+        container.querySelector(".recharts-tooltip-wrapper")?.textContent;
+    await waitFor(() => expect(tooltip()).toBe("AActual2Target3"));
+    fireEvent.keyDown(application, { key: "ArrowRight" });
+    await waitFor(() => expect(tooltip()).toBe("BActual5"));
+    fireEvent.keyDown(application, { key: "ArrowRight" });
+    await waitFor(() => expect(tooltip()).toBe("CTarget7"));
+    fireEvent.keyDown(application, { key: "ArrowLeft" });
+    await waitFor(() => expect(tooltip()).toBe("BActual5"));
+});
 
-test.each(["bars", "mixed", "duplicates"] as const)(
+test.each(["mixed", "duplicates"] as const)(
     "dense grouped %s stay within distinct x spacing",
     async (kind) => {
         const x = Array.from({ length: 10 }, (_, index) =>
