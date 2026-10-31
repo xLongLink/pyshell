@@ -107,7 +107,8 @@ class UIState:
         with self.lock:
             charts = []
             for identifier, surface in self.surfaces.items():
-                charts.extend(
+                component = surface.latest_update["updateComponents"]["components"][0]
+                charts.append(
                     {
                         "surface_id": identifier,
                         "title": component.get("layout", {}).get("title", {}).get("text", "")[:300],
@@ -115,6 +116,5 @@ class UIState:
                         "series": [trace.get("name", "")[:100] for trace in component.get("data", [])],
                         "pinned": surface.pinned,
                     }
-                    for component in surface.latest_update["updateComponents"].get("components", [])
                 )
             return {"charts": charts}

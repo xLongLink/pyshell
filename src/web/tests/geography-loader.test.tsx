@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import type { Geography } from "../components/plot/geography";
+import { loadGeography, type Geography } from "../components/plot/geography";
 
 const boundaries: Geography = {
     type: "FeatureCollection",
@@ -51,12 +51,10 @@ test.each([
         ],
     },
 ])("rejects invalid geometry or geography: %#", async (data) => {
-    vi.resetModules();
     vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(data))),
     );
-    const { loadGeography } = await import("../components/plot/geography");
     await expect(loadGeography("CHE")).rejects.toBeTruthy();
 });
 
@@ -66,7 +64,6 @@ test.each([
 ] as const)(
     "failed %s boundary requests can be retried",
     async (_failure, status) => {
-        vi.resetModules();
         const fetch = vi
             .fn()
             .mockResolvedValueOnce(new Response("{}", { status }));
@@ -74,7 +71,6 @@ test.each([
             Promise.resolve(new Response(JSON.stringify(boundaries))),
         );
         vi.stubGlobal("fetch", fetch);
-        const { loadGeography } = await import("../components/plot/geography");
 
         await expect(loadGeography("CHE")).rejects.toBeTruthy();
         await expect(loadGeography("CHE")).resolves.toEqual(boundaries);

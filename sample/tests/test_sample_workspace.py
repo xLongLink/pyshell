@@ -3,7 +3,9 @@ import pytest
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from pydantic import ValidationError
 from sample.src.events import Result
+from sample.src.shell import EXECUTION_UNCERTAIN
 from sample.src.workspace import Workspace, Subscription
 from pydantic_ai.models.test import TestModel
 from sample.src.agents.script import Agent
@@ -51,6 +53,58 @@ def test_generation_failure_never_reports_or_starts_execution(generated, message
 
     assert phases == ["generating_code"]
     agent.shell.stream.assert_not_awaited()
+
+
+def test_agent_retains_execution_feedback_across_generation_failure():
+    agent = make_agent(
+        [response("print('first')"), RuntimeError("generation failed"), response("done()")],
+        [result("first", done=True), result("finished", done=True)],
+    )
+
+    assert asyncio.run(agent.arun("work", lambda phase: None)) == "first"
+    with pytest.raises(RuntimeError, match="generation failed"):
+        asyncio.run(agent.arun("next", lambda phase: None))
+
+    feedback = json.dumps(result("first", done=True).model_dump(exclude={"type"}))
+    error = json.dumps({"model_error": "RuntimeError: generation failed", "executed": False})
+    retained = feedback + "\n" + error
+    assert agent.pending_feedback == retained
+    assert agent.message_history == ["print('first')"]
+
+    assert asyncio.run(agent.arun("continue", lambda phase: None)) == "finished"
+    prompts = [call.args[0] for call in agent.agent.run.await_args_list]
+    assert prompts == ["work", feedback + "\nnext", retained + "\ncontinue"]
+    assert [call.args[0] for call in agent.shell.stream.await_args_list] == ["print('first')", "done()"]
+
+
+@pytest.mark.parametrize("instruction", [None, 1, "x" * 8001, " " * 8001])
+def test_workspace_rejects_invalid_instructions_before_changing_state(instruction):
+    workspace = Workspace(SimpleNamespace())
+    subscription = Subscription(workspace)
+    subscription.queue.get_nowait()
+
+    with pytest.raises(ValidationError):
+        workspace.start(instruction)
+
+    assert workspace.current_instruction is None
+    assert workspace.phase == "idle"
+    assert workspace.task is None
+    assert subscription.queue.empty()
+
+
+def test_workspace_rejects_uncertain_execution_before_changing_state():
+    workspace = Workspace(SimpleNamespace(shell=SimpleNamespace(uncertain=True)))
+    subscription = Subscription(workspace)
+    subscription.queue.get_nowait()
+
+    with pytest.raises(RuntimeError) as error:
+        workspace.start("work")
+
+    assert str(error.value) == EXECUTION_UNCERTAIN
+    assert workspace.current_instruction is None
+    assert workspace.phase == "idle"
+    assert workspace.task is None
+    assert subscription.queue.empty()
 
 
 def test_workspace_ignores_phase_updates_while_idle():

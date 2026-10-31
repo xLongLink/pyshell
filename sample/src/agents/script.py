@@ -52,6 +52,11 @@ class Agent:
             self._instruction_text = INSTRUCTIONS.format(libraries=json.dumps(libraries))
         return self._instruction_text
 
+    def _with_pending_feedback(self, message: str) -> str:
+        if self.pending_feedback is None:
+            return message
+        return self.pending_feedback + "\n" + message
+
     async def arun(self, instruction: str, on_phase: Callable[[str], None]) -> str:
         """Generate code and return the last 4,000 characters of confirmed output."""
         usage = RunUsage()
@@ -61,9 +66,7 @@ class Agent:
         output = ""
         message = instruction
         for step in range(10):
-            prompt = message
-            if self.pending_feedback is not None:
-                prompt = self.pending_feedback + "\n" + message
+            prompt = self._with_pending_feedback(message)
 
             # Preserve execution feedback across failed model requests.
             try:
@@ -80,9 +83,7 @@ class Agent:
                 feedback = json.dumps({"model_error": f"{type(error).__name__}: {error}", "executed": False})
 
                 # Keep prior execution feedback alongside this unexecuted request.
-                if self.pending_feedback is not None:
-                    feedback = self.pending_feedback + "\n" + feedback
-                self.pending_feedback = feedback
+                self.pending_feedback = self._with_pending_feedback(feedback)
                 raise
 
             # Empty output is not a completed execution step.

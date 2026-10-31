@@ -28,26 +28,18 @@ def test_pending_message_limit_keeps_last_successful_surface(shell):
     assert shell.ui.state.snapshot()["events"] == []
 
 
-def test_automatic_surface_ids_skip_consecutive_named_collisions():
+def test_automatic_surface_ids_skip_named_collisions_and_remain_monotonic_after_removal():
     ui = UI(RecordingUIState())
     data = [{"type": "bar", "x": ["A"], "y": [1]}]
-    for number in range(1, 4):
-        ui.plot(data, surface_id=f"surface_{number}")
+    named = [ui.plot(data, surface_id=f"surface_{number}") for number in range(1, 4)]
 
-    assert ui.plot(data).surface_id == "surface_4"
+    automatic = ui.plot(data)
+    assert automatic.surface_id == "surface_4"
     assert list(ui.state.snapshot()["placements"]) == ["surface_1", "surface_2", "surface_3", "surface_4"]
     assert not any("deleteSurface" in message for message in ui.state.messages)
-
-
-def test_automatic_surface_ids_remain_monotonic_after_removal():
-    ui = UI(RecordingUIState())
-    data = [{"type": "bar", "x": ["A"], "y": [1]}]
-    named = ui.plot(data, surface_id="surface_1")
-    automatic = ui.plot(data)
-    assert automatic.surface_id == "surface_2"
-
-    named.remove()
+    for widget in named:
+        widget.remove()
     automatic.remove()
 
-    assert ui.plot(data).surface_id == "surface_3"
-    assert list(ui.state.snapshot()["placements"]) == ["surface_3"]
+    assert ui.plot(data).surface_id == "surface_5"
+    assert list(ui.state.snapshot()["placements"]) == ["surface_5"]

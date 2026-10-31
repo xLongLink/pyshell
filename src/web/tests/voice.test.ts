@@ -259,6 +259,69 @@ test("stale peer and answer callbacks cannot stop a new voice session", async ()
     expect(app.voiceError.hidden).toBe(true);
 });
 
+test("completed ICE submits once without retaining a gathering timeout", async () => {
+    const app = setup();
+    app.connect();
+    app.button.click();
+    await vi.advanceTimersByTimeAsync(0);
+    const peer = app.peers[0];
+    peer.connectionState = "connected";
+    peer.onconnectionstatechange?.();
+    peer.finishIce();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(app.sockets[0].send).toHaveBeenCalledExactlyOnceWith(
+        JSON.stringify({ type: "voice", action: "start", sdp: "local-offer" }),
+    );
+    expect(vi.getTimerCount()).toBe(0);
+    expect(app.button.dataset.state).toBe("on");
+    expect(app.voiceError.hidden).toBe(true);
+});
+
+test.each([
+    ["playback", "Audio playback was blocked. Restart voice to try again."],
+    ["peer", "Voice connection lost."],
+    ["timeout", "Voice connection timed out."],
+    ["answer", "Unable to connect voice audio."],
+])(
+    "%s failure reports an error and stops submitted voice",
+    async (failure, message) => {
+        const app = setup();
+        app.connect();
+        app.button.click();
+        await vi.advanceTimersByTimeAsync(0);
+        const peer = app.peers[0];
+        if (failure === "playback") {
+            app.audios[0].play.mockRejectedValueOnce(new Error("blocked"));
+            peer.ontrack?.({ streams: [app.stream] });
+        } else if (failure === "peer") {
+            peer.connectionState = "failed";
+            peer.onconnectionstatechange?.();
+        } else if (failure === "timeout") {
+            await vi.advanceTimersByTimeAsync(90000);
+        } else {
+            peer.setRemoteDescription.mockRejectedValueOnce(
+                new Error("bad answer"),
+            );
+            app.sockets[0].receive({
+                type: "voice",
+                name: "answer",
+                sdp: "answer",
+            });
+        }
+        await vi.advanceTimersByTimeAsync(0);
+        expect(app.voiceError.textContent).toBe(message);
+        expect(app.voiceError.hidden).toBe(false);
+        expect(app.track.stop).toHaveBeenCalledOnce();
+        expect(peer.close).toHaveBeenCalledOnce();
+        expect(app.sockets[0].send).toHaveBeenLastCalledWith(
+            JSON.stringify({ type: "voice", action: "stop" }),
+        );
+        expect(app.button.dataset.state).toBe("stopping");
+        app.sockets[0].receive({ type: "voice", name: "closed" });
+        expect(app.button.dataset.state).toBe("off");
+    },
+);
+
 test("ICE timeout reports failure and allows a successful retry", async () => {
     const app = setup({ gatherIce: true });
     app.connect();

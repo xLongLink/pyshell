@@ -51,6 +51,38 @@ export function mountVoice(page = window) {
     setPhase(!closed && current.submitted && send("stop") ? "stopping" : "off");
   }
 
+  function failVoice(text) {
+    error(voiceError, text);
+    stop();
+  }
+
+  function waitForIce(current) {
+    const { peer } = current;
+    return new Promise((resolve, reject) => {
+      function cleanup() {
+        page.clearTimeout(timer);
+        peer.removeEventListener("icegatheringstatechange", change);
+        current.cancelIce = undefined;
+      }
+      function change() {
+        if (peer.iceGatheringState === "complete") {
+          cleanup();
+          resolve();
+        }
+      }
+      const timer = page.setTimeout(() => {
+        cleanup();
+        reject(new Error("Voice network setup timed out."));
+      }, 10000);
+      current.cancelIce = () => {
+        cleanup();
+        reject(new Error("Voice setup cancelled."));
+      };
+      peer.addEventListener("icegatheringstatechange", change);
+      change();
+    });
+  }
+
   async function start() {
     if (phase !== "off") {
       stop();
@@ -84,11 +116,7 @@ export function mountVoice(page = window) {
         audio.srcObject = streams[0] ?? new page.MediaStream([track]);
         void audio.play().catch(() => {
           if (current !== resources) return;
-          error(
-            voiceError,
-            "Audio playback was blocked. Restart voice to try again.",
-          );
-          stop();
+          failVoice("Audio playback was blocked. Restart voice to try again.");
         });
       };
       peer.onconnectionstatechange = () => {
@@ -98,40 +126,13 @@ export function mountVoice(page = window) {
           setPhase("on");
         }
         if (["failed", "disconnected"].includes(peer.connectionState)) {
-          error(voiceError, "Voice connection lost.");
-          stop();
+          failVoice("Voice connection lost.");
         }
       };
       stream.getTracks().forEach((track) => peer.addTrack(track, stream));
       peer.createDataChannel("oai-events");
       await peer.setLocalDescription(await peer.createOffer());
-      await new Promise((resolve, reject) => {
-        if (peer.iceGatheringState === "complete") {
-          resolve();
-          return;
-        }
-        function cleanup() {
-          page.clearTimeout(timer);
-          peer.removeEventListener("icegatheringstatechange", change);
-          current.cancelIce = undefined;
-        }
-        function change() {
-          if (peer.iceGatheringState === "complete") {
-            cleanup();
-            resolve();
-          }
-        }
-        const timer = page.setTimeout(() => {
-          cleanup();
-          reject(new Error("Voice network setup timed out."));
-        }, 10000);
-        current.cancelIce = () => {
-          cleanup();
-          reject(new Error("Voice setup cancelled."));
-        };
-        peer.addEventListener("icegatheringstatechange", change);
-        change();
-      });
+      await waitForIce(current);
       if (current !== resources) return;
       const sdp = peer.localDescription?.sdp;
       if (!sdp || !send("start", sdp))
@@ -140,17 +141,14 @@ export function mountVoice(page = window) {
       if (peer.connectionState !== "connected") {
         current.timer = page.setTimeout(() => {
           if (current !== resources) return;
-          error(voiceError, "Voice connection timed out.");
-          stop();
+          failVoice("Voice connection timed out.");
         }, 90000);
       }
     } catch (failure) {
       if (current !== resources) return;
-      error(
-        voiceError,
+      failVoice(
         failure instanceof Error ? failure.message : "Unable to start voice.",
       );
-      stop();
     }
   }
 
@@ -180,8 +178,7 @@ export function mountVoice(page = window) {
           ?.setRemoteDescription({ type: "answer", sdp: event.sdp })
           .catch(() => {
             if (current !== resources) return;
-            error(voiceError, "Unable to connect voice audio.");
-            stop();
+            failVoice("Unable to connect voice audio.");
           });
       } else {
         throw new Error("Invalid voice event");

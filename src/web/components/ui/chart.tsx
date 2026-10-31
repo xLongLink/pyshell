@@ -102,7 +102,7 @@ function ChartLegendContent({
                 .map((item, index) => (
                     <div
                         key={index}
-                        className="flex h-5 min-w-0 max-w-full items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+                        className="flex h-5 min-w-0 max-w-full items-center gap-1.5"
                     >
                         <div
                             className="h-2 w-2 shrink-0 rounded-[2px]"

@@ -5,9 +5,9 @@ from typing import Annotated
 from pydantic import Field, TypeAdapter
 from collections.abc import Callable
 from sample.src.agents.script import Agent
+from sample.src.shell import EXECUTION_UNCERTAIN
 
-Instruction = Annotated[str, Field(strict=True, max_length=8000)]
-instruction_adapter = TypeAdapter(Instruction)
+instruction_adapter = TypeAdapter(Annotated[str, Field(strict=True, max_length=8000)])
 
 
 class Subscription:
@@ -70,8 +70,7 @@ class Workspace:
         """Summarize recent work and current charts without copying their datasets."""
         recent_tasks = list(self.recent_tasks)
         try:
-            context = await self.agent.shell.context()
-            charts = context["charts"]
+            charts = (await self.agent.shell.context())["charts"]
         except Exception:
             return {"recent_tasks": recent_tasks, "charts": [], "charts_unavailable": True}
         return {"recent_tasks": recent_tasks, "charts": charts}
@@ -99,7 +98,7 @@ class Workspace:
         if not instruction:
             raise ValueError("Enter an instruction.")
         if self.agent.shell.uncertain:
-            raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
+            raise RuntimeError(EXECUTION_UNCERTAIN)
         self.current_instruction = instruction
         self.phase = "starting"
 

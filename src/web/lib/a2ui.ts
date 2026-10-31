@@ -43,11 +43,6 @@ const layout = z.strictObject({
     showlegend: z.boolean().default(true),
 });
 
-const figureFields = {
-    data: z.array(traceSchema).min(1).max(20),
-    layout: layout.prefault({}),
-};
-
 function validateFigure(
     figure: { data: z.infer<typeof traceSchema>[] },
     context: z.RefinementCtx,
@@ -84,14 +79,15 @@ function validateFigure(
 }
 
 export const figureProps = z
-    .strictObject(figureFields)
+    .strictObject({
+        data: z.array(traceSchema).min(1).max(20),
+        layout: layout.prefault({}),
+    })
     .superRefine(validateFigure);
 export const componentSchema = figureProps.safeExtend({
     id: z.literal("root"),
     component: z.literal("Figure"),
 });
-
-const components = z.array(componentSchema).length(1);
 
 const createSurfaceSchema = z.strictObject({
     version: z.literal("v0.9"),
@@ -101,7 +97,10 @@ const createSurfaceSchema = z.strictObject({
 });
 const updateComponentsSchema = z.strictObject({
     version: z.literal("v0.9"),
-    updateComponents: z.strictObject({ surfaceId: identifier, components }),
+    updateComponents: z.strictObject({
+        surfaceId: identifier,
+        components: z.array(componentSchema).length(1),
+    }),
 });
 
 const surfaceBatchSchema = z

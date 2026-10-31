@@ -1,6 +1,9 @@
 import httpx2
 import asyncio
+from typing import Any
 from sample.src.events import Result, execution_event
+
+EXECUTION_UNCERTAIN = "Execution state is uncertain. Restart the execution container and web server before submitting more work."
 
 
 class RemoteShell:
@@ -13,20 +16,21 @@ class RemoteShell:
 
     async def inventory(self) -> list[dict[str, str]]:
         """Read installed packages through the asynchronous transport."""
-        response = await self.client.get("/libraries")
-        response.raise_for_status()
-        return response.json()
+        return await self._get_json("/libraries")
 
     async def context(self) -> dict[str, object]:
         """Read widget metadata without executing Python or retaining widget state."""
-        response = await self.client.get("/ui/context", timeout=5)
+        return await self._get_json("/ui/context", timeout=5)
+
+    async def _get_json(self, path: str, *, timeout: float | None = None) -> Any:
+        response = await self.client.get(path, timeout=self.client.timeout if timeout is None else timeout)
         response.raise_for_status()
         return response.json()
 
     async def stream(self, code: str) -> Result:
         """Submit once and consume ordered output until completion is confirmed."""
         if self.uncertain:
-            raise RuntimeError("Execution state is uncertain. Restart the execution container and web server before submitting more work.")
+            raise RuntimeError(EXECUTION_UNCERTAIN)
 
         # Require both a result and the terminal marker before confirming success.
         result = None
@@ -62,7 +66,7 @@ class RemoteShell:
                     # Widgets are delivered directly to the container-hosted UI.
 
             # EOF alone does not confirm that execution finished.
-            if not finished or result is None:
+            if not finished:
                 raise RuntimeError("Execution stream ended without a confirmed result")
 
         # Cancellation is just as ambiguous as a transport or validation failure.

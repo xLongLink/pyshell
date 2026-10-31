@@ -39,7 +39,7 @@ class UI:
         identifier = identifier_adapter.validate_python(surface_id)
         if identifier not in self._widgets and len(self._widgets) >= 20:
             raise ValueError("At most 20 surfaces may be displayed; remove an existing surface first")
-        messages = [self._create(identifier), self._content(identifier, widget)]
+        messages = [{"version": "v0.9", "createSurface": {"surfaceId": identifier}}, self._content(identifier, widget)]
         if identifier in self._widgets:
             messages.insert(0, self._delete(identifier))
 
@@ -55,9 +55,6 @@ class UI:
         self._message_count = 0
         self._byte_count = 2
         self._node_count = 1
-
-    def _create(self, surface_id: str) -> dict[str, object]:
-        return {"version": "v0.9", "createSurface": {"surfaceId": surface_id}}
 
     def _content(self, surface_id: str, widget: Figure) -> dict[str, object]:
         component = widget.model_dump(mode="json")

@@ -118,12 +118,10 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
 
     async def check():
         response, workers = await open_stream(app)
-        sent = []
 
         async def send(message):
-            sent.append(message)
-            if message["type"] == "http.response.start":
-                raise OSError("connection closed")
+            assert message["type"] == "http.response.start"
+            raise OSError("connection closed")
 
         async def receive():
             pytest.fail("ASGI 2.4 detects disconnects through send")
@@ -134,7 +132,6 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
         finally:
             disconnected.set()
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
-        assert sent[-1]["type"] == "http.response.start"
         events = [json.loads(line) async for line in response.body_iterator]
         assert events == [{"type": "result", "stdout": "complete"}, {"type": "execution_finished"}]
 

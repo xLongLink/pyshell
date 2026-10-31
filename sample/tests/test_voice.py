@@ -126,9 +126,13 @@ def test_start_command_rejects_invalid_offers(offer):
         assert "Voice start requires an SDP offer." in str(error.value)
 
 
+@pytest.mark.parametrize("sdp", ["offer", "x" * 65536])
+def test_start_command_accepts_valid_offers(sdp):
+    assert VoiceCommand(type="voice", action="start", sdp=sdp).sdp == sdp
+
+
 def test_valid_start_and_stop_without_offer(call_factory):
-    assert VoiceCommand(type="voice", action="start", sdp="offer").sdp == "offer"
-    sdp = "x" * 65536
+    sdp = "offer"
 
     async def scenario():
         async with call_factory(phase="active") as call:

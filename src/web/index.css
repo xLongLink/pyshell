@@ -5,20 +5,11 @@
     --color-background: var(--background);
     --color-foreground: var(--foreground);
     --color-card: var(--card);
-    --color-primary: var(--primary);
-    --color-primary-foreground: var(--primary-foreground);
     --color-muted-foreground: var(--muted-foreground);
     --color-muted: var(--accent);
-    --color-accent: var(--accent);
-    --color-accent-foreground: var(--foreground);
     --color-destructive: var(--destructive);
     --color-border: var(--border);
     --color-ring: var(--primary);
-    --color-chart-1: var(--chart-1);
-    --color-chart-2: var(--chart-2);
-    --color-chart-3: var(--chart-3);
-    --color-chart-4: var(--chart-4);
-    --color-chart-5: var(--chart-5);
 }
 
 :root {
@@ -26,7 +17,6 @@
     --foreground: #202b25;
     --card: #ffffff;
     --primary: #315c45;
-    --primary-foreground: #ffffff;
     --muted-foreground: #6b756e;
     --accent: #eef1eb;
     --destructive: #bd3939;
