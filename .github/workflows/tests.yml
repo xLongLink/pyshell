@@ -47,6 +47,8 @@ jobs:
         env:
           PROJECT: ${{ matrix.project }}
           PYTHON_VERSION: ${{ matrix.python }}
+      - if: matrix.project == 'sample'
+        run: node --test sample/tests/voice.test.mjs
 
   container:
     runs-on: ubuntu-24.04

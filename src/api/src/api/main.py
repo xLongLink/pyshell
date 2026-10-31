@@ -53,7 +53,7 @@ def create_app(execution_token: str | None = None) -> FastAPI:
     async def frame_policy(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = (
-            "frame-ancestors http://127.0.0.1:8010 http://localhost:8010 http://127.0.0.1:5180 http://localhost:5180; "
+            "frame-ancestors http://127.0.0.1:8010 http://localhost:8010; "
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
         )

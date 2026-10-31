@@ -1,15 +1,16 @@
 import httpx
 import asyncio
 from httpx import AsyncClient
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from pathlib import Path
 from pydantic import TypeAdapter, ValidationError
 from contextlib import suppress, asynccontextmanager
 from collections.abc import AsyncGenerator
+from sample.src.page import render_page
 from sample.src.shell import RemoteShell
 from sample.src.settings import settings
+from starlette.responses import FileResponse, HTMLResponse
 from sample.src.workspace import Command, Workspace
-from starlette.staticfiles import StaticFiles
 from sample.src.agents.voice import VoiceCommand, VoiceSession
 from sample.src.agents.script import Agent
 from pydantic_ai.models.openai import OpenAIResponsesModel
@@ -54,12 +55,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost
 @app.websocket("/ws")
 async def workspace_socket(socket: WebSocket) -> None:
     """Subscribe to shared state and own only this browser's voice call."""
-    if socket.headers.get("origin") not in {
-        "http://127.0.0.1:8010",
-        "http://localhost:8010",
-        "http://127.0.0.1:5180",
-        "http://localhost:5180",
-    }:
+    if socket.headers.get("origin") not in {"http://127.0.0.1:8010", "http://localhost:8010"}:
         await socket.close(code=1008)
         return
     await socket.accept()
@@ -121,6 +117,13 @@ async def workspace_socket(socket: WebSocket) -> None:
         await voice.stop(notify=False)
 
 
-# Serve the built UI after registering the WebSocket route.
-frontend = StaticFiles(directory=Path(__file__).parent / "src" / "ui" / "dist", html=True, check_dir=False)
-app.mount("/", frontend, name="website")
+@app.get("/", response_class=HTMLResponse)
+def website(request: Request) -> str:
+    """Serve the sample without a frontend build."""
+    return render_page(f"{request.url.scheme}://{request.url.hostname}:8000/")
+
+
+@app.get("/voice.js")
+def voice_script() -> FileResponse:
+    """Serve the browser's microphone and voice signaling controller."""
+    return FileResponse(Path(__file__).parent / "assets" / "voice.mjs", media_type="text/javascript")

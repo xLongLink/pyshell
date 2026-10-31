@@ -89,17 +89,24 @@ def test_lifespan_releases_transports_on_failure(monkeypatch, failure):
     asyncio.run(run())
 
 
-def test_web_server_serves_website_and_assets(monkeypatch, tmp_path):
-    (tmp_path / "index.html").write_text("<!doctype html><title>PyShell</title>")
-    (tmp_path / "app.js").write_text("console.log('pyshell')")
-    monkeypatch.setattr(server.frontend, "directory", str(tmp_path))
-    monkeypatch.setattr(server.frontend, "all_directories", [str(tmp_path)])
-    client = TestClient(server.app)
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1"])
+def test_sample_renders_voice_and_isolated_container_frame_without_frontend_build(host):
+    client = TestClient(server.app, base_url=f"http://{host}:8010")
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
     assert "PyShell" in response.text
-    assert client.get("/app.js").text == "console.log('pyshell')"
+    assert f'src="http://{host}:8000/"' in response.text
+    assert 'sandbox="allow-scripts allow-same-origin"' in response.text
+    assert 'referrerpolicy="no-referrer"' in response.text
+    assert 'aria-label="Start voice"' in response.text
+    assert 'import { mountVoice } from "/voice.js"' in response.text
+    assert "test-key" not in response.text
+    assert "PYSHELL_EXECUTION_TOKEN" not in response.text
+    script = client.get("/voice.js")
+    assert script.status_code == 200
+    assert script.headers["content-type"].startswith("text/javascript")
+    assert "export function mountVoice" in script.text
     assert client.get("/missing.js").status_code == 404
 
 
@@ -107,7 +114,9 @@ def test_application_no_longer_proxies_widget_assets():
     assert not any(getattr(route, "path", "").startswith("/geographies") for route in server.app.routes)
 
 
-@pytest.mark.parametrize("origin", [None, "http://localhost:8000", "https://example.com", "http://localhost:5180.evil.example"])
+@pytest.mark.parametrize(
+    "origin", [None, "http://localhost:8000", "http://localhost:5180", "https://example.com", "http://localhost:5180.evil.example"]
+)
 def test_browser_rejects_untrusted_origin(origin):
     headers = {"origin": origin} if origin else {}
     with pytest.raises(WebSocketDisconnect) as error:
@@ -128,12 +137,12 @@ def test_browser_executes_once_and_reconnects_without_replay(monkeypatch):
     monkeypatch.setattr(server.app.state, "workspace", workspace, raising=False)
     monkeypatch.setattr(server.app.state, "realtime_model", None, raising=False)
     client = TestClient(server.app)
-    with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
+    with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert socket.receive_json()["type"] == "snapshot"
         socket.send_json({"type": "run", "instruction": "show sales"})
         assert socket.receive_json() == {"type": "instruction", "text": "show sales"}
         assert completed.wait(1)
-    with client.websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
+    with client.websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         snapshot = socket.receive_json()
         assert snapshot["type"] == "snapshot"
     execute.assert_awaited_once_with("show sales", workspace.publish)
@@ -152,7 +161,7 @@ def test_invalid_commands_do_not_start_work(monkeypatch, command, error):
     workspace = Workspace(SimpleNamespace(arun=execute))
     monkeypatch.setattr(server.app.state, "workspace", workspace, raising=False)
     monkeypatch.setattr(server.app.state, "realtime_model", None, raising=False)
-    with TestClient(server.app).websocket_connect("/ws", headers={"origin": "http://localhost:5180"}) as socket:
+    with TestClient(server.app).websocket_connect("/ws", headers={"origin": "http://localhost:8010"}) as socket:
         assert socket.receive_json()["type"] == "snapshot"
         socket.send_json(command)
         event = socket.receive_json()

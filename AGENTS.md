@@ -19,11 +19,12 @@
 │   └── compose.yaml   # Execution environment configuration
 ├── sample/
 │   ├── main.py        # Browser-facing FastAPI app and shared workspace
+│   ├── assets/        # index.html and browser voice signaling
 │   ├── src/
 │   │   ├── agents/    # Execution agent loop and voice assistant
 │   │   ├── shell.py   # Execution container client
 │   │   ├── settings.py # Shared application settings
-│   │   └── ui/        # Self-contained React frontend, npm configuration, and tests
+│   │   └── page.py    # Load and render the HTML document
 │   ├── tests/         # Agent and server tests
 │   ├── pyproject.toml # Client dependencies
 │   └── uv.lock

@@ -46,7 +46,7 @@ The browser connects to the web server over `/ws` for task events and voice sign
 
 Generated code executes only after the model response completes successfully. The Docker execution API streams execution feedback over `/execute/stream`; widget events remain available in that stream for execution clients, but the application does not relay them to browser tabs. The embedded frontend renders container-owned widget snapshots independently. Execution feedback goes back to the agent until it calls `done()` or reaches its task budget.
 
-Voice uses browser microphone audio over WebRTC and server-side OpenAI Realtime signaling. Allow microphone access on localhost or HTTPS. Provider credentials stay on the server. Voice conversation lasts for the call; Python state and the execution agent's history persist across calls and text turns.
+The sample loads an HTML document with a voice orb and the container-owned workspace iframe using Python; it needs no frontend build. Voice uses a small browser JavaScript module for microphone audio over WebRTC and server-side OpenAI Realtime signaling. Allow microphone access on localhost or HTTPS. Provider credentials stay on the server. Voice conversation lasts for the call; Python state and the execution agent's history persist across calls and text turns.
 
 The voice assistant can check the current task and execution phase, inspect chart titles and types, and recall the last eight task summaries across calls. Ask “what are you doing?” or “change the sales chart to a bar chart.” Say “end the call” to hang up without cancelling submitted work. Steering or stopping running Python is not supported.
 
