@@ -9,6 +9,10 @@ identifier_adapter = TypeAdapter(Identifier)
 action_adapter = TypeAdapter(Action)
 
 
+def _encoded_json_size(value: object) -> int:
+    return len(json.dumps(value, allow_nan=False).encode())
+
+
 class UI:
     """Own widget handles and publish A2UI messages from persistent Python."""
 
@@ -26,11 +30,11 @@ class UI:
 
         # Automatic IDs must not replace explicitly named surfaces.
         if surface_id is None:
-            self._sequence += 1
-            surface_id = f"surface_{self._sequence}"
-            while surface_id in self._widgets:
+            while True:
                 self._sequence += 1
                 surface_id = f"surface_{self._sequence}"
+                if surface_id not in self._widgets:
+                    break
 
         # Validate the entire replacement before publishing or changing handles.
         identifier = identifier_adapter.validate_python(surface_id)
@@ -58,7 +62,7 @@ class UI:
 
     def _content(self, surface_id: str, widget: Figure) -> dict[str, object]:
         component = widget.model_dump(mode="json")
-        if len(json.dumps(component, allow_nan=False).encode()) > 262144:
+        if _encoded_json_size(component) > 262144:
             raise ValueError("A surface must not exceed 256 KiB")
         return {"version": "v0.9", "updateComponents": {"surfaceId": surface_id, "components": [component]}}
 
@@ -69,7 +73,7 @@ class UI:
         if self._closed:
             raise RuntimeError("The UI session has been reset or closed")
         message_count = self._message_count + len(messages)
-        byte_count = self._byte_count + len(json.dumps(messages, allow_nan=False).encode()) - 2
+        byte_count = self._byte_count + _encoded_json_size(messages) - 2
         if self._message_count and messages:
             byte_count += 2
         if message_count > 100 or byte_count > 1048576:

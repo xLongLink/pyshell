@@ -3,7 +3,6 @@ import asyncio
 from httpx import AsyncClient
 from fastapi import FastAPI, WebSocket
 from pathlib import Path
-from pydantic import ValidationError
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from sample.src.shell import RemoteShell
@@ -55,7 +54,7 @@ async def workspace_socket(socket: WebSocket) -> None:
     await socket.accept()
     workspace: Workspace = socket.app.state.workspace
     subscription = Subscription(workspace)
-    voice = VoiceSession(socket.app.state.realtime_model, workspace, subscription.emit)
+    voice = VoiceSession(socket.app.state.realtime_model, workspace, subscription.publish)
 
     async def send() -> None:
         while not subscription.closed.is_set():
@@ -69,11 +68,11 @@ async def workspace_socket(socket: WebSocket) -> None:
             try:
                 command = VoiceCommand.model_validate_json(text)
                 await voice.handle(command)
-            except (ValidationError, ValueError, RuntimeError) as error:
+            except (ValueError, RuntimeError) as error:
                 subscription.publish({"type": "error", "text": str(error)})
 
     try:
-        await run_websocket(run_websocket(send(), receive()), subscription.closed.wait())
+        await run_websocket(send(), receive(), subscription.closed.wait())
     finally:
         overloaded = subscription.closed.is_set()
         subscription.close()

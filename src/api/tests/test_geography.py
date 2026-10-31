@@ -10,9 +10,11 @@ from fastapi.testclient import TestClient
 from api.ui.plot.choropleth import Choropleth
 
 
-@pytest.mark.parametrize("metadata_list", [False, True])
-@pytest.mark.parametrize("boundary_id", [None, "CHE-current"])
-def test_geography_omits_boundary_id_and_preserves_source_metadata(monkeypatch, tmp_path, metadata_list, boundary_id):
+@pytest.mark.parametrize(
+    ("metadata_list", "boundary_id", "license_metadata"),
+    [(False, None, {}), (True, "CHE-current", {"boundaryLicense": "CC BY 4.0", "licenseSource": "https://[invalid"})],
+)
+def test_geography_omits_boundary_id_and_preserves_source_metadata(monkeypatch, tmp_path, metadata_list, boundary_id, license_metadata):
     monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
     metadata_url = geography.METADATA_URL.format(geography="CHE")
     download_url = "https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/CHE.geojson"
@@ -21,11 +23,10 @@ def test_geography_omits_boundary_id_and_preserves_source_metadata(monkeypatch, 
         "boundaryType": "ADM1",
         "boundaryName": "Switzerland",
         "boundarySource": "Swiss boundaries",
-        "boundaryLicense": "CC BY 4.0",
-        "licenseSource": "creativecommons.org/licenses/by/4.0/",
         "boundaryYearRepresented": 2024,
         "admUnitCount": "1",
         "simplifiedGeometryGeoJSON": download_url,
+        **license_metadata,
     }
     if boundary_id is not None:
         metadata["boundaryID"] = boundary_id
@@ -52,17 +53,131 @@ def test_geography_omits_boundary_id_and_preserves_source_metadata(monkeypatch, 
         "geography": "CHE",
         "name": "Switzerland",
         "level": "region",
-        "source": {
-            "source": "Swiss boundaries / geoBoundaries gbOpen",
-            "url": metadata_url,
-            "license": "CC BY 4.0",
-            "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-            "year": "2024",
-        },
+        "source": {"source": "Swiss boundaries / geoBoundaries gbOpen", "url": metadata_url, "year": "2024"},
         "features": [{"type": "Feature", "id": "CH-BE", "properties": {"name": "Bern"}, "geometry": geometry}],
     }
     assert json.loads((tmp_path / "CHE-v2.json").read_text()) == response.json()
     assert geography.geography_info("CHE") == {"name": "Switzerland", "level": "region", "locations": {"CH-BE": "Bern"}}
+
+
+def test_world_ignores_administrative_identifiers_and_omits_license_metadata(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
+
+    def unexpected_home():
+        pytest.fail("Explicit cache directory should not require home-directory resolution")
+
+    monkeypatch.setattr(geography.Path, "home", unexpected_home)
+    geometry = {"type": "Polygon", "coordinates": [[[7, 46], [8, 46], [8, 47], [7, 46]]]}
+    data = {
+        "type": "FeatureCollection",
+        "features": [{"properties": {"ISO_A3_EH": "CHE", "NAME_EN": "Switzerland", "shapeISO": 42}, "geometry": geometry}],
+    }
+    monkeypatch.setattr(geography, "download", lambda url: data)
+
+    result = json.loads(geography.geography_path("world").read_text())
+
+    assert result["source"] == {"source": "Natural Earth, 1:110m Admin 0 Countries", "url": geography.WORLD_URL}
+    assert result["features"] == [{"type": "Feature", "id": "CHE", "properties": {"name": "Switzerland"}, "geometry": geometry}]
+
+
+def test_administrative_maps_still_reject_invalid_identifiers():
+    data = {"type": "FeatureCollection", "features": [{"properties": {"shapeISO": 42}}]}
+
+    with pytest.raises(ValueError, match="Invalid geographic identifier"):
+        geography.normalize("CHE", "Switzerland", {"count": 1}, data)
+
+
+@pytest.mark.parametrize(
+    ("metadata", "error", "message"),
+    [
+        ({"boundaryISO": "FRA", "boundaryType": "ADM1"}, ValueError, "Unexpected geography metadata"),
+        ({"boundaryISO": "CHE", "boundaryType": "ADM0"}, ValueError, "Unexpected geography metadata"),
+        (None, ValueError, "Unexpected geography metadata"),
+        ([], geography.UnsupportedGeographyError, "Unsupported geography"),
+        ([{"boundaryISO": "CHE", "boundaryType": "ADM1"}] * 2, ValueError, "Ambiguous geography metadata"),
+    ],
+)
+def test_source_rejects_unexpected_or_ambiguous_metadata(monkeypatch, metadata, error, message):
+    monkeypatch.setattr(geography, "download", lambda url: metadata)
+
+    with pytest.raises(error, match=message):
+        geography._source("CHE")
+
+
+@pytest.mark.parametrize(
+    ("codes", "expected"),
+    [((" ch-be ", "ch-zh"), ["CH-BE", "CH-ZH"]), ((None, ""), ["CHE-0", "CHE-1"]), (("CH-BE", " ch-be "), ["CHE-0", "CHE-1"])],
+)
+def test_administrative_identifiers_are_normalized_and_duplicates_use_shape_ids(codes, expected):
+    geometry = {"type": "Polygon", "coordinates": [[[7, 46], [8, 46], [8, 47], [7, 46]]]}
+    data = {
+        "type": "FeatureCollection",
+        "features": [
+            {"properties": {"shapeISO": code, "shapeID": str(index), "shapeGroup": "CHE", "shapeType": "ADM1"}, "geometry": geometry}
+            for index, code in enumerate(codes)
+        ],
+    }
+
+    result = geography.normalize("CHE", "Switzerland", {"count": 2}, data)
+
+    assert [feature["id"] for feature in result["features"]] == expected
+
+
+@pytest.mark.parametrize("geometry_type", ["Polygon", "MultiPolygon"])
+@pytest.mark.parametrize("label", ["ZÃ¼rich", "Â", "Switzerland"])
+def test_world_polygon_normalization_preserves_label_repair(geometry_type, label):
+    coordinates = [[[7, 46], [8, 46], [8, 47], [7, 46]]]
+    geometry = {"type": geometry_type, "coordinates": coordinates if geometry_type == "Polygon" else [coordinates]}
+    data = {"type": "FeatureCollection", "features": [{"properties": {"ISO_A3_EH": "CHE", "NAME_EN": label}, "geometry": geometry}]}
+
+    result = geography.normalize("world", "World", {}, data)
+
+    expected_label = "Zürich" if label == "ZÃ¼rich" else label
+    assert result["features"] == [{"type": "Feature", "id": "CHE", "properties": {"name": expected_label}, "geometry": geometry}]
+
+
+@pytest.mark.parametrize("failure", [None, "create", "write", "replace"])
+def test_cache_write_closes_files_and_cleans_up_on_failure(monkeypatch, tmp_path, failure):
+    monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
+    geometry = {"type": "Polygon", "coordinates": [[[7, 46], [8, 46], [8, 47], [7, 46]]]}
+    data = {"type": "FeatureCollection", "features": [{"properties": {"ISO_A3_EH": "CHE", "NAME_EN": "Switzerland"}, "geometry": geometry}]}
+    monkeypatch.setattr(geography, "download", lambda url: data)
+    create_temporary = geography.NamedTemporaryFile
+    replace = geography.Path.replace
+    outputs = []
+
+    def temporary_file(**kwargs):
+        if failure == "create":
+            raise OSError("Cannot create temporary file")
+        output = create_temporary(**kwargs)
+        outputs.append(output)
+        return output
+
+    def failed_write(value, output, **kwargs):
+        output.write('{"partial":')
+        raise OSError("Cannot write temporary file")
+
+    def replace_file(temporary, destination):
+        assert outputs[0].closed
+        assert not destination.exists()
+        if failure == "replace":
+            raise OSError("Cannot replace cache file")
+        return replace(temporary, destination)
+
+    monkeypatch.setattr(geography, "NamedTemporaryFile", temporary_file)
+    monkeypatch.setattr(geography.Path, "replace", replace_file)
+    if failure == "write":
+        monkeypatch.setattr(geography.json, "dump", failed_write)
+
+    if failure is None:
+        path = geography.geography_path("world")
+        assert json.loads(path.read_text())["features"][0]["id"] == "CHE"
+        assert list(tmp_path.iterdir()) == [path]
+    else:
+        with pytest.raises(OSError, match="Cannot"):
+            geography.geography_path("world")
+        assert not list(tmp_path.iterdir())
+    assert all(output.closed for output in outputs)
 
 
 def test_cached_geography_with_boundary_id_remains_readable(monkeypatch, tmp_path):

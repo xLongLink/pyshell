@@ -4,45 +4,45 @@ from api.websocket import run_websocket
 from starlette.websockets import WebSocketDisconnect
 
 
-@pytest.mark.parametrize("first", [0, 1])
+@pytest.mark.parametrize(("count", "first"), [(2, 0), (2, 1), (3, 0), (3, 1), (3, 2)])
 @pytest.mark.parametrize("error", [None, WebSocketDisconnect(), RuntimeError("socket failed")])
-def test_first_completion_drains_peer(first, error):
+def test_first_completion_drains_peer(count, first, error):
     async def scenario():
-        started = asyncio.Event()
-        drained = asyncio.Event()
+        started = [asyncio.Event() for _ in range(count - 1)]
+        drained = []
 
         async def finish():
-            await started.wait()
+            await asyncio.gather(*(event.wait() for event in started))
             if error is not None:
                 raise error
 
-        async def peer():
-            started.set()
+        async def peer(index):
+            started[index].set()
             try:
                 await asyncio.Future()
             finally:
                 await asyncio.sleep(0)
-                drained.set()
+                drained.append(index)
 
-        directions = [finish(), peer()]
-        if first:
-            directions.reverse()
+        directions = [peer(index) for index in range(count - 1)]
+        directions.insert(first, finish())
         if isinstance(error, RuntimeError):
             with pytest.raises(RuntimeError, match="socket failed") as caught:
                 await run_websocket(*directions)
             assert caught.value is error
         else:
             await run_websocket(*directions)
-        assert drained.is_set()
+        assert sorted(drained) == list(range(count - 1))
         assert asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(scenario())
 
 
-def test_cancellation_cancels_both_before_draining_either():
+@pytest.mark.parametrize("count", [2, 3])
+def test_cancellation_cancels_all_before_draining_any(count):
     async def scenario():
-        started = [asyncio.Event(), asyncio.Event()]
-        cancelling = [asyncio.Event(), asyncio.Event()]
+        started = [asyncio.Event() for _ in range(count)]
+        cancelling = [asyncio.Event() for _ in range(count)]
         drained = []
 
         async def direction(index):
@@ -51,29 +51,40 @@ def test_cancellation_cancels_both_before_draining_either():
                 await asyncio.Future()
             finally:
                 cancelling[index].set()
-                await cancelling[1 - index].wait()
+                await asyncio.gather(*(event.wait() for event in cancelling))
                 drained.append(index)
 
-        runner = asyncio.create_task(run_websocket(direction(0), direction(1)))
+        runner = asyncio.create_task(run_websocket(*(direction(index) for index in range(count))))
         await asyncio.gather(*(event.wait() for event in started))
         runner.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(runner, timeout=1)
-        assert sorted(drained) == [0, 1]
+        assert sorted(drained) == list(range(count))
         assert asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(scenario())
 
 
-def test_first_failure_survives_peer_cleanup_failure():
+@pytest.mark.parametrize(
+    ("primary_error", "cleanup_error"),
+    [
+        (None, ValueError("cleanup failure")),
+        (WebSocketDisconnect(), ValueError("cleanup failure")),
+        (None, WebSocketDisconnect()),
+        (RuntimeError("first failure"), ValueError("cleanup failure")),
+    ],
+    ids=["normal-finish-cleanup-fails", "disconnect-cleanup-fails", "cleanup-disconnects", "primary-failure-wins"],
+)
+@pytest.mark.parametrize("count", [2, 3])
+def test_peer_cleanup_outcomes(primary_error, cleanup_error, count):
     async def scenario():
         started = asyncio.Event()
-        failure = RuntimeError("first failure")
-        drained = asyncio.Event()
+        drained = []
 
-        async def fail():
+        async def finish():
             await started.wait()
-            raise failure
+            if primary_error is not None:
+                raise primary_error
 
         async def peer():
             started.set()
@@ -81,50 +92,24 @@ def test_first_failure_survives_peer_cleanup_failure():
                 await asyncio.Future()
             finally:
                 await asyncio.sleep(0)
-                drained.set()
-                raise ValueError("cleanup failure")
-
-        with pytest.raises(RuntimeError, match="first failure") as caught:
-            await run_websocket(fail(), peer())
-        assert caught.value is failure
-        assert drained.is_set()
-        assert asyncio.all_tasks() == {asyncio.current_task()}
-
-    asyncio.run(scenario())
-
-
-@pytest.mark.parametrize(
-    ("disconnect", "cleanup_error"),
-    [(False, ValueError("cleanup failure")), (True, ValueError("cleanup failure")), (False, WebSocketDisconnect())],
-    ids=["normal-finish-cleanup-fails", "disconnect-cleanup-fails", "cleanup-disconnects"],
-)
-def test_peer_cleanup_outcomes(disconnect, cleanup_error):
-    async def scenario():
-        started = asyncio.Event()
-
-        async def finish():
-            await started.wait()
-            if disconnect:
-                raise WebSocketDisconnect()
-
-        async def peer():
-            started.set()
-            try:
-                await asyncio.Future()
-            finally:
+                drained.append(True)
                 raise cleanup_error
 
-        if isinstance(cleanup_error, ValueError):
-            with pytest.raises(ValueError, match="cleanup failure"):
-                await run_websocket(finish(), peer())
+        failure = primary_error if isinstance(primary_error, RuntimeError) else cleanup_error
+        if isinstance(failure, WebSocketDisconnect):
+            await run_websocket(finish(), *(peer() for _ in range(count - 1)))
         else:
-            await run_websocket(finish(), peer())
+            with pytest.raises(type(failure)) as caught:
+                await run_websocket(finish(), *(peer() for _ in range(count - 1)))
+            assert caught.value is failure
+        assert len(drained) == count - 1
         assert asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(scenario())
 
 
-def test_simultaneous_disconnect_does_not_hide_failure():
+@pytest.mark.parametrize("count", [2, 3])
+def test_simultaneous_disconnect_does_not_hide_failure(count):
     async def scenario():
         async def disconnect():
             raise WebSocketDisconnect()
@@ -132,8 +117,11 @@ def test_simultaneous_disconnect_does_not_hide_failure():
         async def fail():
             raise ValueError("socket failed")
 
+        async def wait():
+            await asyncio.Future()
+
         with pytest.raises(ValueError, match="socket failed"):
-            await run_websocket(disconnect(), fail())
+            await run_websocket(disconnect(), fail(), *(wait() for _ in range(count - 2)))
         assert asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(scenario())

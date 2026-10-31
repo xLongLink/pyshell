@@ -13,6 +13,13 @@ export function PiePlot({
     trace: Extract<Trace, { type: "pie" }>;
     showlegend: boolean;
 }) {
+    if (!trace.values.some((value) => value !== null && value > 0)) {
+        return (
+            <p className="py-8 text-sm text-muted-foreground">
+                No positive values to display.
+            </p>
+        );
+    }
     const slices = trace.labels.flatMap((label, index) => {
         const value = trace.values[index];
         return value === null
@@ -25,13 +32,6 @@ export function PiePlot({
                   },
               ];
     });
-    if (!slices.some((point) => point.value > 0)) {
-        return (
-            <p className="py-8 text-sm text-muted-foreground">
-                No positive values to display.
-            </p>
-        );
-    }
     return (
         <ChartContainer>
             <PieChart accessibilityLayer>

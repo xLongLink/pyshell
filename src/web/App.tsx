@@ -3,7 +3,7 @@ import { Results } from "@/components/results";
 import { ErrorBoundary } from "react-error-boundary";
 
 export default function App() {
-    const { surfaces, placements, error } = useWorkspace();
+    const { surfaces, error } = useWorkspace();
 
     return (
         <div className="flex h-dvh flex-col">
@@ -26,7 +26,7 @@ export default function App() {
                             </p>
                         }
                     >
-                        <Results surfaces={surfaces} placements={placements} />
+                        <Results surfaces={surfaces} />
                     </ErrorBoundary>
                 </div>
             </main>

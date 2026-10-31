@@ -5,7 +5,6 @@ export const placementsSchema = z.record(
     identifier,
     z.strictObject({ pinned: z.boolean() }),
 );
-export type Placements = z.infer<typeof placementsSchema>;
 
 export const messageSchema = z
     .object({
@@ -32,8 +31,7 @@ export const messageSchema = z
         const placementIds = Object.keys(placements);
         if (
             placementIds.length !== ids.length ||
-            ids.some((id) => !Object.hasOwn(placements, id)) ||
-            placementIds.some((id) => !ids.includes(id))
+            ids.some((id) => !Object.hasOwn(placements, id))
         )
             context.addIssue({
                 code: "custom",
@@ -53,13 +51,13 @@ export const messageSchema = z
             const component = update.updateComponents.components[0];
             return {
                 id: creation.createSurface.surfaceId,
+                pinned: placements[creation.createSurface.surfaceId].pinned,
                 props: {
                     data: component.data,
                     layout: component.layout,
                 },
             };
         }),
-        placements,
     }));
 
 export type Surface = z.infer<typeof messageSchema>["surfaces"][number];

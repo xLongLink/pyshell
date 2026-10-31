@@ -60,8 +60,6 @@ def _source(geography: str) -> tuple[str, dict]:
             "source": "Natural Earth, 1:110m Admin 0 Countries",
             "url": WORLD_URL,
             "downloadUrl": WORLD_URL,
-            "license": "Public domain",
-            "licenseUrl": "https://www.naturalearthdata.com/about/terms-of-use/",
         }
     url = METADATA_URL.format(geography=geography)
     try:
@@ -81,27 +79,12 @@ def _source(geography: str) -> tuple[str, dict]:
         if len(matches) != 1:
             raise ValueError("Ambiguous geography metadata")
         metadata = matches[0]
-    if not isinstance(metadata, dict) or metadata.get("boundaryISO") != geography or metadata.get("boundaryType") != "ADM1":
+    elif not isinstance(metadata, dict) or metadata.get("boundaryISO") != geography or metadata.get("boundaryType") != "ADM1":
         raise ValueError("Unexpected geography metadata")
-    fields = ("boundaryName", "boundarySource", "boundaryLicense", "simplifiedGeometryGeoJSON")
+    fields = ("boundaryName", "boundarySource", "simplifiedGeometryGeoJSON")
     if any(not isinstance(metadata.get(field), str) or not metadata[field].strip() for field in fields):
         raise ValueError("Incomplete geography metadata")
     _download_url(metadata["simplifiedGeometryGeoJSON"])
-    license_url = metadata.get("licenseSource")
-    if isinstance(license_url, str) and license_url.strip():
-        license_url = license_url.strip()
-        if "://" not in license_url:
-            license_url = "https://" + license_url
-        parsed = urlsplit(license_url)
-        if (
-            parsed.scheme not in {"https", "http"}
-            or not parsed.hostname
-            or "." not in parsed.hostname
-            or any(char.isspace() for char in parsed.netloc)
-        ):
-            license_url = url
-    else:
-        license_url = url
     try:
         count = int(metadata["admUnitCount"])
     except (KeyError, TypeError, ValueError) as error:
@@ -112,15 +95,14 @@ def _source(geography: str) -> tuple[str, dict]:
         "source": metadata["boundarySource"] + " / geoBoundaries gbOpen",
         "url": url,
         "downloadUrl": metadata["simplifiedGeometryGeoJSON"],
-        "license": metadata["boundaryLicense"],
-        "licenseUrl": license_url,
         "year": str(metadata.get("boundaryYearRepresented", "")),
         "count": count,
     }
 
 
 def _validate_geometry(geometry: dict) -> None:
-    polygons = [geometry.get("coordinates")] if geometry["type"] == "Polygon" else geometry.get("coordinates")
+    coordinates = geometry.get("coordinates")
+    polygons = [coordinates] if geometry["type"] == "Polygon" else coordinates
     if not isinstance(polygons, list) or not polygons:
         raise ValueError("Missing geographic coordinates")
     for polygon in polygons:
@@ -149,13 +131,17 @@ def normalize(geography: str, name: str, source: dict, data: dict | list) -> dic
         raise ValueError("Invalid geography response")
     if any(not isinstance(feature, dict) or not isinstance(feature.get("properties"), dict) for feature in data["features"]):
         raise ValueError("Invalid geographic properties")
-    if any(not isinstance(feature["properties"].get("shapeISO") or "", str) for feature in data["features"]):
-        raise ValueError("Invalid geographic identifier")
-    codes = [(feature["properties"].get("shapeISO") or "").strip().upper() for feature in data["features"]]
-    counts = Counter(codes)
+    if geography != "world":
+        codes = []
+        for feature in data["features"]:
+            code = feature["properties"].get("shapeISO") or ""
+            if not isinstance(code, str):
+                raise ValueError("Invalid geographic identifier")
+            codes.append(code.strip().upper())
+        counts = Counter(codes)
     features = []
     seen = set()
-    for feature, code in zip(data["features"], codes):
+    for index, feature in enumerate(data["features"]):
         properties = feature["properties"]
         if geography == "world":
             code = properties.get("ISO_A3_EH")
@@ -163,6 +149,7 @@ def normalize(geography: str, name: str, source: dict, data: dict | list) -> dic
                 continue
             label = properties.get("NAME_EN") or properties.get("NAME") or code
         else:
+            code = codes[index]
             if properties.get("shapeGroup") != geography or properties.get("shapeType") != "ADM1":
                 raise ValueError("Unexpected administrative boundaries")
             if not re.fullmatch(r"[A-Z]{2,3}-[A-Z0-9-]+", code) or counts[code] != 1:
@@ -175,7 +162,7 @@ def normalize(geography: str, name: str, source: dict, data: dict | list) -> dic
             label = properties.get("shapeName") or code
         if not isinstance(label, str):
             raise ValueError("Invalid geographic name")
-        if re.search("[ÃÂ]", label):
+        if "Ã" in label or "Â" in label:
             try:
                 label = label.encode("latin1").decode("utf8")
             except UnicodeError:
@@ -202,8 +189,8 @@ def geography_path(geography: str) -> Path:
     """Download a geography once and atomically cache it outside the source tree."""
     if not re.fullmatch(r"world|[A-Z]{3}", geography):
         raise UnsupportedGeographyError("Unsupported geography")
-    default_cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "pyshell/geographies"
-    directory = Path(os.environ.get("PYSHELL_GEOGRAPHY_CACHE") or default_cache)
+    cache = os.environ.get("PYSHELL_GEOGRAPHY_CACHE")
+    directory = Path(cache) if cache else Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "pyshell/geographies"
     path = directory / f"{geography}-v2.json"
     with _locks[geography]:
         if path.is_file():
@@ -211,15 +198,14 @@ def geography_path(geography: str) -> Path:
         name, source = _source(geography)
         data = normalize(geography, name, source, download(source["downloadUrl"]))
         directory.mkdir(parents=True, exist_ok=True)
-        temporary = None
+        output = NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory, suffix=".tmp", delete=False)
+        temporary = Path(output.name)
         try:
-            with NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory, suffix=".tmp", delete=False) as output:
-                temporary = Path(output.name)
+            with output:
                 json.dump(data, output, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
             temporary.replace(path)
         finally:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
+            temporary.unlink(missing_ok=True)
     return path
 
 

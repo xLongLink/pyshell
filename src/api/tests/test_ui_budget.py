@@ -98,12 +98,13 @@ def test_surface_size_uses_default_json_encoding(text):
     assert ui.state.snapshot() == snapshot
 
 
-@pytest.mark.parametrize("messages", ["[{}] * 100", "[{'text': 'a' * 1048562}]", "[{'items': [0] * 19997}]"])
 @pytest.mark.parametrize("fail", [False, True])
-def test_execution_resets_all_output_budgets_without_resetting_handles(messages, fail):
+def test_execution_resets_all_output_budgets_without_resetting_handles(fail):
     shell = PythonShell()
     assert shell.execute("chart = ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}])")["exception"] is None
-    source = f"ui._publish({messages})" + ("\nraise RuntimeError('failed execution')" if fail else "")
+    source = "ui._publish([{'items': ['a' * 900000] + [0] * 19000}] + [{}] * 99)"
+    if fail:
+        source += "\nraise RuntimeError('failed execution')"
     for _ in range(2):
         result = shell.execute(source)
         assert (result["exception"] is not None) == fail

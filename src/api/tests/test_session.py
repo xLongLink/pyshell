@@ -8,38 +8,6 @@ def shell():
     return PythonShell(RecordingUIState())
 
 
-def test_widgets_publish_a2ui_messages_and_preserve_python_state(shell):
-    result = shell.execute(
-        "amount = 42\nui.plot([{'type': 'bar', 'x': ['Revenue'], 'y': [amount]}], surface_id='revenue')\nprint(amount)\ndone()"
-    )
-    assert result["exception"] is None
-    assert result["done"] is True
-    assert result["stdout"] == "42\n"
-    created, updated = shell.ui.state.messages
-    assert created["createSurface"]["surfaceId"] == "revenue"
-    assert updated["updateComponents"]["surfaceId"] == "revenue"
-    (component,) = updated["updateComponents"]["components"]
-    assert component["id"] == "root"
-    assert component["component"] == "Figure"
-    (trace,) = component["data"]
-    assert (trace["type"], trace["x"], trace["y"]) == ("bar", ["Revenue"], [42])
-    assert shell.ui.state.snapshot()["events"] == [{"type": "a2ui", "messages": shell.ui.state.messages}]
-    shell.ui.state.messages.clear()
-    assert shell.execute("print(amount)")["exception"] is None
-    assert shell.ui.state.messages == []
-
-    # Replacing a named surface deletes its old protocol state first.
-    assert shell.execute("ui.plot([{'type': 'scatter', 'x': ['Revenue'], 'y': [50]}], surface_id='revenue')")["exception"] is None
-    replacement = list(shell.ui.state.messages)
-    assert replacement[0] == {"version": "v0.9", "deleteSurface": {"surfaceId": "revenue"}}
-    assert replacement[1]["createSurface"]["surfaceId"] == "revenue"
-    assert replacement[2]["updateComponents"]["components"][0]["data"][0]["mode"] == "lines"
-    shell.ui.state.messages.clear()
-    assert shell.execute("ui.remove('revenue')")["exception"] is None
-    assert shell.ui.state.messages == [replacement[0]]
-    assert shell.ui.state.snapshot()["events"] == []
-
-
 def test_display_limits_reject_excess_surfaces(shell):
     result = shell.execute("for number in range(21):\n    ui.plot([{'type': 'bar', 'x': ['A'], 'y': [number]}])")
     assert "20 surfaces" in result["exception"]
@@ -67,3 +35,26 @@ def test_automatic_surface_ids_do_not_replace_named_results(shell):
     created = [message["createSurface"]["surfaceId"] for message in shell.ui.state.messages if "createSurface" in message]
     assert created == ["surface_1", "surface_2"]
     assert not any("deleteSurface" in message for message in shell.ui.state.messages)
+
+
+def test_automatic_surface_ids_skip_consecutive_named_collisions(shell):
+    data = [{"type": "bar", "x": ["A"], "y": [1]}]
+    for number in range(1, 4):
+        shell.ui.plot(data, surface_id=f"surface_{number}")
+
+    assert shell.ui.plot(data).surface_id == "surface_4"
+    assert list(shell.ui.state.snapshot()["placements"]) == ["surface_1", "surface_2", "surface_3", "surface_4"]
+    assert not any("deleteSurface" in message for message in shell.ui.state.messages)
+
+
+def test_automatic_surface_ids_remain_monotonic_after_removal(shell):
+    data = [{"type": "bar", "x": ["A"], "y": [1]}]
+    named = shell.ui.plot(data, surface_id="surface_1")
+    automatic = shell.ui.plot(data)
+    assert automatic.surface_id == "surface_2"
+
+    named.remove()
+    automatic.remove()
+
+    assert shell.ui.plot(data).surface_id == "surface_3"
+    assert list(shell.ui.state.snapshot()["placements"]) == ["surface_3"]

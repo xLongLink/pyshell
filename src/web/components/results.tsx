@@ -1,19 +1,11 @@
 import { Figure } from "@/components/plot/figure";
-import type { Placements, Surface } from "@/lib/workspace";
+import type { Surface } from "@/lib/workspace";
 import { cn } from "cn";
 
-export function Results({
-    surfaces,
-    placements,
-}: {
-    surfaces: Surface[];
-    placements: Placements;
-}) {
+export function Results({ surfaces }: { surfaces: Surface[] }) {
     if (!surfaces.length) return null;
-    const centered = surfaces.filter(
-        (surface) => !placements[surface.id].pinned,
-    );
-    const sidebar = surfaces.filter((surface) => placements[surface.id].pinned);
+    const centered = surfaces.filter((surface) => !surface.pinned);
+    const sidebar = surfaces.filter((surface) => surface.pinned);
 
     function widget(surface: Surface, index: number, center = false) {
         return (

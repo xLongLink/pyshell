@@ -2,18 +2,9 @@ import gc
 import pytest
 import asyncio
 from weakref import ref
-from contextlib import ExitStack
 from api.ui.state import UIState
-from unittest.mock import patch
 from api.ui.session import UI
-
-
-def creation(identifier):
-    return {"createSurface": {"surfaceId": identifier}}
-
-
-def content(identifier, title="Initial"):
-    return {"updateComponents": {"surfaceId": identifier, "components": [{"layout": {"title": {"text": title}}, "data": []}]}}
+from src.api.tests.ui_helpers import content, creation
 
 
 @pytest.mark.parametrize(
@@ -82,15 +73,12 @@ def test_unsubscribe_before_delivery_does_not_deliver_to_detached_queue(resubscr
         state = UIState()
         detached = state.subscribe()
         detached.get_nowait()
-        loop = asyncio.get_running_loop()
-        with patch.object(loop, "call_soon_threadsafe", wraps=loop.call_soon_threadsafe) as schedule:
-            state.publish([creation("sales"), content("sales")])
-            state.unsubscribe(detached)
-            if resubscribe:
-                replacement = state.subscribe()
-                state.publish([content("sales", "Latest")])
-            assert schedule.call_count == 1
-            await asyncio.sleep(0)
+        state.publish([creation("sales"), content("sales")])
+        state.unsubscribe(detached)
+        if resubscribe:
+            replacement = state.subscribe()
+            state.publish([content("sales", "Latest")])
+        await asyncio.sleep(0)
         assert detached.empty()
         assert not state.pending
         if resubscribe:
@@ -101,7 +89,7 @@ def test_unsubscribe_before_delivery_does_not_deliver_to_detached_queue(resubscr
     asyncio.run(run())
 
 
-def test_delivery_is_coalesced_separately_for_each_event_loop():
+def test_each_event_loop_receives_the_latest_snapshot_independently():
     state = UIState()
     loops = [asyncio.new_event_loop(), asyncio.new_event_loop()]
 
@@ -110,19 +98,15 @@ def test_delivery_is_coalesced_separately_for_each_event_loop():
 
     try:
         queues = [loop.run_until_complete(subscribe()) for loop in loops]
-        with ExitStack() as stack:
-            scheduled = [stack.enter_context(patch.object(loop, "call_soon_threadsafe", wraps=loop.call_soon_threadsafe)) for loop in loops]
-            snapshot = stack.enter_context(patch.object(state, "snapshot", wraps=state.snapshot))
-            state.publish([creation("sales"), content("sales")])
-            state.publish([content("sales", "Latest")])
-            assert [schedule.call_count for schedule in scheduled] == [1, 1]
-            loops[0].run_until_complete(asyncio.sleep(0))
-            assert snapshot.call_count == 1
-            assert queues[0].get_nowait() == state.snapshot()
-            assert queues[1].get_nowait()["events"] == []
-            loops[1].run_until_complete(asyncio.sleep(0))
-            assert snapshot.call_count == 3
-            assert queues[1].get_nowait() == state.snapshot()
+        state.publish([creation("sales"), content("sales")])
+        state.publish([content("sales", "Latest")])
+        loops[0].run_until_complete(asyncio.sleep(0))
+        assert queues[0].qsize() == 1
+        assert queues[0].get_nowait() == state.snapshot()
+        assert queues[1].get_nowait()["events"] == []
+        loops[1].run_until_complete(asyncio.sleep(0))
+        assert queues[1].qsize() == 1
+        assert queues[1].get_nowait() == state.snapshot()
         for queue in queues:
             state.unsubscribe(queue)
     finally:

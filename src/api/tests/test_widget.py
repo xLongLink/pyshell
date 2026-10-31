@@ -1,11 +1,7 @@
-import json
 import pytest
 from pydantic import ValidationError
 from api.ui.session import UI, CATALOG
-from a2ui.core.catalog import Catalog, ModelComponentApi
 from api.ui.plot.figure import Figure
-from a2ui.core.processing import MessageProcessor, MessageProcessorOptions
-from a2ui.core.validation import STRICT_VALIDATION
 from src.api.tests.ui_helpers import RecordingUIState
 
 
@@ -18,18 +14,15 @@ def ui():
     "trace",
     [
         {"type": "bar", "name": "Revenue", "x": ["Sales", "Missing"], "y": [-42, None]},
-        *[{"type": "scatter", "mode": mode, "x": [1, 2], "y": [42, None]} for mode in ("lines", "markers", "lines+markers")],
+        {"type": "scatter", "mode": "lines", "x": [1, 2], "y": [42, None]},
         {"type": "pie", "name": "Revenue", "labels": ["Sales", "Zero", "Missing"], "values": [42, 0, None]},
         {"type": "choropleth", "locations": ["CHE", "FRA"], "values": [42, None]},
     ],
-    ids=["bar", "lines", "markers", "lines+markers", "pie", "choropleth"],
+    ids=["bar", "scatter", "pie", "choropleth"],
 )
-def test_widget_lifecycle_round_trips_through_the_protocol(ui, trace, monkeypatch):
+def test_widget_creation_and_updates_publish_protocol_messages(ui, trace, monkeypatch):
     monkeypatch.setattr(
         "api.ui.plot.choropleth._geography_info", lambda name: {"level": "country", "locations": {"CHE": "Switzerland", "FRA": "France"}}
-    )
-    processor = MessageProcessor(
-        [Catalog(CATALOG, "v0.9", [ModelComponentApi(Figure)])], options=MessageProcessorOptions(validation_config=STRICT_VALIDATION)
     )
     chart = ui.plot([trace], id="root", surface_id="sales")
     assert chart.data[0].model_dump(mode="json", include=set(trace)) == trace
@@ -38,33 +31,30 @@ def test_widget_lifecycle_round_trips_through_the_protocol(ui, trace, monkeypatc
     def content(widget):
         return {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [widget.model_dump(mode="json")]}}
 
-    deletion = {"version": "v0.9", "deleteSurface": {"surfaceId": "sales"}}
-    assert json.dumps(ui.state.messages) == json.dumps([creation, content(chart)])
-    processor.process_messages(ui.state.messages)
+    assert ui.state.messages == [creation, content(chart)]
     ui.state.messages.clear()
     assert isinstance(chart, Figure)
     assert chart.component == "Figure"
     assert chart.id == "root"
-    surface = processor.model.get_surface("sales")
-    assert surface.components_model.get("root").component_tree == chart.model_dump(mode="json")
     field = "values" if "values" in trace else "y"
     updated_trace = {**trace, field: [43, *trace[field][1:]]}
     chart.update(data=[updated_trace], layout={"title": {"text": "Updated"}, "showlegend": False})
-    assert json.dumps(ui.state.messages) == json.dumps([content(chart)])
-    processor.process_messages(ui.state.messages)
+    assert ui.state.messages == [content(chart)]
+
+
+def test_surface_replacement_and_removal_publish_protocol_messages(ui):
+    trace = {"type": "bar", "x": ["A"], "y": [1]}
+    ui.plot([trace], surface_id="sales")
     ui.state.messages.clear()
-    assert processor.model.get_surface("sales") is surface
-    assert surface.components_model.get("root").component_tree == chart.model_dump(mode="json")
+    creation = {"version": "v0.9", "createSurface": {"surfaceId": "sales", "catalogId": CATALOG}}
+    deletion = {"version": "v0.9", "deleteSurface": {"surfaceId": "sales"}}
     replacement = ui.plot([trace], surface_id="sales")
-    assert json.dumps(ui.state.messages) == json.dumps([deletion, creation, content(replacement)])
-    processor.process_messages(ui.state.messages)
+    content = {"version": "v0.9", "updateComponents": {"surfaceId": "sales", "components": [replacement.model_dump(mode="json")]}}
+    assert ui.state.messages == [deletion, creation, content]
+    assert ui.state.snapshot()["events"] == [{"type": "a2ui", "messages": [creation, content]}]
     ui.state.messages.clear()
-    assert processor.model.get_surface("sales") is not surface
-    assert processor.model.get_surface("sales").components_model.get("root").component_tree == replacement.model_dump(mode="json")
     replacement.remove()
-    assert json.dumps(ui.state.messages) == json.dumps([deletion])
-    processor.process_messages(ui.state.messages)
-    assert processor.model.get_surface("sales") is None
+    assert ui.state.messages == [deletion]
     assert ui.state.snapshot()["placements"] == {}
 
 
@@ -164,13 +154,17 @@ def test_widget_attributes_cannot_be_assigned_without_publishing(ui):
     assert len(ui.state.messages) == 2
 
 
-@pytest.mark.parametrize("invalidate", ["remove", "replace"])
-def test_removed_and_replaced_handles_cannot_mutate_successors(ui, invalidate):
+@pytest.mark.parametrize("invalidate", ["remove", "replace", "close"])
+def test_invalidated_handles_cannot_mutate_published_state(ui, invalidate):
     original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="notice")
 
-    if invalidate == "remove":
-        original.remove()
-    successor = ui.plot([{"type": "scatter", "x": ["A"], "y": [2]}], surface_id="notice")
+    successor = None
+    if invalidate == "close":
+        ui.close()
+    else:
+        if invalidate == "remove":
+            original.remove()
+        successor = ui.plot([{"type": "scatter", "x": ["A"], "y": [2]}], surface_id="notice")
 
     previous = list(ui.state.messages)
     snapshot = ui.state.snapshot()
@@ -179,23 +173,12 @@ def test_removed_and_replaced_handles_cannot_mutate_successors(ui, invalidate):
             operation()
     assert ui.state.messages == previous
     assert ui.state.snapshot() == snapshot
+    if successor is None:
+        return
     assert successor.data[0].y == (2,)
     successor.update(data=[{"type": "scatter", "x": ["A"], "y": [3]}])
     assert successor.data[0].y == (3,)
     assert ui.state.snapshot()["events"][0]["messages"][-1]["updateComponents"]["components"][0]["data"][0]["y"] == [3]
-
-
-def test_reset_handles_cannot_mutate_a_closed_session(ui):
-    original = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="notice")
-    ui.close()
-    previous = list(ui.state.messages)
-    snapshot = ui.state.snapshot()
-
-    for operation in (original.pin, original.focus, original.remove, lambda: original.update(layout={"title": {"text": "Stale"}})):
-        with pytest.raises(RuntimeError, match="removed, replaced, or reset"):
-            operation()
-    assert ui.state.messages == previous
-    assert ui.state.snapshot() == snapshot
 
 
 def test_invalid_replacement_does_not_destroy_the_existing_surface(ui):

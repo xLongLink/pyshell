@@ -117,22 +117,20 @@ function ChartLegendContent({
         <div className="flex max-h-16 flex-wrap items-center justify-center gap-x-4 gap-y-2 overflow-hidden pt-4">
             {payload
                 .filter((item) => item.type !== "none")
-                .map((item, index) => {
-                    return (
+                .map((item, index) => (
+                    <div
+                        key={index}
+                        className="flex h-5 min-w-0 max-w-full items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+                    >
                         <div
-                            key={index}
-                            className="flex h-5 min-w-0 max-w-full items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
-                        >
-                            <div
-                                className="h-2 w-2 shrink-0 rounded-[2px]"
-                                style={{
-                                    backgroundColor: item.color,
-                                }}
-                            />
-                            <span className="truncate">{item.value}</span>
-                        </div>
-                    );
-                })}
+                            className="h-2 w-2 shrink-0 rounded-[2px]"
+                            style={{
+                                backgroundColor: item.color,
+                            }}
+                        />
+                        <span className="truncate">{item.value}</span>
+                    </div>
+                ))}
         </div>
     );
 }

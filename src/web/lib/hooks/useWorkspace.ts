@@ -6,7 +6,6 @@ export function useWorkspace() {
     const [error, setError] = useState("");
     const [snapshot, setSnapshot] = useState<z.infer<typeof messageSchema>>({
         surfaces: [],
-        placements: {},
     });
 
     useEffect(() => {

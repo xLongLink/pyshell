@@ -25,13 +25,15 @@ export function Cartesian({
     layout: FigureProps["layout"];
 }) {
     const numeric = typeof data[0].x[0] === "number";
-    const categories = [
-        ...new Set(
-            data
-                .flatMap((trace) => trace.x)
-                .filter((x): x is string => typeof x === "string"),
-        ),
-    ];
+    const categories = numeric
+        ? []
+        : [
+              ...new Set(
+                  data
+                      .flatMap((trace) => trace.x)
+                      .filter((x): x is string => typeof x === "string"),
+              ),
+          ];
     const categoryIndices = new Map(
         categories.map((category, index) => [category, index]),
     );
@@ -68,13 +70,16 @@ export function Cartesian({
         trace.x.forEach((x, point) => {
             const occurrence = occurrences.get(x) ?? 0;
             occurrences.set(x, occurrence + 1);
-            const group = rows.get(x) ?? [];
+            let group = rows.get(x);
+            if (!group) {
+                group = [];
+                rows.set(x, group);
+            }
             if (!group[occurrence]) {
                 group[occurrence] = { x: coordinate(x) };
                 bars.push(group[occurrence]);
             }
             group[occurrence][`trace_${index}`] = trace.y[point];
-            rows.set(x, group);
         });
     });
     return (

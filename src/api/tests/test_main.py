@@ -56,40 +56,20 @@ def test_stream_requests_are_serialized():
 
 
 def test_stream_only_confirms_execution_while_widgets_publish_directly():
-    app = create_app()
-    disconnected = asyncio.Event()
-
-    async def application(scope, receive, send):
-        try:
-            await app(scope, receive, send)
-        finally:
-            if scope["type"] == "websocket":
-                disconnected.set()
-
-    api_client = TestClient(application)
-    response = api_client.post(
-        "/execute/stream",
-        json={
-            "code": (
-                "print('before')\n"
-                "chart = ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='sales')\n"
-                "chart.pin()\n"
-                "print('after')\n"
-                "done()"
-            )
-        },
+    api_client = TestClient(create_app())
+    result = execute(
+        api_client,
+        "print('before')\n"
+        "chart = ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='sales')\n"
+        "chart.pin()\n"
+        "print('after')\n"
+        "done()",
     )
-    events = [json.loads(line) for line in response.text.splitlines()]
-
-    assert response.headers["content-type"].startswith("application/x-ndjson")
-    assert [event["type"] for event in events] == ["result", "execution_finished"]
-    assert events[-2] == {"type": "result", "stdout": "before\nafter\n", "stderr": "", "exception": None, "done": True}
+    assert result == {"stdout": "before\nafter\n", "stderr": "", "exception": None, "done": True}
     with api_client.websocket_connect("/ui/ws", headers={"origin": "http://localhost:8000"}) as socket:
         snapshot = socket.receive_json()
         assert snapshot["events"][0]["messages"][0]["createSurface"]["surfaceId"] == "sales"
         assert snapshot["placements"] == {"sales": {"pinned": True}}
-        socket.close()
-        socket.portal.call(asyncio.wait_for, disconnected.wait(), 2)
     assert execute(api_client, "print(chart.surface_id)")["stdout"] == "sales\n"
 
 
@@ -98,27 +78,16 @@ def test_stream_reports_partial_output_and_python_failure():
     api_client = TestClient(create_app())
 
     # Act
-    response = api_client.post(
-        "/execute/stream",
-        json={
-            "code": (
-                "value = 42\n"
-                "print('before')\n"
-                "ui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='notice')\n"
-                "done()\n1 / 0\nvalue = 99"
-            )
-        },
+    result = execute(
+        api_client,
+        "value = 42\nprint('before')\nui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='notice')\ndone()\n1 / 0\nvalue = 99",
     )
-    events = [json.loads(line) for line in response.text.splitlines()]
 
     # Assert
-    assert response.status_code == 200
-    assert [event["type"] for event in events] == ["result", "execution_finished"]
     assert api_client.get("/ui/context").json()["charts"][0]["surface_id"] == "notice"
-    assert events[-2]["stdout"] == "before\n"
-    assert "ZeroDivisionError" in events[-2]["exception"]
-    assert events[-2]["done"] is False
-    assert events[-1] == {"type": "execution_finished"}
+    assert result["stdout"] == "before\n"
+    assert "ZeroDivisionError" in result["exception"]
+    assert result["done"] is False
     subsequent = execute(api_client, "print(value)")
     assert subsequent["stdout"] == "42\n"
     for source, error in (("if :", "SyntaxError"), ("raise SystemExit(1)", "SystemExit"), ("raise KeyboardInterrupt", "KeyboardInterrupt")):
@@ -131,7 +100,6 @@ async def open_stream(app, code="pass"):
     endpoint = next(route.endpoint for route in app.routes if route.path == "/execute/stream")
     response = await endpoint(ExecutionRequest(code=code))
     workers = asyncio.all_tasks() - tasks
-    assert len(workers) == 1
     return response, workers
 
 

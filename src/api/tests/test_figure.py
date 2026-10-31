@@ -30,27 +30,15 @@ def test_standalone_traces_reject_mixed_figures(standalone_traces, kinds, messag
     assert error.value.errors()[0]["msg"] == f"Value error, {message}"
 
 
-@pytest.mark.parametrize(("traces", "points"), [(20, 10), (1, 200)])
-def test_figure_limits_accept_boundary_values(traces, points):
-    # Arrange
+@pytest.mark.parametrize(("traces", "points", "valid"), [(20, 10, True), (1, 200, True), (21, 1, False), (2, 101, False)])
+def test_figure_limits_enforce_boundaries(traces, points, valid):
     data = [{"type": "scatter", "x": list(range(points)), "y": [1] * points} for _ in range(traces)]
-
-    # Act
+    if not valid:
+        with pytest.raises(ValidationError):
+            UI().plot(data)
+        return
     chart = UI().plot(data)
-
-    # Assert
     assert len(chart.data) == traces
-
-
-@pytest.mark.parametrize(("traces", "points"), [(21, 1), (2, 101)])
-def test_figure_limits_reject_excess_values(traces, points):
-    # Arrange
-    data = [{"type": "scatter", "x": list(range(points)), "y": [1] * points} for _ in range(traces)]
-
-    # Act
-    # Assert
-    with pytest.raises(ValidationError):
-        UI().plot(data)
 
 
 def test_scatter_modes_and_trace_order_survive_publication():
@@ -65,3 +53,17 @@ def test_scatter_modes_and_trace_order_survive_publication():
     published = ui.state.snapshot()["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"]
     assert [trace["mode"] for trace in published] == ["lines", "markers", "lines+markers"]
     assert all(trace["x"] == [2.5, 0, 2.5] and trace["y"] == [3, None, -1] for trace in published)
+
+
+@pytest.mark.parametrize("coordinates", [([1], ["A"]), (["A"], [1]), ([1, "A"], [2])])
+def test_mixed_cartesian_coordinate_types_are_rejected_before_publication(coordinates):
+    ui = UI()
+    data = [
+        {"type": kind, "x": values, "y": [1] * len(values)}
+        for kind, values in zip(("bar", "scatter"), coordinates)
+    ]
+
+    with pytest.raises(ValidationError, match="All x coordinates must be numeric or all categorical"):
+        ui.plot(data)
+
+    assert ui.state.snapshot()["events"] == []

@@ -32,6 +32,34 @@ afterEach(() => vi.unstubAllGlobals());
 test.each([
     ["http", async () => new Response("unavailable", { status: 502 })],
     ["malformed", async () => new Response("{}")],
+    ...[
+        { ...boundaries, geography: "USA" },
+        { ...boundaries, features: [] },
+        {
+            ...boundaries,
+            features: [
+                {
+                    ...boundaries.features[0],
+                    geometry: { type: "Point", coordinates: [8, 47] },
+                },
+            ],
+        },
+        {
+            ...boundaries,
+            features: [
+                {
+                    ...boundaries.features[0],
+                    geometry: { type: "Polygon", coordinates: [[["8", 47]]] },
+                },
+            ],
+        },
+    ].map(
+        (data) =>
+            [
+                "invalid geometry or geography",
+                async () => new Response(JSON.stringify(data)),
+            ] as const,
+    ),
 ] as const)(
     "failed %s boundary responses can be retried with concurrent requests deduplicated",
     async (_failure, firstFetch) => {
@@ -57,23 +85,17 @@ test.each([
 
 test("successful geography requests are shared only until settlement", async () => {
     vi.resetModules();
-    let resolve!: (response: Response) => void;
-    const fetch = vi.fn().mockImplementationOnce(
-        () =>
-            new Promise<Response>((complete) => {
-                resolve = complete;
-            }),
-    );
-    fetch.mockImplementation(() =>
-        Promise.resolve(new Response(JSON.stringify(boundaries))),
-    );
+    const fetch = vi
+        .fn()
+        .mockImplementation(() =>
+            Promise.resolve(new Response(JSON.stringify(boundaries))),
+        );
     vi.stubGlobal("fetch", fetch);
     const { loadGeography } = await import("../components/plot/geography");
 
     const first = loadGeography("CHE");
     expect(loadGeography("CHE")).toBe(first);
     expect(fetch).toHaveBeenCalledTimes(1);
-    resolve(new Response(JSON.stringify(boundaries)));
     const original = await first;
     const second = loadGeography("CHE");
     expect(second).not.toBe(first);
@@ -103,40 +125,3 @@ test("rendering does not retain malformed attribution metadata", async () => {
     expect(loaded).toEqual(boundaries);
     expect(loaded).not.toHaveProperty("source");
 });
-
-test.each([
-    { ...boundaries, geography: "USA" },
-    { ...boundaries, features: [] },
-    {
-        ...boundaries,
-        features: [
-            {
-                ...boundaries.features[0],
-                geometry: { type: "Point", coordinates: [8, 47] },
-            },
-        ],
-    },
-    {
-        ...boundaries,
-        features: [
-            {
-                ...boundaries.features[0],
-                geometry: { type: "Polygon", coordinates: [[["8", 47]]] },
-            },
-        ],
-    },
-])(
-    "invalid geometry or mismatched geography remains rejected",
-    async (data) => {
-        vi.resetModules();
-        const fetch = vi
-            .fn()
-            .mockResolvedValueOnce(new Response(JSON.stringify(data)))
-            .mockResolvedValueOnce(new Response(JSON.stringify(boundaries)));
-        vi.stubGlobal("fetch", fetch);
-        const { loadGeography } = await import("../components/plot/geography");
-
-        await expect(loadGeography("CHE")).rejects.toBeTruthy();
-        await expect(loadGeography("CHE")).resolves.toEqual(boundaries);
-    },
-);

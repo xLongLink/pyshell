@@ -19,7 +19,7 @@ class Subscription:
         self.queue: asyncio.Queue[dict[str, object]] = asyncio.Queue(maxsize=maxsize)
         self.closed = asyncio.Event()
         workspace.listeners.add(self)
-        self.publish(workspace.snapshot())
+        self.publish({"type": "snapshot"})
 
     def publish(self, event: dict[str, object]) -> None:
         """Detach an overloaded browser instead of losing queued events."""
@@ -29,10 +29,6 @@ class Subscription:
             self.queue.put_nowait(event)
         except asyncio.QueueFull:
             self.close()
-
-    async def emit(self, event: dict[str, object]) -> None:
-        """Use the same nonblocking policy for voice signaling."""
-        self.publish(event)
 
     def close(self) -> None:
         """Wake the connection owner and stop receiving broadcasts."""
@@ -80,23 +76,20 @@ class Workspace:
             return {"recent_tasks": recent_tasks, "charts": [], "charts_unavailable": True}
         return {"recent_tasks": recent_tasks, "charts": charts}
 
-    def snapshot(self) -> dict[str, object]:
-        """Signal readiness without implying state replay."""
-        return {"type": "snapshot"}
+    def update_phase(self, phase: str) -> None:
+        """Update execution progress only while work is active."""
+        if self.busy:
+            self.phase = phase
 
     def publish(self, event: dict[str, object]) -> None:
-        """Apply ordered mutations and broadcast without waiting on slow tabs."""
-        if event["type"] in {"code_start", "execution_start"}:
-            if self.busy:
-                self.phase = "generating_code" if event["type"] == "code_start" else "executing_python"
-            return
+        """Broadcast browser messages without waiting on slow tabs."""
         if event["type"] not in {"instruction", "error"}:
             return
 
         for listener in tuple(self.listeners):
             listener.publish(event)
 
-    def start(self, instruction: str) -> asyncio.Task[None]:
+    def start(self, instruction: str) -> None:
         """Submit work once, outside the socket's lifetime."""
         instruction = instruction_adapter.validate_python(instruction)
         if self.closing:
@@ -115,13 +108,12 @@ class Workspace:
 
         self.publish({"type": "instruction", "text": instruction})
         self.task = asyncio.create_task(self._execute(instruction))
-        return self.task
 
     async def _execute(self, instruction: str) -> None:
         """Record execution feedback for voice and publish shared status."""
         outcome = "completed"
         try:
-            result = await self.agent.arun(instruction, self.publish)
+            result = await self.agent.arun(instruction, self.update_phase)
         except Exception as error:
             outcome = "failed"
             self.publish({"type": "error", "text": str(error)})

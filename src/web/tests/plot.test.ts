@@ -151,22 +151,18 @@ test.each([
     { type: "scatter", x: [Infinity], y: [1] },
     { type: "scatter", x: [1], y: [Infinity] },
     { type: "pie", labels: ["A"], values: [Infinity] },
+    { type: "choropleth", locations: ["FRA"], values: [Infinity] },
 ])("numeric fields reject nonfinite values: %j", (trace) => {
     assert.equal(figureProps.safeParse({ data: [trace] }).success, false);
 });
 
-test("map defaults and nonfinite values match Python", () => {
+test("map defaults match Python", () => {
     const trace = { type: "choropleth", locations: ["FRA"], values: [0] };
     assert.deepEqual(figureProps.parse({ data: [trace] }).data[0], {
         ...trace,
         name: "",
         geography: "world",
     });
-    assert.equal(
-        figureProps.safeParse({ data: [{ ...trace, values: [Infinity] }] })
-            .success,
-        false,
-    );
 });
 
 test.each([
@@ -220,23 +216,21 @@ test.each([
     );
 });
 
-test.each([
-    { geography: "world", level: "country" },
-    { geography: "FRA", level: "region" },
-])("legacy map level is rejected: %j", (fields) => {
-    assert.equal(
-        figureProps.safeParse({
-            data: [
-                {
-                    type: "choropleth",
-                    locations: ["FRA"],
-                    values: [1],
-                    ...fields,
-                },
-            ],
-        }).success,
-        false,
-    );
+test("legacy map level field is rejected", () => {
+    // Arrange
+    const trace = {
+        type: "choropleth",
+        geography: "FRA",
+        level: "region",
+        locations: ["FR-IDF"],
+        values: [1],
+    };
+
+    // Act
+    const parsed = figureProps.safeParse({ data: [trace] });
+
+    // Assert
+    assert.equal(parsed.success, false);
 });
 
 test("regional maps need only geography, locations and values", () => {

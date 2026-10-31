@@ -2,24 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 import { messageSchema, placementsSchema } from "../lib/workspace.ts";
 import { a2uiBatchSchema, catalogId } from "../lib/a2ui.ts";
-
-test("snapshots use one pinned flag", () => {
-    const widgets = { sales: { pinned: true } };
-    const snapshot = messageSchema.parse({
-        type: "snapshot",
-        events: [
-            { type: "a2ui", messages: [creation("sales"), update("sales")] },
-        ],
-        placements: widgets,
-    });
-    assert.deepEqual(snapshot.placements, widgets);
-    assert.equal(
-        placementsSchema.safeParse({
-            sales: { pinned: false, focused: true },
-        }).success,
-        false,
-    );
-});
+import { creation, update } from "./workspace-fixtures.ts";
 
 test("snapshots accept UI batches but reject live-only events", () => {
     const events = [
@@ -132,26 +115,6 @@ test("each surface accepts exactly one chart", () => {
     );
 });
 
-function creation(surfaceId: string) {
-    return { version: "v0.9", createSurface: { surfaceId, catalogId } };
-}
-
-function update(surfaceId: string) {
-    return {
-        version: "v0.9",
-        updateComponents: {
-            surfaceId,
-            components: [
-                {
-                    id: "root",
-                    component: "Figure",
-                    data: [{ type: "bar", x: ["A"], y: [1] }],
-                },
-            ],
-        },
-    };
-}
-
 function snapshot(batches: unknown[][]) {
     return {
         type: "snapshot",
@@ -235,10 +198,22 @@ test("snapshots preserve creation order, complete surfaces, defaults and placeme
     );
     assert.equal(parsed.surfaces[0].props.layout.showlegend, true);
     assert.equal(parsed.surfaces[1].props.data[0].type, "bar");
-    assert.deepEqual(parsed.placements, input.placements);
+    assert.deepEqual(
+        parsed.surfaces.map(({ id, pinned }) => ({ id, pinned })),
+        [
+            { id: "second", pinned: false },
+            { id: "first", pinned: true },
+        ],
+    );
+    assert.equal(Object.hasOwn(parsed, "placements"), false);
+    assert.equal(
+        placementsSchema.safeParse({
+            sales: { pinned: false, focused: true },
+        }).success,
+        false,
+    );
     assert.deepEqual(messageSchema.parse(snapshot([])), {
         surfaces: [],
-        placements: {},
     });
 });
 

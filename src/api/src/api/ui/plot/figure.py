@@ -67,10 +67,9 @@ class Figure(UIModel):
 
         # Cartesian traces share one numeric or categorical coordinate system.
         else:
-            coordinates = [value for trace in self.data for value in trace.x]
-            if len({isinstance(value, str) for value in coordinates}) != 1:
+            if len({isinstance(value, str) for trace in self.data for value in trace.x}) != 1:
                 raise ValueError("All x coordinates must be numeric or all categorical")
-            count = len(coordinates)
+            count = sum(len(trace.x) for trace in self.data)
 
         # The point budget applies to the entire figure, not each trace.
         if count > 200:

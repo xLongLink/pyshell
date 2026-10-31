@@ -53,9 +53,8 @@ class Agent:
             )
         return self._instruction_text
 
-    async def arun(self, instruction: str, on_event: Callable[[dict[str, object]], None] | None = None) -> str:
+    async def arun(self, instruction: str, on_phase: Callable[[str], None]) -> str:
         """Generate code and return the last 4,000 characters of confirmed output."""
-        emit = on_event if on_event is not None else lambda _event: None
         usage = RunUsage()
         limits = UsageLimits(request_limit=50, total_tokens_limit=200_000)
 
@@ -69,7 +68,7 @@ class Agent:
 
             # Preserve execution feedback across failed model requests.
             try:
-                emit({"type": "code_start"})
+                on_phase("generating_code")
 
                 # Finish generation before executing any code.
                 response = await self.agent.run(prompt, message_history=self.message_history, usage=usage, usage_limits=limits)
@@ -92,7 +91,7 @@ class Agent:
                 raise RuntimeError("The model returned no Python code.")
 
             # Execute once; an ambiguous transport failure must not trigger a retry.
-            emit({"type": "execution_start"})
+            on_phase("executing_python")
 
             try:
                 result = await self.shell.stream(code)

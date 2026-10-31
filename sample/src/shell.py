@@ -13,18 +13,15 @@ class RemoteShell:
 
     async def inventory(self) -> list[dict[str, str]]:
         """Read installed packages through the asynchronous transport."""
-        response = await self._get("/libraries", request_timeout=self.client.timeout)
+        response = await self.client.get("/libraries")
+        response.raise_for_status()
         return response.json()
 
     async def context(self) -> dict[str, object]:
         """Read widget metadata without executing Python or retaining widget state."""
-        response = await self._get("/ui/context", request_timeout=5)
-        return response.json()
-
-    async def _get(self, path: str, *, request_timeout: float | httpx.Timeout) -> httpx.Response:
-        response = await self.client.get(path, timeout=request_timeout)
+        response = await self.client.get("/ui/context", timeout=5)
         response.raise_for_status()
-        return response
+        return response.json()
 
     async def stream(self, code: str) -> Result:
         """Submit once and consume ordered output until completion is confirmed."""

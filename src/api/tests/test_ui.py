@@ -7,6 +7,7 @@ from api.ui.session import UI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from src.api.tests.helpers import execute
+from src.api.tests.ui_helpers import content, creation
 
 
 def test_container_serves_widget_frontend_with_restricted_framing(tmp_path):
@@ -126,19 +127,16 @@ def test_container_state_preserves_focus_replacement_and_partial_updates():
 
 def test_surface_snapshots_preserve_creation_and_only_the_latest_update():
     state = UIState()
-    creation = {"createSurface": {"surfaceId": "sales"}}
-    updates = [
-        {"updateComponents": {"surfaceId": "sales", "components": [{"layout": {"title": {"text": title}}, "data": []}]}}
-        for title in ["First", "Latest"]
-    ]
-    state.publish([creation, updates[0]])
+    created = creation("sales")
+    updates = [content("sales", title) for title in ["First", "Latest"]]
+    state.publish([created, updates[0]])
     previous = state.snapshot()
     state.publish([updates[1]])
-    assert previous["events"][0]["messages"] == [creation, updates[0]]
-    assert state.snapshot()["events"] == [{"type": "a2ui", "messages": [creation, updates[1]]}]
+    assert previous["events"][0]["messages"] == [created, updates[0]]
+    assert state.snapshot()["events"] == [{"type": "a2ui", "messages": [created, updates[1]]}]
     assert state.context() == {"charts": [{"surface_id": "sales", "title": "Latest", "trace_types": [], "series": [], "pinned": False}]}
 
-    state.publish([creation, updates[0]])
+    state.publish([created, updates[0]])
     assert state.snapshot() == previous
 
 

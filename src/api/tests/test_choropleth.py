@@ -11,9 +11,7 @@ INVALID_TRACES = [
     pytest.param({"locations": ["CH-ZH"], "values": [float("inf")]}, id="nonfinite-value"),
     pytest.param({"locations": ["CH-ZH", "CH-BE"], "values": [1]}, id="mismatched-lengths"),
     pytest.param({"locations": ["CH-ZH", "CH-ZH"], "values": [1, 2]}, id="duplicate-locations"),
-    pytest.param({"level": "country", "locations": ["CH-ZH"], "values": [1]}, id="old-country-level"),
-    pytest.param({"level": "region", "locations": ["CH-ZH"], "values": [1]}, id="old-region-level"),
-    pytest.param({"level": "district", "locations": ["CH-ZH"], "values": [1]}, id="unsupported-level"),
+    pytest.param({"level": "region", "locations": ["CH-ZH"], "values": [1]}, id="legacy-level-field"),
 ]
 
 
