@@ -63,7 +63,6 @@ export class ParticlesOrb extends HTMLElement {
     this.order = new Uint16Array(COUNT);
     this.counts = new Uint16Array(BUCKETS);
     this.starts = new Uint16Array(BUCKETS);
-    this.palette = [];
     this.tick = (now) => {
       this.frame = null;
       const dt = this.last === null ? 0 : Math.min(0.05, (now - this.last) / 1000);
@@ -96,7 +95,7 @@ export class ParticlesOrb extends HTMLElement {
   }
 
   set state(value) {
-    if (this.getAttribute("state") !== value) this.setAttribute("state", value);
+    this.setAttribute("state", value);
   }
 
   get level() {
@@ -130,8 +129,8 @@ export class ParticlesOrb extends HTMLElement {
     page.removeEventListener("pageshow", this.resume);
   }
 
-  attributeChangedCallback(name) {
-    if (!this.isConnected || !this.context) return;
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (oldValue === newValue || !this.isConnected || !this.context) return;
     if (name === "size") this.resize();
     this.refresh();
   }
@@ -147,8 +146,9 @@ export class ParticlesOrb extends HTMLElement {
 
   refresh() {
     if (!this.context) return;
-    this.draw(0, this.motion.matches || this.state === "disabled");
-    if (this.motion.matches || this.state === "disabled") this.pause();
+    const immediate = this.motion.matches || this.state === "disabled";
+    this.draw(0, immediate);
+    if (immediate) this.pause();
     else this.schedule();
   }
 

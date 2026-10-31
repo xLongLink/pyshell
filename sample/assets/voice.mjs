@@ -1,8 +1,8 @@
-export function mountVoice(page = window) {
-  const button = page.document.getElementById("voice");
-  const voiceError = page.document.getElementById("voice-error");
-  const workspaceError = page.document.getElementById("workspace-error");
-  const orb = page.document.getElementById("voice-orb");
+export function mountVoice() {
+  const button = document.getElementById("voice");
+  const voiceError = document.getElementById("voice-error");
+  const workspaceError = document.getElementById("workspace-error");
+  const orb = document.getElementById("voice-orb");
   let socket;
   let reconnect;
   let connected = false;
@@ -42,7 +42,7 @@ export function mountVoice(page = window) {
   }
 
   function send(action, sdp) {
-    if (!connected || socket?.readyState !== page.WebSocket.OPEN) return false;
+    if (!connected || socket?.readyState !== WebSocket.OPEN) return false;
     socket.send(
       JSON.stringify({ type: "voice", action, ...(sdp ? { sdp } : {}) }),
     );
@@ -58,7 +58,7 @@ export function mountVoice(page = window) {
     if (!current.audioContext) return;
     try {
       current.source?.disconnect();
-      page.cancelAnimationFrame(current.frame);
+      cancelAnimationFrame(current.frame);
       const analyser = current.audioContext.createAnalyser();
       analyser.fftSize = 256;
       current.source = current.audioContext.createMediaStreamSource(stream);
@@ -73,25 +73,25 @@ export function mountVoice(page = window) {
             samples.length,
         );
         setLevel(Math.min(1, Math.max(0, rms - 0.005) * 8));
-        current.frame = page.requestAnimationFrame(draw);
+        current.frame = requestAnimationFrame(draw);
       }
 
       draw();
     } catch (failure) {
-      page.console?.warn("Voice visualization unavailable.", failure);
+      console.warn("Voice visualization unavailable.", failure);
     }
   }
 
   function stop(closed = false) {
     const current = resources;
     resources = {};
-    page.cancelAnimationFrame(current.frame);
+    cancelAnimationFrame(current.frame);
     current.source?.disconnect();
     void current.audioContext?.close().catch((failure) => {
-      page.console?.warn("Unable to close voice visualization.", failure);
+      console.warn("Unable to close voice visualization.", failure);
     });
     setLevel(0);
-    page.clearTimeout(current.timer);
+    clearTimeout(current.timer);
     current.cancelIce?.();
     current.peer?.close();
     current.stream?.getTracks().forEach((track) => track.stop());
@@ -112,7 +112,7 @@ export function mountVoice(page = window) {
     const { peer } = current;
     return new Promise((resolve, reject) => {
       function cleanup() {
-        page.clearTimeout(timer);
+        clearTimeout(timer);
         peer.removeEventListener("icegatheringstatechange", change);
         current.cancelIce = undefined;
       }
@@ -122,7 +122,7 @@ export function mountVoice(page = window) {
           resolve();
         }
       }
-      const timer = page.setTimeout(() => {
+      const timer = setTimeout(() => {
         cleanup();
         reject(new Error("Voice network setup timed out."));
       }, 10000);
@@ -146,21 +146,21 @@ export function mountVoice(page = window) {
     const current = {};
     resources = current;
     try {
-      if (page.AudioContext) {
-        current.audioContext = new page.AudioContext();
+      if (window.AudioContext) {
+        current.audioContext = new AudioContext();
         void current.audioContext.resume().catch((failure) => {
-          page.console?.warn("Voice visualization unavailable.", failure);
+          console.warn("Voice visualization unavailable.", failure);
         });
       }
     } catch (failure) {
-      page.console?.warn("Voice visualization unavailable.", failure);
+      console.warn("Voice visualization unavailable.", failure);
     }
     try {
-      if (!page.navigator.mediaDevices?.getUserMedia)
+      if (!navigator.mediaDevices?.getUserMedia)
         throw new Error(
           "Voice requires localhost or HTTPS and microphone access.",
         );
-      const stream = await page.navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true },
       });
       if (current !== resources) {
@@ -168,14 +168,14 @@ export function mountVoice(page = window) {
         return;
       }
       current.stream = stream;
-      const peer = new page.RTCPeerConnection();
+      const peer = new RTCPeerConnection();
       current.peer = peer;
-      const audio = new page.Audio();
+      const audio = new Audio();
       audio.autoplay = true;
       current.audio = audio;
       peer.ontrack = ({ streams, track }) => {
         if (current !== resources) return;
-        audio.srcObject = streams[0] ?? new page.MediaStream([track]);
+        audio.srcObject = streams[0] ?? new MediaStream([track]);
         animateSpeech(current, audio.srcObject);
         void audio.play().catch(() => {
           if (current !== resources) return;
@@ -185,7 +185,7 @@ export function mountVoice(page = window) {
       peer.onconnectionstatechange = () => {
         if (current !== resources) return;
         if (peer.connectionState === "connected") {
-          page.clearTimeout(current.timer);
+          clearTimeout(current.timer);
           setPhase("on");
         } else if (["failed", "disconnected"].includes(peer.connectionState)) {
           failVoice("Voice connection lost.");
@@ -201,7 +201,7 @@ export function mountVoice(page = window) {
         throw new Error("The workspace disconnected before voice could start.");
       current.submitted = true;
       if (peer.connectionState !== "connected") {
-        current.timer = page.setTimeout(() => {
+        current.timer = setTimeout(() => {
           if (current !== resources) return;
           failVoice("Voice connection timed out.");
         }, 90000);
@@ -252,8 +252,8 @@ export function mountVoice(page = window) {
   }
 
   function connect() {
-    const protocol = page.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new page.WebSocket(`${protocol}//${page.location.host}/ws`);
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${location.host}/ws`);
     socket = ws;
     ws.onmessage = (message) => {
       if (suspended || socket !== ws) return;
@@ -267,14 +267,14 @@ export function mountVoice(page = window) {
       if (suspended || socket !== ws) return;
       connected = false;
       stop(true);
-      reconnect = page.setTimeout(connect, 1500);
+      reconnect = setTimeout(connect, 1500);
     };
   }
 
   function suspend() {
     suspended = true;
     connected = false;
-    page.clearTimeout(reconnect);
+    clearTimeout(reconnect);
     stop(true);
     socket?.close();
   }
@@ -286,8 +286,8 @@ export function mountVoice(page = window) {
   }
 
   button.onclick = start;
-  page.addEventListener("pagehide", suspend);
-  page.addEventListener("pageshow", resume);
+  window.addEventListener("pagehide", suspend);
+  window.addEventListener("pageshow", resume);
   setPhase("off");
   connect();
 }

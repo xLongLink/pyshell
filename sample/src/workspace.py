@@ -2,6 +2,7 @@ import asyncio
 from uuid import uuid4
 from typing import Annotated
 from pydantic import Field, TypeAdapter
+from collections import deque
 from collections.abc import Callable
 from sample.src.shell import EXECUTION_UNCERTAIN
 from sample.src.agents.script import Agent
@@ -49,7 +50,7 @@ class Workspace:
         self.results: set[Callable[[dict[str, object]], None]] = set()
         self.current_instruction: str | None = None
         self.phase = "idle"
-        self.recent_tasks: list[dict[str, object]] = []
+        self.recent_tasks: deque[dict[str, object]] = deque(maxlen=8)
 
     @property
     def busy(self) -> bool:
@@ -74,10 +75,6 @@ class Workspace:
         except Exception:
             snapshot["charts_unavailable"] = True
         return snapshot
-
-    def update_phase(self, phase: str) -> None:
-        """Update progress for the active execution."""
-        self.phase = phase
 
     def publish(self, event: dict[str, object]) -> None:
         """Broadcast browser messages without waiting on slow tabs."""
@@ -106,21 +103,24 @@ class Workspace:
 
     async def _execute(self, instruction: str) -> None:
         """Record execution feedback for voice and publish shared status."""
+
+        def update_phase(phase: str) -> None:
+            self.phase = phase
+
         outcome = "completed"
         try:
-            result = await self.agent.arun(instruction, self.update_phase)
+            result = await self.agent.arun(instruction, update_phase)
         except Exception as error:
             outcome = "failed"
             self.publish({"type": "error", "text": str(error)})
 
             # A failed task may still have changed the persistent session.
-            result = f"Task failed: {error}. Earlier changes may have applied; do not automatically resubmit."
+            result = f"Task failed: {error}. Earlier changes may have applied; do not automatically resubmit."[-4000:]
         finally:
             self.phase = "idle"
             self.current_instruction = None
-        record = {"instruction": instruction[:2000], "outcome": outcome, "result": result[-4000:]}
+        record = {"instruction": instruction[:2000], "outcome": outcome, "result": result}
         self.recent_tasks.append(record)
-        self.recent_tasks = self.recent_tasks[-8:]
         for report in self.results:
             report(record)
 

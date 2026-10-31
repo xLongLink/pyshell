@@ -28,7 +28,7 @@ Give instructions in your browser. Watch the agent write and run Python inside D
 ## Getting started
 
 
-Configure `OPENAI_API_KEY` in `sample/.env`, then run from the repository root:
+Configure `MODEL` and its provider's API key, plus `OPENAI_API_KEY` for voice, in `sample/.env`, then run from the repository root:
 
 ```bash
 make up
@@ -50,7 +50,7 @@ The sample loads an HTML document with a voice orb and the container-owned works
 
 The voice assistant can check the current task and execution phase, inspect chart titles and types, and recall the last eight task summaries across calls. Ask “what are you doing?” or “change the sales chart to a bar chart.” Say “end the call” to hang up without cancelling submitted work. Steering or stopping running Python is not supported.
 
-Configure `OPENAI_API_KEY` in `sample/.env`; it stays outside the execution container. Optional settings are `OPENAI_MODEL` and `OPENAI_REALTIME_MODEL` (default: `gpt-realtime`). Voice requires access to the realtime model. The web server requires Python 3.11 or newer. This configuration is localhost-only, not an authenticated multi-user deployment.
+Configure `MODEL` with a Pydantic AI provider-qualified name (default: `openai:gpt-6.1-sol`) and the provider's standard credentials in `sample/.env`, for example `MODEL=anthropic:claude-sonnet-4-5` with `ANTHROPIC_API_KEY`, or `MODEL=google:gemini-2.5-pro` with `GOOGLE_API_KEY`. OpenAI, Anthropic, and Google dependencies are included; other providers may require their Pydantic AI dependency extra. Credentials stay outside the execution container; existing environment variables take precedence over the file. Voice remains on OpenAI and requires `OPENAI_API_KEY` and access to `OPENAI_REALTIME_MODEL` (default: `gpt-realtime`). The web server requires Python 3.11 or newer. This configuration is localhost-only, not an authenticated multi-user deployment.
 
 Execution stream failures are not retried: code may already have run. Restart both the execution container and web server before submitting more work after an unconfirmed execution. A transport timeout does not terminate Python; restarting the container does. Listener queues are bounded; reconnect snapshots contain current widgets, not event history.
 

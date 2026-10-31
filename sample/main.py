@@ -1,16 +1,17 @@
 import httpx2
 import asyncio
+from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket
 from pathlib import Path
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from sample.src.shell import RemoteShell
+from pydantic_ai.models import infer_model
 from fastapi.staticfiles import StaticFiles
 from sample.src.settings import Settings
 from sample.src.workspace import Workspace, Subscription
 from sample.src.agents.voice import VoiceSession, voice_command_adapter
 from sample.src.agents.script import Agent
-from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from src.api.src.api.websocket import run_websocket
 from pydantic_ai.realtime.openai import OpenAIRealtimeModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -20,13 +21,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Own provider and workspace resources for the application lifetime."""
+    load_dotenv(Path(__file__).parent / ".env", override=False)
     settings = Settings()
     provider = OpenAIProvider(api_key=settings.openai_api_key.get_secret_value())
     try:
-        async with httpx2.AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx2.Timeout(180, connect=10), trust_env=False) as client:
-            model = OpenAIResponsesModel(
-                settings.openai_model, provider=provider, settings=OpenAIResponsesModelSettings(openai_reasoning_effort="low")
-            )
+        async with (
+            httpx2.AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx2.Timeout(180, connect=10), trust_env=False) as client,
+            infer_model(settings.model) as model,
+        ):
             workspace = Workspace(Agent(model, shell=RemoteShell(client)))
             app.state.workspace = workspace
             app.state.realtime_model = OpenAIRealtimeModel(settings.openai_realtime_model, provider=provider)

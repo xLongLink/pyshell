@@ -43,9 +43,6 @@ Installed packages in the worker's execution environment (distribution names may
 """
 
 
-SdpOffer = Annotated[str, Field(min_length=1, max_length=65536)]
-
-
 class _VoiceCommand(BaseModel):
     """Validate the shared browser voice command envelope."""
 
@@ -57,7 +54,7 @@ class VoiceStart(_VoiceCommand):
     """Validate an offer to start a browser voice call."""
 
     action: Literal["start"]
-    sdp: SdpOffer
+    sdp: Annotated[str, Field(min_length=1, max_length=65536)]
 
 
 class VoiceStop(_VoiceCommand):
@@ -88,16 +85,15 @@ class VoiceSession:
         # Reserve setup before another start command can arrive.
         if self._call is not None and not self._call.done():
             raise RuntimeError("Voice is already active.")
-        call = asyncio.create_task(self._connect(command.sdp))
-        self._call = call
+        self._call = asyncio.create_task(self._connect(command.sdp))
 
-        def closed(_task: asyncio.Task[None]) -> None:
-            if self._call is not call:
+        def closed(task: asyncio.Task[None]) -> None:
+            if self._call is not task:
                 return
             self._call = None
             self.emit({"type": "voice", "name": "closed"})
 
-        call.add_done_callback(closed)
+        self._call.add_done_callback(closed)
 
     async def _create_agent(self) -> Agent:
         """Build this call's workspace tools and instructions."""

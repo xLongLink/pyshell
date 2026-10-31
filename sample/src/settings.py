@@ -11,5 +11,5 @@ class Settings(BaseSettings):
     )
 
     openai_api_key: SecretStr = Field(min_length=1)
-    openai_model: str = Field(default="gpt-6.1-sol", min_length=1)
+    model: str = Field(default="openai:gpt-6.1-sol", min_length=1)
     openai_realtime_model: str = Field(default="gpt-realtime", min_length=1)
