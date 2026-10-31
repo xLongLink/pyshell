@@ -52,6 +52,7 @@ def test_surface_size_limit_preserves_the_existing_widget(replace):
         {},
         {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "unknown": True},
         {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "id": "other"},
+        {"data": [{"type": "scatter", "x": [1, 2], "y": [1]}]},
     ],
 )
 def test_invalid_plot_arguments_do_not_publish(attributes):

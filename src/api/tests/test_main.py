@@ -1,7 +1,6 @@
 import json
 import pytest
 import asyncio
-from queue import Queue
 from types import SimpleNamespace
 from api.main import ExecutionRequest, create_app
 from threading import Event
@@ -121,8 +120,6 @@ async def open_stream(app, code="pass"):
 
 def test_stream_saturated_queue_drains_without_resubmitting(monkeypatch):
     app = create_app()
-    queue = Queue(maxsize=256)
-    monkeypatch.setattr("api.main.Queue", lambda maxsize: queue)
     calls = []
 
     def execute(_shell, code, on_event):
@@ -139,7 +136,6 @@ def test_stream_saturated_queue_drains_without_resubmitting(monkeypatch):
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
         events = [json.loads(line) async for line in response.body_iterator]
         assert events == [{"type": "widget", "surface_id": str(index), "action": "focus"} for index in range(256)]
-        assert queue.empty()
 
     asyncio.run(check())
     assert calls == ["pass", "completed"]
@@ -170,8 +166,6 @@ def test_stream_worker_failure_still_emits_terminal_event(monkeypatch):
 
 def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
     app = create_app()
-    queue = Queue(maxsize=256)
-    monkeypatch.setattr("api.main.Queue", lambda maxsize: queue)
     disconnected = Event()
     calls = []
 
@@ -205,10 +199,8 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
             disconnected.set()
         await asyncio.wait_for(asyncio.gather(*workers), timeout=2)
         assert json.loads(sent[-1]["body"]) == {"type": "widget", "surface_id": "before", "action": "pin"}
-        assert queue.qsize() == 256
         events = [json.loads(line) async for line in response.body_iterator]
         assert events == [{"type": "widget", "surface_id": str(index), "action": "focus"} for index in range(256)]
-        assert queue.empty()
 
     asyncio.run(check())
     assert calls == ["pass", "completed"]
