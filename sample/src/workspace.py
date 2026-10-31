@@ -1,18 +1,12 @@
 import json
 import asyncio
 from uuid import uuid4
-from typing import Literal
-from pydantic import Field, BaseModel, ConfigDict
+from typing import Annotated
+from pydantic import Field, TypeAdapter
 from collections.abc import Callable
 from sample.src.agents.script import Agent
 
-
-class Command(BaseModel):
-    """Validate text instructions before allocating work."""
-
-    model_config = ConfigDict(extra="forbid", strict=True)
-    type: Literal["run"]
-    instruction: str = Field(default="", max_length=8000)
+instruction_adapter = TypeAdapter(Annotated[str, Field(strict=True, max_length=8000)])
 
 
 class Workspace:
@@ -43,7 +37,6 @@ class Workspace:
             "phase": self.phase,
             "instruction": self.current_instruction,
             "execution_uncertain": self.agent.shell.uncertain,
-            "latest_outcome": dict(self.recent_tasks[-1]) if self.recent_tasks else None,
         }
 
     async def context(self) -> dict[str, object]:
@@ -97,15 +90,16 @@ class Workspace:
             else:
                 listener.put_nowait(event)
 
-    def start(self, command: Command) -> asyncio.Task[None]:
+    def start(self, instruction: str) -> asyncio.Task[None]:
         """Submit text or voice work once, outside the socket's lifetime."""
+        instruction = instruction_adapter.validate_python(instruction)
         if self.closing:
             raise RuntimeError("The workspace is shutting down.")
         if self.busy:
             raise RuntimeError("The shared workspace is busy. Wait for the current operation to finish.")
 
         # Reject unsafe submissions before changing shared run state.
-        instruction = command.instruction.strip()
+        instruction = instruction.strip()
         if not instruction:
             raise ValueError("Enter an instruction.")
         if self.agent.shell.uncertain:

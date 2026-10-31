@@ -83,7 +83,7 @@ def _source(geography: str) -> tuple[str, dict]:
         metadata = matches[0]
     if not isinstance(metadata, dict) or metadata.get("boundaryISO") != geography or metadata.get("boundaryType") != "ADM1":
         raise ValueError("Unexpected geography metadata")
-    fields = ("boundaryName", "boundaryID", "boundarySource", "boundaryLicense", "simplifiedGeometryGeoJSON")
+    fields = ("boundaryName", "boundarySource", "boundaryLicense", "simplifiedGeometryGeoJSON")
     if any(not isinstance(metadata.get(field), str) or not metadata[field].strip() for field in fields):
         raise ValueError("Incomplete geography metadata")
     _download_url(metadata["simplifiedGeometryGeoJSON"])
@@ -115,7 +115,6 @@ def _source(geography: str) -> tuple[str, dict]:
         "license": metadata["boundaryLicense"],
         "licenseUrl": license_url,
         "year": str(metadata.get("boundaryYearRepresented", "")),
-        "boundaryID": metadata["boundaryID"],
         "count": count,
     }
 

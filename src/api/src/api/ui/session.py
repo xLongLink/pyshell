@@ -19,7 +19,7 @@ class UI:
 
     def __init__(self, state: UIState | None = None) -> None:
         """Keep protocol state local to one execution session."""
-        self.messages: list[dict[str, object]] = []
+        self.reset_output()
         self._widgets: dict[str, Figure] = {}
         self._sequence = 0
         self._closed = False
@@ -52,10 +52,11 @@ class UI:
         self._widgets[identifier] = widget
         return widget
 
-    @property
-    def surfaces(self) -> set[str]:
-        """The currently published surface IDs."""
-        return set(self._widgets)
+    def reset_output(self) -> None:
+        """Start a new execution's publication budget without clearing widgets."""
+        self._message_count = 0
+        self._byte_count = 2
+        self._node_count = 1
 
     def _create(self, surface_id: str) -> dict[str, object]:
         body = server_to_client.CreateSurface(surfaceId=surface_id, catalogId=CATALOG)
@@ -78,13 +79,16 @@ class UI:
     def _publish(self, messages: list[dict[str, object]]) -> None:
         if self._closed:
             raise RuntimeError("The UI session has been reset or closed")
-        combined = self.messages + messages
-        if len(combined) > 100 or len(json.dumps(combined, allow_nan=False).encode()) > 1048576:
+        message_count = self._message_count + len(messages)
+        byte_count = self._byte_count + len(json.dumps(messages, allow_nan=False).encode()) - 2
+        if self._message_count and messages:
+            byte_count += 2
+        if message_count > 100 or byte_count > 1048576:
             raise ValueError("UI output must not exceed 100 messages or 1 MiB per execution")
 
         # Bound nesting and node count before publishing messages.
-        pending = [(combined, 0)]
-        count = 0
+        pending = [(message, 1) for message in messages]
+        count = self._node_count
         while pending:
             item, depth = pending.pop()
             count += 1
@@ -98,7 +102,9 @@ class UI:
                 pending.extend((value, depth + 1) for value in item)
 
         self.state.publish(messages)
-        self.messages.extend(messages)
+        self._message_count = message_count
+        self._byte_count = byte_count
+        self._node_count = count
 
     def _active(self, widget: Figure) -> None:
         if self._closed or self._widgets.get(widget.surface_id) is not widget:

@@ -4,6 +4,8 @@ services:
   pyshell:
     build:
       context: .
+      additional_contexts:
+        portfolio: ../sample/portfolio
       dockerfile: api/Dockerfile
       target: runtime
     ports:

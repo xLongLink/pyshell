@@ -53,7 +53,7 @@ def test_failed_first_lookup_preserves_an_existing_plot(monkeypatch, tmp_path):
     monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
     ui = UI()
     chart = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}])
-    messages = list(ui.messages)
+    snapshot = ui.state.snapshot()
 
     def unavailable(url):
         raise URLError("offline")
@@ -62,4 +62,4 @@ def test_failed_first_lookup_preserves_an_existing_plot(monkeypatch, tmp_path):
     with pytest.raises(ValidationError, match="first use requires internet"):
         chart.update(data=[{"type": "choropleth", "geography": "CHE", "level": "region", "locations": ["CH-ZH"], "values": [1]}])
     assert chart.data[0].type == "bar"
-    assert ui.messages == messages
+    assert ui.state.snapshot() == snapshot

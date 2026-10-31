@@ -103,9 +103,14 @@ def test_container_state_preserves_focus_replacement_and_partial_updates():
     charts[0].focus()
     charts[2].pin()
     charts[1].focus()
-    assert list(ui.state.snapshot()["placements"]) == ["chart_2", "chart_3", "chart_4", "chart_0", "chart_1"]
+    placements = ui.state.snapshot()["placements"]
+    assert list(placements) == ["chart_2", "chart_3", "chart_4", "chart_0", "chart_1"]
     charts[0].update(data=[{"type": "bar", "x": ["A"], "y": [2]}])
-    assert before["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"][0]["y"] == [1]
+    updated = ui.state.snapshot()
+    assert updated["events"][0]["messages"][1]["updateComponents"]["surfaceId"] == "chart_0"
+    assert updated["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"][0]["y"] == [2]
+    assert updated["placements"] == placements
+    assert list(updated["placements"]) == list(placements)
     replacement = ui.plot([{"type": "bar", "x": ["A"], "y": [3]}], surface_id="chart_0")
     assert len(ui.state.snapshot()["events"]) == 5
     replacement.remove()

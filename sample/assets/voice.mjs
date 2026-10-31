@@ -8,7 +8,6 @@ export function mountVoice(page = window) {
   let phase = "off";
   let resources = {};
   let suspended = false;
-  let disposed = false;
 
   function error(element, text) {
     element.textContent = text;
@@ -200,7 +199,7 @@ export function mountVoice(page = window) {
     const ws = new page.WebSocket(`${protocol}//${page.location.host}/ws`);
     socket = ws;
     ws.onmessage = (message) => {
-      if (disposed || suspended || socket !== ws) return;
+      if (suspended || socket !== ws) return;
       try {
         receive(JSON.parse(message.data));
       } catch {
@@ -208,7 +207,7 @@ export function mountVoice(page = window) {
       }
     };
     ws.onclose = () => {
-      if (disposed || suspended || socket !== ws) return;
+      if (suspended || socket !== ws) return;
       connected = false;
       stop(true);
       error(
@@ -228,7 +227,7 @@ export function mountVoice(page = window) {
   }
 
   function resume() {
-    if (disposed || !suspended) return;
+    if (!suspended) return;
     suspended = false;
     connect();
   }
@@ -238,11 +237,4 @@ export function mountVoice(page = window) {
   page.addEventListener("pageshow", resume);
   setPhase("off");
   connect();
-  return () => {
-    disposed = true;
-    suspend();
-    button.onclick = null;
-    page.removeEventListener("pagehide", suspend);
-    page.removeEventListener("pageshow", resume);
-  };
 }

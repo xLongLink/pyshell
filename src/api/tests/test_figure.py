@@ -76,6 +76,6 @@ def test_scatter_modes_and_trace_order_survive_publication():
     ui.plot(data)
 
     # Assert
-    published = ui.messages[1]["updateComponents"]["components"][0]["data"]
+    published = ui.state.snapshot()["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"]
     assert [trace["mode"] for trace in published] == ["lines", "markers", "lines+markers"]
     assert all(trace["x"] == [2.5, 0, 2.5] and trace["y"] == [3, None, -1] for trace in published)

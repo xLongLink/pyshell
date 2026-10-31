@@ -10,6 +10,88 @@ from fastapi.testclient import TestClient
 from api.ui.plot.choropleth import Choropleth
 
 
+@pytest.mark.parametrize("metadata_list", [False, True])
+@pytest.mark.parametrize("boundary_id", [None, "CHE-current"])
+def test_geography_omits_boundary_id_and_preserves_source_metadata(monkeypatch, tmp_path, metadata_list, boundary_id):
+    monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
+    metadata_url = geography.METADATA_URL.format(geography="CHE")
+    download_url = "https://raw.githubusercontent.com/wmgeolab/geoBoundaries/main/CHE.geojson"
+    metadata = {
+        "boundaryISO": "CHE",
+        "boundaryType": "ADM1",
+        "boundaryName": "Switzerland",
+        "boundarySource": "Swiss boundaries",
+        "boundaryLicense": "CC BY 4.0",
+        "licenseSource": "creativecommons.org/licenses/by/4.0/",
+        "boundaryYearRepresented": 2024,
+        "admUnitCount": "1",
+        "simplifiedGeometryGeoJSON": download_url,
+    }
+    if boundary_id is not None:
+        metadata["boundaryID"] = boundary_id
+    geometry = {"type": "Polygon", "coordinates": [[[7, 46], [8, 46], [8, 47], [7, 46]]]}
+    data = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"shapeISO": "CH-BE", "shapeName": "Bern", "shapeGroup": "CHE", "shapeType": "ADM1"},
+                "geometry": geometry,
+            }
+        ],
+    }
+    responses = {metadata_url: [metadata] if metadata_list else metadata, download_url: data}
+    monkeypatch.setattr(geography, "download", responses.__getitem__)
+
+    with TestClient(create_app()) as client:
+        response = client.get("/geographies/CHE")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "type": "FeatureCollection",
+        "geography": "CHE",
+        "name": "Switzerland",
+        "level": "region",
+        "source": {
+            "source": "Swiss boundaries / geoBoundaries gbOpen",
+            "url": metadata_url,
+            "license": "CC BY 4.0",
+            "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+            "year": "2024",
+        },
+        "features": [{"type": "Feature", "id": "CH-BE", "properties": {"name": "Bern"}, "geometry": geometry}],
+    }
+    assert json.loads((tmp_path / "CHE-v2.json").read_text()) == response.json()
+    assert geography.geography_info("CHE") == {"name": "Switzerland", "level": "region", "locations": {"CH-BE": "Bern"}}
+
+
+def test_cached_geography_with_boundary_id_remains_readable(monkeypatch, tmp_path):
+    monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
+    cached = {
+        "type": "FeatureCollection",
+        "geography": "CHE",
+        "name": "Switzerland",
+        "level": "region",
+        "source": {"source": "Swiss boundaries / geoBoundaries gbOpen", "license": "CC BY 4.0", "boundaryID": "CHE-legacy"},
+        "features": [{"type": "Feature", "id": "CH-BE", "properties": {"name": "Bern"}}],
+    }
+    path = tmp_path / "CHE-v2.json"
+    path.write_text(json.dumps(cached))
+
+    def unexpected_download(url):
+        pytest.fail("Existing geography cache should not be downloaded again")
+
+    monkeypatch.setattr(geography, "download", unexpected_download)
+    with TestClient(create_app()) as client:
+        response = client.get("/geographies/CHE")
+
+    assert response.status_code == 200
+    assert response.json() == cached
+    assert geography.geography_path("CHE") == path
+    assert geography.geography_info("CHE") == {"name": "Switzerland", "level": "region", "locations": {"CH-BE": "Bern"}}
+    assert Choropleth(geography="CHE", level="region", locations=["CH-BE"], values=[1]).locations == ["CH-BE"]
+
+
 def test_public_geography_info_does_not_expose_cached_mutable_data(monkeypatch, tmp_path):
     monkeypatch.setenv("PYSHELL_GEOGRAPHY_CACHE", str(tmp_path))
     (tmp_path / "world-v2.json").write_text(

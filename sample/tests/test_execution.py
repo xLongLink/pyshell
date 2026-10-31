@@ -5,7 +5,7 @@ import asyncio
 from sample.src.shell import RemoteShell
 from sample.src.events import Result
 from pydantic_ai.messages import TextPart, ModelResponse
-from sample.src.agents.script import Agent
+from sample.src.agents.script import INSTRUCTIONS, Agent
 from pydantic_ai.models.function import FunctionModel
 
 
@@ -28,6 +28,51 @@ def test_stream_returns_validated_result():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("fail_first", [False, True])
+def test_agent_reuses_lazy_instructions_after_successful_inventory_fetch(fail_first):
+    instructions = []
+    inventory_requests = []
+    executions = []
+
+    def respond(_messages, info):
+        instructions.append(info.instructions)
+        return ModelResponse(parts=[TextPart("done()")], finish_reason="stop")
+
+    def handle(request):
+        if request.url.path == "/libraries":
+            inventory_requests.append(request)
+            if fail_first and len(inventory_requests) == 1:
+                return httpx.Response(503)
+            return httpx.Response(200, json=[{"name": "example", "version": str(len(inventory_requests))}])
+        executions.append(json.loads(request.content)["code"])
+        return stream_response(
+            [{"type": "result", "stdout": "Finished\n", "stderr": "", "exception": None, "done": True}, {"type": "execution_finished"}]
+        )
+
+    async def run():
+        async with httpx.AsyncClient(base_url="http://execution", transport=httpx.MockTransport(handle)) as client:
+            agent = Agent(FunctionModel(respond), shell=RemoteShell(client))
+            assert not inventory_requests
+            if fail_first:
+                with pytest.raises(httpx.HTTPStatusError):
+                    await agent.arun("First attempt")
+                assert not instructions
+                assert not executions
+            assert await agent.arun("First task") == "Finished\n"
+            assert await agent.arun("Second task") == "Finished\n"
+
+        expected = (
+            INSTRUCTIONS
+            + "\nInstalled packages in the execution environment (distribution names may differ from import names):\n"
+            + json.dumps([{"name": "example", "version": "2" if fail_first else "1"}])
+        )
+        assert instructions == [expected, expected]
+        assert len(inventory_requests) == (2 if fail_first else 1)
+        assert executions == ["done()", "done()"]
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize(
     "sequence", ["empty", "missing_finish", "missing_result", "duplicate_result", "after_finish", "invalid_result", "widget", "a2ui"]
 )
@@ -44,7 +89,13 @@ def test_invalid_stream_blocks_subsequent_execution(sequence):
         "widget": [{"type": "widget", "surface_id": "sales", "action": "pin"}, result, finished],
         "a2ui": [{"type": "a2ui", "messages": []}, result, finished],
     }[sequence]
-    transport = httpx.MockTransport(lambda _request: stream_response(events))
+    requests = []
+
+    def handle(request):
+        requests.append((request.method, request.url.path))
+        return stream_response(events)
+
+    transport = httpx.MockTransport(handle)
 
     async def run():
         async with httpx.AsyncClient(base_url="http://execution", transport=transport) as client:
@@ -54,6 +105,7 @@ def test_invalid_stream_blocks_subsequent_execution(sequence):
             assert shell.uncertain
             with pytest.raises(RuntimeError, match="Execution state is uncertain"):
                 await shell.stream("done()")
+        assert requests == [("POST", "/execute/stream")]
 
     asyncio.run(run())
 

@@ -46,7 +46,7 @@ class PythonShell:
         stdout = ExecutionOutput(sys.stdout)
         stderr = ExecutionOutput(sys.stderr)
         self.finished = False
-        self.ui.messages = []
+        self.ui.reset_output()
         error = None
 
         # Keep partial namespace updates even when execution raises.
@@ -62,4 +62,4 @@ class PythonShell:
         # Log failures outside the redirected output streams.
         if error:
             print(error, end="", file=sys.stderr, flush=True)
-        return {"stdout": stdout.getvalue(), "stderr": stderr.getvalue(), "exception": error, "done": self.finished, "ui": self.ui.messages}
+        return {"stdout": stdout.getvalue(), "stderr": stderr.getvalue(), "exception": error, "done": self.finished}

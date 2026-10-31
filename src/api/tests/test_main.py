@@ -150,7 +150,7 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
         calls.append(code)
         assert disconnected.wait(timeout=2)
         calls.append("completed")
-        return {"stdout": "complete", "ui": []}
+        return {"stdout": "complete"}
 
     monkeypatch.setattr("api.main.PythonShell.execute", execute)
 

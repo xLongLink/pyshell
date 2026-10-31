@@ -1,6 +1,6 @@
 import json
 import asyncio
-from queue import Full, Queue
+from queue import Queue
 from fastapi import Depends, FastAPI, Request, WebSocket, HTTPException
 from pathlib import Path
 from pydantic import BaseModel
@@ -104,48 +104,31 @@ def create_app() -> FastAPI:
     @app.post("/execute/stream", dependencies=[Depends(require_server_request)])
     async def stream(request: ExecutionRequest) -> StreamingResponse:
         """Stream a submitted execution without coupling it to the HTTP connection."""
-        queue: Queue[dict[str, object]] = Queue(maxsize=256)
-        disconnected = False
-
-        def emit(event: dict[str, object]) -> None:
-            nonlocal disconnected
-            if disconnected:
-                return
-
-            # Stop buffering if the HTTP reader falls behind execution.
-            try:
-                queue.put(event, timeout=1)
-            except Full:
-                disconnected = True
+        queue: Queue[dict[str, object]] = Queue(maxsize=2)
 
         def execute() -> None:
             try:
                 with lock:
                     result = shell.execute(request.code)
-                emit({"type": "result", **{key: value for key, value in result.items() if key != "ui"}})
+                queue.put({"type": "result", **result})
 
             # Terminate connected readers even when execution fails.
             finally:
-                emit({"type": "execution_finished"})
+                queue.put({"type": "execution_finished"})
 
         task = asyncio.create_task(asyncio.to_thread(execute))
         executions.add(task)
         task.add_done_callback(executions.discard)
 
         def events() -> Iterator[str]:
-            nonlocal disconnected
+            while True:
+                event = queue.get(timeout=180)
 
-            try:
-                while True:
-                    event = queue.get(timeout=180)
+                # Encode one complete event per line.
+                yield json.dumps(event, allow_nan=False) + "\n"
 
-                    # Encode one complete event per line.
-                    yield json.dumps(event, allow_nan=False) + "\n"
-
-                    if event["type"] == "execution_finished" or (disconnected and queue.empty()):
-                        return
-            finally:
-                disconnected = True
+                if event["type"] == "execution_finished":
+                    return
 
         return StreamingResponse(events(), media_type="application/x-ndjson")
 

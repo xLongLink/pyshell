@@ -324,8 +324,8 @@ test("lines+markers preserves input order, repeated x values, and missing gaps",
                         type: "scatter",
                         name: "Hidden legend",
                         mode: "lines+markers",
-                        x: [2, 0, 2, 3, 4],
-                        y: [3, 1, null, 5, 2],
+                        x: [2, 0, 2, 3, 4, 5],
+                        y: [3, 1, 4, null, 5, 2],
                     },
                 ],
                 { showlegend: false },
@@ -334,12 +334,19 @@ test("lines+markers preserves input order, repeated x values, and missing gaps",
     );
     await waitFor(() =>
         expect(container.querySelectorAll(".recharts-line-dot")).toHaveLength(
-            4,
+            5,
         ),
     );
     const dots = container.querySelectorAll(".recharts-line-dot");
     expect(Number(dots[0].getAttribute("cx"))).toBeGreaterThan(
         Number(dots[1].getAttribute("cx")),
+    );
+    expect(Number(dots[0].getAttribute("cx"))).toBeCloseTo(
+        Number(dots[2].getAttribute("cx")),
+        1,
+    );
+    expect(Number(dots[0].getAttribute("cy"))).not.toBe(
+        Number(dots[2].getAttribute("cy")),
     );
     expect(
         container
@@ -382,6 +389,30 @@ test("bar and scatter traces render on shared categorical axes", async () => {
         ).toHaveLength(4),
     );
     expect(container.querySelectorAll(".recharts-line-dot")).toHaveLength(2);
+    const [actual, previous] = Array.from(
+        container.querySelectorAll(".recharts-bar"),
+        (series) =>
+            Array.from(
+                series.querySelectorAll(".recharts-bar-rectangle path"),
+                (bar) =>
+                    Number(bar.getAttribute("x")) +
+                    Number(bar.getAttribute("width")) / 2,
+            ),
+    );
+    expect(actual).toHaveLength(2);
+    expect(previous).toHaveLength(2);
+    const [targetA, targetC] = Array.from(
+        container.querySelectorAll(".recharts-line-dot"),
+        (dot) => Number(dot.getAttribute("cx")),
+    );
+    const groupOffset = (previous[0] - actual[1]) / 2;
+    expect(groupOffset).toBeGreaterThan(0);
+    expect(targetA).toBeCloseTo(actual[0] + groupOffset, 0);
+    expect(targetC).toBeCloseTo(previous[1] - groupOffset, 0);
+    expect((actual[1] + previous[0]) / 2).toBeCloseTo(
+        (targetA + targetC) / 2,
+        0,
+    );
     expect(screen.getByText("Actual")).toBeTruthy();
     expect(screen.getByText("Previous")).toBeTruthy();
     expect(screen.getByText("Target")).toBeTruthy();

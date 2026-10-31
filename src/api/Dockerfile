@@ -18,6 +18,8 @@ COPY api/pyproject.toml api/uv.lock ./
 COPY api/src ./src
 COPY --from=frontend /app/api/src/api/static ./src/api/static
 RUN uv sync --locked --no-dev --no-editable
+COPY --from=portfolio / /app/portfolio
+RUN uv pip install --python /opt/venv/bin/python --no-deps /app/portfolio
 
 FROM python:3.12-slim AS runtime
 

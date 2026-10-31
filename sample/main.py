@@ -1,15 +1,16 @@
 import httpx
 import asyncio
 from httpx import AsyncClient
+from typing import Literal
 from fastapi import FastAPI, WebSocket
 from pathlib import Path
-from pydantic import TypeAdapter, ValidationError
+from pydantic import Field, BaseModel, ConfigDict, TypeAdapter, ValidationError
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from sample.src.shell import RemoteShell
 from fastapi.staticfiles import StaticFiles
 from sample.src.settings import settings
-from sample.src.workspace import Command, Workspace
+from sample.src.workspace import Workspace
 from sample.src.agents.voice import VoiceCommand, VoiceSession
 from sample.src.agents.script import Agent
 from pydantic_ai.models.openai import OpenAIResponsesModel
@@ -17,6 +18,15 @@ from src.api.src.api.websocket import run_websocket
 from pydantic_ai.realtime.openai import OpenAIRealtimeModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+
+class Command(BaseModel):
+    """Validate browser text commands before allocating work."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    type: Literal["run"]
+    instruction: str = Field(default="", max_length=8000)
+
 
 command_adapter = TypeAdapter(Command | VoiceCommand)
 
@@ -81,7 +91,7 @@ async def workspace_socket(socket: WebSocket) -> None:
 
                 # Text tasks belong to the workspace, not this connection.
                 else:
-                    workspace.start(command)
+                    workspace.start(command.instruction)
             except (ValidationError, ValueError, RuntimeError) as error:
                 await queue.put({"type": "error", "text": str(error)})
 
