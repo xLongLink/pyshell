@@ -1,11 +1,10 @@
 import asyncio
-from uuid import uuid4
+import traceback
 from typing import Annotated
 from pydantic import Field, TypeAdapter
 from collections import deque
-from collections.abc import Callable
 from sample.src.shell import EXECUTION_UNCERTAIN
-from sample.src.agents.script import Agent
+from sample.src.agents.script import Agent, CodeGenerationError
 
 instruction_adapter = TypeAdapter(Annotated[str, Field(strict=True, max_length=8000)])
 
@@ -41,13 +40,11 @@ class Workspace:
 
     def __init__(self, agent: Agent) -> None:
         """Keep workspace resources independent of browser connections."""
-        self.id = str(uuid4())
         self.agent = agent
         self.listeners: set[Subscription] = set()
-        self.task: asyncio.Task[None] | None = None
+        self.task: asyncio.Task[dict[str, object]] | None = None
 
         self.closing = False
-        self.results: set[Callable[[dict[str, object]], None]] = set()
         self.current_instruction: str | None = None
         self.phase = "idle"
         self.recent_tasks: deque[dict[str, object]] = deque(maxlen=8)
@@ -101,7 +98,7 @@ class Workspace:
         self.publish({"type": "instruction"})
         self.task = asyncio.create_task(self._execute(instruction))
 
-    async def _execute(self, instruction: str) -> None:
+    async def _execute(self, instruction: str) -> dict[str, object]:
         """Record execution feedback for voice and publish shared status."""
 
         def update_phase(phase: str) -> None:
@@ -112,17 +109,20 @@ class Workspace:
             result = await self.agent.arun(instruction, update_phase)
         except Exception as error:
             outcome = "failed"
-            self.publish({"type": "error", "text": str(error)})
-
-            # A failed task may still have changed the persistent session.
-            result = f"Task failed: {error}. Earlier changes may have applied; do not automatically resubmit."[-4000:]
+            print(f"[worker:failed] {type(error).__name__}: {error}", flush=True)
+            traceback.print_exc()
+            if isinstance(error, CodeGenerationError) and not error.executed:
+                result = f"Task failed: {error}. Nothing was executed during this task."[-4000:]
+            else:
+                result = f"Task failed: {error}. Earlier changes may have applied; do not automatically resubmit."[-4000:]
+            self.publish({"type": "error", "text": result})
         finally:
             self.phase = "idle"
             self.current_instruction = None
-        record = {"instruction": instruction[:2000], "outcome": outcome, "result": result}
+        record: dict[str, object] = {"instruction": instruction[:2000], "outcome": outcome, "result": result}
+        print(f"[worker:{outcome}] {result}", flush=True)
         self.recent_tasks.append(record)
-        for report in self.results:
-            report(record)
+        return record
 
     async def close(self) -> None:
         """Stop submissions and finish accepted work."""

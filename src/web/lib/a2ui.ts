@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { geojsonSchema } from "./geojson";
 
 export const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const text = z.string().max(10000);
@@ -31,6 +32,7 @@ export const traceSchema = z.discriminatedUnion("type", [
             .string()
             .regex(/^(world|[A-Z]{3})$/)
             .default("world"),
+        geojson: geojsonSchema.nullish(),
         locations: z.array(text).min(1).max(200),
         values: z.array(number.nullable()).min(1).max(200),
     }),
@@ -65,6 +67,13 @@ function validateFigure(
                 fail("locations and values must have equal lengths");
             if (new Set(trace.locations).size !== trace.locations.length)
                 fail("locations must be unique");
+            if (trace.geojson) {
+                const ids = new Set(
+                    trace.geojson.features.map((feature) => feature.id),
+                );
+                if (trace.locations.some((location) => !ids.has(location)))
+                    fail("Unknown location for the supplied GeoJSON");
+            }
             count += trace.values.length;
         } else {
             if (trace.x.length !== trace.y.length)

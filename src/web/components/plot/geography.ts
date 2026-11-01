@@ -38,19 +38,29 @@ export function loadGeography(geography: string): Promise<Geography> {
             const data = geographySchema.parse(await response.json());
             if (data.geography !== geography)
                 throw new Error("Unexpected geography");
-            for (const feature of data.features) {
-                if (geoArea(feature) > 2 * Math.PI) {
-                    const polygons =
-                        feature.geometry.type === "Polygon"
-                            ? [feature.geometry.coordinates]
-                            : feature.geometry.coordinates;
-                    for (const polygon of polygons)
-                        for (const ring of polygon) ring.reverse();
-                }
-            }
-            return data;
+            return orientBoundaries(data);
         },
     );
+}
+
+export function orientBoundaries<T extends FeatureCollection>(
+    boundaries: T,
+): T {
+    const normalized = structuredClone(boundaries);
+    for (const feature of normalized.features) {
+        if (geoArea(feature) > 2 * Math.PI) {
+            const geometry = feature.geometry;
+            if (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")
+                continue;
+            const polygons =
+                geometry.type === "Polygon"
+                    ? [geometry.coordinates]
+                    : geometry.coordinates;
+            for (const polygon of polygons)
+                for (const ring of polygon) ring.reverse();
+        }
+    }
+    return normalized;
 }
 
 export function mapProjection(boundaries: FeatureCollection, world: boolean) {

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { geoPath } from "d3-geo";
 import { plotClassName, type Trace } from "./common";
+import type { InlineGeography } from "@/lib/geojson";
 import {
     loadGeography,
     mapProjection,
+    orientBoundaries,
     type Geography as GeographyData,
 } from "./geography";
 
@@ -17,6 +19,12 @@ const format = new Intl.NumberFormat(undefined, {
 });
 
 export default function Choropleth(props: MapProps) {
+    if (props.trace.geojson)
+        return <BoundaryMap {...props} boundaries={props.trace.geojson} />;
+    return <ProviderMap {...props} />;
+}
+
+function ProviderMap(props: MapProps) {
     const geography = props.trace.geography;
     const [result, setResult] = useState<{
         boundaries?: GeographyData;
@@ -77,18 +85,25 @@ export default function Choropleth(props: MapProps) {
 function BoundaryMap({
     trace,
     showlegend,
-    boundaries,
-}: MapProps & { boundaries: GeographyData }) {
+    boundaries: inputBoundaries,
+}: MapProps & { boundaries: GeographyData | InlineGeography }) {
+    const boundaries = useMemo(
+        () => orientBoundaries(inputBoundaries),
+        [inputBoundaries],
+    );
     const [active, setActive] = useState<string | null>(null);
     const paths = useMemo(() => {
         const path = geoPath(
-            mapProjection(boundaries, trace.geography === "world"),
+            mapProjection(
+                boundaries,
+                !trace.geojson && trace.geography === "world",
+            ),
         );
         return boundaries.features.map((feature) => ({
             feature,
             d: path(feature) ?? undefined,
         }));
-    }, [trace.geography, boundaries]);
+    }, [trace.geography, trace.geojson, boundaries]);
     const values = new Map(
         trace.locations.map((code, index) => [code, trace.values[index]]),
     );
@@ -119,15 +134,20 @@ function BoundaryMap({
                 role="group"
                 aria-label={
                     trace.name ||
-                    (trace.geography === "world"
-                        ? "World statistical map"
-                        : `${boundaries.name} first-level divisions statistical map`)
+                    (trace.geojson
+                        ? "Geographic statistical map"
+                        : trace.geography === "world"
+                          ? "World statistical map"
+                          : `${"name" in boundaries ? boundaries.name : trace.geography} first-level divisions statistical map`)
                 }
                 className="min-h-0 w-full flex-1"
             >
                 {paths.map(({ feature, d }) => {
                     const code = feature.id;
-                    const label = describe(code, feature.properties.name);
+                    const label = describe(
+                        code,
+                        feature.properties.name || code,
+                    );
                     return (
                         <path
                             key={code}
@@ -155,7 +175,10 @@ function BoundaryMap({
                 className="min-h-5 shrink-0 text-center text-xs text-muted-foreground"
             >
                 {activeFeature
-                    ? describe(activeFeature.id, activeFeature.properties.name)
+                    ? describe(
+                          activeFeature.id,
+                          activeFeature.properties.name || activeFeature.id,
+                      )
                     : present.length
                       ? "Hover or focus a region for details."
                       : "No values to display."}

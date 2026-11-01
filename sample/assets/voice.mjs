@@ -84,6 +84,16 @@ export function mountVoice() {
 
   function stop(closed = false) {
     const current = resources;
+    if (!closed && current.submitted && send("stop")) {
+      current.stream?.getTracks().forEach((track) => {
+        track.enabled = false;
+      });
+      current.audio?.pause();
+      clearTimeout(current.timer);
+      current.timer = setTimeout(() => stop(true), 20000);
+      setPhase("stopping");
+      return;
+    }
     resources = {};
     cancelAnimationFrame(current.frame);
     current.source?.disconnect();
@@ -99,7 +109,7 @@ export function mountVoice() {
       current.audio.pause();
       current.audio.srcObject = null;
     }
-    setPhase(!closed && current.submitted && send("stop") ? "stopping" : "off");
+    setPhase("off");
   }
 
   function failVoice(text) {
@@ -174,7 +184,7 @@ export function mountVoice() {
       audio.autoplay = true;
       current.audio = audio;
       peer.ontrack = ({ streams, track }) => {
-        if (current !== resources) return;
+        if (current !== resources || phase === "stopping") return;
         audio.srcObject = streams[0] ?? new MediaStream([track]);
         animateSpeech(current, audio.srcObject);
         void audio.play().catch(() => {
@@ -183,16 +193,35 @@ export function mountVoice() {
         });
       };
       peer.onconnectionstatechange = () => {
-        if (current !== resources) return;
+        if (current !== resources || phase === "stopping") return;
         if (peer.connectionState === "connected") {
-          clearTimeout(current.timer);
-          setPhase("on");
+          if (current.started) {
+            clearTimeout(current.timer);
+            setPhase("on");
+          }
         } else if (["failed", "disconnected"].includes(peer.connectionState)) {
           failVoice("Voice connection lost.");
         }
       };
       stream.getTracks().forEach((track) => peer.addTrack(track, stream));
-      peer.createDataChannel("oai-events");
+      const events = peer.createDataChannel("oai-events");
+      events.onmessage = ({ data }) => {
+        if (current !== resources) return;
+        try {
+          const event = JSON.parse(data);
+          if (event.type === "session.started") {
+            current.started = true;
+            if (peer.connectionState === "connected" && phase !== "stopping") {
+              clearTimeout(current.timer);
+              setPhase("on");
+            }
+          } else if (event.type === "session.closed") {
+            stop(true);
+          }
+        } catch (failure) {
+          console.warn("Invalid Live event.", failure);
+        }
+      };
       await peer.setLocalDescription(await peer.createOffer());
       await waitForIce(current);
       if (current !== resources) return;
@@ -200,7 +229,7 @@ export function mountVoice() {
       if (!sdp || !send("start", sdp))
         throw new Error("The workspace disconnected before voice could start.");
       current.submitted = true;
-      if (peer.connectionState !== "connected") {
+      if (!current.started || peer.connectionState !== "connected") {
         current.timer = setTimeout(() => {
           if (current !== resources) return;
           failVoice("Voice connection timed out.");

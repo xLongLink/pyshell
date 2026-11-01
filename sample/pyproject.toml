@@ -8,7 +8,8 @@ dependencies = [
     "uvicorn[standard]>=0.34,<1",
     "httpx2>=2.16,<3",
     "pydantic-settings>=2.15.0",
-    "pydantic-ai[openai-realtime]>=2.61,<3",
+    "pydantic-ai-slim[openai]>=2.64,<3",
+    "openai[realtime]>=3.41,<4",
     "python-dotenv>=1,<2",
 ]
 

@@ -205,3 +205,137 @@ test.each([
     );
     expect(screen.queryByRole("img")).toBeNull();
 });
+
+test("inline boundaries render and update without fetching geography or mutating coordinates", async () => {
+    const load = vi.spyOn(geographyLoader, "loadGeography");
+    const geojson = {
+        type: "FeatureCollection",
+        features: boundaries.features,
+    };
+    const original = JSON.stringify(geojson);
+    const figure = (value: number, name = "France") =>
+        figureProps.parse({
+            data: [
+                {
+                    type: "choropleth",
+                    geojson: {
+                        ...geojson,
+                        features: [
+                            { ...boundaries.features[0], properties: { name } },
+                        ],
+                    },
+                    locations: ["FRA"],
+                    values: [value],
+                },
+            ],
+        });
+    const { rerender } = render(<Figure {...figure(42)} />);
+    const france = await screen.findByRole("img", { name: "France: 42" });
+    expect(france.getAttribute("d")).toBeTruthy();
+    fireEvent.focus(france);
+    expect(screen.getByRole("status").textContent).toBe("France: 42");
+    rerender(<Figure {...figure(84, "Updated France")} />);
+    expect(
+        screen.getByRole("img", { name: "Updated France: 84" }),
+    ).toBeTruthy();
+    expect(JSON.stringify(geojson)).toBe(original);
+    expect(load).not.toHaveBeenCalled();
+});
+
+test("inline multipolygons use feature IDs when names are absent", async () => {
+    const load = vi.spyOn(geographyLoader, "loadGeography");
+    render(
+        <Figure
+            {...figureProps.parse({
+                data: [
+                    {
+                        type: "choropleth",
+                        locations: ["FRA"],
+                        values: [7],
+                        geojson: {
+                            type: "FeatureCollection",
+                            features: [
+                                {
+                                    ...boundaries.features[0],
+                                    properties: {},
+                                    geometry: {
+                                        type: "MultiPolygon",
+                                        coordinates: [
+                                            boundaries.features[0].geometry
+                                                .coordinates,
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            })}
+        />,
+    );
+    fireEvent.focus(await screen.findByRole("img", { name: "FRA: 7" }));
+    expect(screen.getByRole("status").textContent).toBe("FRA: 7");
+    expect(load).not.toHaveBeenCalled();
+});
+
+test("inline maps render only supplied features and replace their shapes on update", async () => {
+    const load = vi.spyOn(geographyLoader, "loadGeography");
+    const makeFigure = (ids: string[], coordinates: number[][][]) =>
+        figureProps.parse({
+            data: [
+                {
+                    type: "choropleth",
+                    locations: ids,
+                    values: ids.map(() => 42),
+                    geojson: {
+                        type: "FeatureCollection",
+                        features: ids.map((id) => ({
+                            type: "Feature",
+                            id,
+                            properties: { name: id },
+                            geometry: { type: "Polygon", coordinates },
+                        })),
+                    },
+                },
+            ],
+        });
+    const { rerender } = render(
+        <Figure
+            {...makeFigure(
+                ["CHE", "FRA", "ITA"],
+                [
+                    [
+                        [0, 0],
+                        [0, 1],
+                        [1, 1],
+                        [1, 0],
+                        [0, 0],
+                    ],
+                ],
+            )}
+        />,
+    );
+    const switzerland = await screen.findByRole("img", { name: "CHE: 42" });
+    const originalPath = switzerland.getAttribute("d");
+    expect(screen.getAllByRole("img")).toHaveLength(3);
+    rerender(
+        <Figure
+            {...makeFigure(
+                ["CHE"],
+                [
+                    [
+                        [0, 0],
+                        [0, 1],
+                        [1, 0],
+                        [0, 0],
+                    ],
+                ],
+            )}
+        />,
+    );
+    expect(screen.getAllByRole("img")).toHaveLength(1);
+    expect(
+        screen.getByRole("img", { name: "CHE: 42" }).getAttribute("d"),
+    ).not.toBe(originalPath);
+    expect(load).not.toHaveBeenCalled();
+});

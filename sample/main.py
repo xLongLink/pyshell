@@ -1,19 +1,20 @@
+import os
 import httpx2
 import asyncio
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
 from fastapi import FastAPI, WebSocket
 from pathlib import Path
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from sample.src.shell import RemoteShell
-from pydantic_ai.models import infer_model
 from fastapi.staticfiles import StaticFiles
 from sample.src.settings import Settings
 from sample.src.workspace import Workspace, Subscription
 from sample.src.agents.voice import VoiceSession, voice_command_adapter
-from sample.src.agents.script import Agent
+from sample.src.agents.script import Agent, LoggedModel
+from pydantic_ai.models.openai import OpenAIResponsesModel
 from src.api.src.api.websocket import run_websocket
-from pydantic_ai.realtime.openai import OpenAIRealtimeModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -22,24 +23,24 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Own provider and workspace resources for the application lifetime."""
     load_dotenv(Path(__file__).parent / ".env", override=False)
+    os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
     settings = Settings()
-    provider = OpenAIProvider(api_key=settings.openai_api_key.get_secret_value())
-    try:
+    async with AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value(), max_retries=0) as openai:
+        provider = OpenAIProvider(openai_client=openai)
         async with (
             httpx2.AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx2.Timeout(180, connect=10), trust_env=False) as client,
-            infer_model(settings.model) as model,
+            LoggedModel(OpenAIResponsesModel(settings.model.removeprefix("openai:"), provider=provider)) as model,
         ):
             workspace = Workspace(Agent(model, shell=RemoteShell(client)))
             app.state.workspace = workspace
-            app.state.realtime_model = OpenAIRealtimeModel(settings.openai_realtime_model, provider=provider)
+            app.state.openai = openai
+            app.state.settings = settings
 
             # Finish accepted work before closing either transport.
             try:
                 yield
             finally:
                 await workspace.close()
-    finally:
-        await provider.client.close()
 
 
 # Browser commands are accepted only through local hostnames and origins.
@@ -56,7 +57,14 @@ async def workspace_socket(socket: WebSocket) -> None:
     await socket.accept()
     workspace: Workspace = socket.app.state.workspace
     subscription = Subscription(workspace)
-    voice = VoiceSession(socket.app.state.realtime_model, workspace, subscription.publish)
+    settings: Settings = socket.app.state.settings
+    voice = VoiceSession(
+        socket.app.state.openai,
+        workspace,
+        subscription.publish,
+        model=settings.openai_live_model,
+        backend_model=settings.openai_voice_backend_model,
+    )
 
     async def send() -> None:
         while not subscription.closed.is_set():
