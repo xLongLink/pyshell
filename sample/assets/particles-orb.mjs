@@ -19,8 +19,8 @@ const STATES = {
   disabled: { spin: 0, breathe: 0, drift: 0, ripple: 0, swell: 0, flow: 0, pulse: 0, pulseRate: 1, ring: 0, jitter: 0, shake: 0, alpha: 0.45, rest: 0 },
 };
 
-const sphere = Array.from({ length: COUNT }, (_, index) => {
-  const y = 1 - (index / (COUNT - 1)) * 2;
+const makeSphere = (count) => Array.from({ length: count }, (_, index) => {
+  const y = 1 - (index / (count - 1)) * 2;
   const radius = Math.sqrt(1 - y * y);
   const angle = Math.PI * (3 - Math.sqrt(5)) * index;
   const tone = (index * 0.5436890126) % 1;
@@ -57,9 +57,6 @@ export class ParticlesOrb extends HTMLElement {
     this.ringPhase = 0;
     this.frame = null;
     this.last = null;
-    this.positions = new Float32Array(COUNT * 3);
-    this.buckets = new Uint8Array(COUNT);
-    this.order = new Uint16Array(COUNT);
     this.counts = new Uint16Array(BUCKETS);
     this.starts = new Uint16Array(BUCKETS);
     this.tick = (now) => {
@@ -136,6 +133,13 @@ export class ParticlesOrb extends HTMLElement {
 
   resize() {
     this.size = Math.max(16, Math.min(1024, Number(this.getAttribute("size")) || 168));
+    const count = Math.round(COUNT * Math.max(1, Math.min(4, (this.size / 128) ** 2)));
+    if (this.sphere?.length !== count) {
+      this.sphere = makeSphere(count);
+      this.positions = new Float32Array(count * 3);
+      this.buckets = new Uint8Array(count);
+      this.order = new Uint16Array(count);
+    }
     this.dpr = Math.min(this.ownerDocument.defaultView.devicePixelRatio || 1, 2);
     this.style.width = `${this.size}px`;
     this.style.height = `${this.size}px`;
@@ -182,8 +186,9 @@ export class ParticlesOrb extends HTMLElement {
     const shakeY = p.shake * radius * 0.05 * (Math.cos(t * 22.5) + 0.5 * Math.sin(t * 13.1));
     this.counts.fill(0);
 
-    for (let i = 0; i < COUNT; i++) {
-      const s = sphere[i];
+    const count = this.sphere.length;
+    for (let i = 0; i < count; i++) {
+      const s = this.sphere[i];
       const twist = this.angle + swirl * Math.sin(s.y * 2.4 + t * 1.6);
       const x = s.x * Math.cos(twist) - s.z * Math.sin(twist);
       const z = s.x * Math.sin(twist) + s.z * Math.cos(twist);
@@ -199,7 +204,7 @@ export class ParticlesOrb extends HTMLElement {
       py += drift * (Math.cos(t * 0.62 + s.seed * 2.9) + 0.5 * Math.sin(t * 1.05 + s.seed * 5.1)) + jitter * Math.cos(t * 17 + s.seed * 6.1);
       let alpha = 0.12 + depth * depth * 0.78;
       let dot = 0.6 + depth * 1.5;
-      const ringAngle = (i / COUNT) * TAU + this.ringPhase + 0.05 * Math.sin(t * 1.3 + s.seed);
+      const ringAngle = (i / count) * TAU + this.ringPhase + 0.05 * Math.sin(t * 1.3 + s.seed);
       const ringRadius = center * (0.58 + 0.13 * s.ring) * (1 + 0.05 * Math.sin(t + s.seed * 1.7)) * (1 + p.pulse * 0.4 * Math.sin(pt * 2.6));
       px = mix(px, center + Math.cos(ringAngle) * ringRadius, p.ring);
       py = mix(py, center + Math.sin(ringAngle) * ringRadius, p.ring);
@@ -218,7 +223,7 @@ export class ParticlesOrb extends HTMLElement {
       this.starts[b] = total;
       total += this.counts[b];
     }
-    for (let i = 0; i < COUNT; i++) this.order[this.starts[this.buckets[i]]++] = i;
+    for (let i = 0; i < count; i++) this.order[this.starts[this.buckets[i]]++] = i;
 
     const paletteKey = `${this.getAttribute("color-from")}|${this.getAttribute("color-to")}|${Math.round(p.shake * 64)}`;
     if (paletteKey !== this.paletteKey) {

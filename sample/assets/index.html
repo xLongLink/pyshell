@@ -13,7 +13,7 @@
     </main>
     <div class="voice">
         <button id="voice" type="button" data-state="off" aria-label="Start voice" aria-pressed="false" disabled>
-            <particles-orb id="voice-orb" size="128" color-from="#fde047" color-to="#f59e0b" state="disabled" aria-hidden="true"></particles-orb>
+            <particles-orb id="voice-orb" size="256" color-from="#fde047" color-to="#f59e0b" state="disabled" aria-hidden="true"></particles-orb>
         </button>
         <p id="voice-error" role="alert" hidden></p>
     </div>
@@ -28,9 +28,21 @@
             if (event.origin !== widgets.origin || event.source !== frame.contentWindow) return;
             if (event.data?.type !== "workspace:widgets" || typeof event.data.hasWidgets !== "boolean") return;
             voice.classList.toggle("has-widgets", event.data.hasWidgets);
+            document.getElementById("voice-orb").setAttribute("size", event.data.hasWidgets ? "128" : "256");
         });
-        frame.src = widgets.href;
-        mountVoice();
+        try {
+            const response = await fetch("/reset", { method: "POST" });
+            if (!response.ok) {
+                const failure = await response.json();
+                throw new Error(failure.detail || "Unable to reset the workspace.");
+            }
+            frame.src = widgets.href;
+            mountVoice();
+        } catch (failure) {
+            const error = document.getElementById("workspace-error");
+            error.textContent = failure.message || "Unable to reset the workspace. Reload to try again.";
+            error.hidden = false;
+        }
     </script>
 </body>
 </html>

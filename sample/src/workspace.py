@@ -45,6 +45,7 @@ class Workspace:
         self.task: asyncio.Task[dict[str, object]] | None = None
 
         self.closing = False
+        self.resetting = False
         self.current_instruction: str | None = None
         self.phase = "idle"
         self.recent_tasks: deque[dict[str, object]] = deque(maxlen=8)
@@ -83,6 +84,8 @@ class Workspace:
         instruction = instruction_adapter.validate_python(instruction)
         if self.closing:
             raise RuntimeError("The workspace is shutting down.")
+        if self.resetting:
+            raise RuntimeError("The workspace is resetting.")
         if self.busy:
             raise RuntimeError("The shared workspace is busy. Wait for the current operation to finish.")
 

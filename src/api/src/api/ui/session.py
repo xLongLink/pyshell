@@ -1,10 +1,12 @@
 import json
+from typing import Literal
 from pydantic import TypeAdapter
 from api.ui.state import UIState
 from api.ui.types import Action, Identifier
 from collections.abc import Sequence
 from api.ui.plot.figure import Trace, Figure
 from api.ui.plot.layout import Layout
+from api.ui.plot.geojson import FeatureCollection
 
 identifier_adapter = TypeAdapter(Identifier)
 action_adapter = TypeAdapter(Action)
@@ -17,19 +19,16 @@ def _encoded_json_size(value: object) -> int:
 class UI:
     """Publish charts from persistent Python using a custom API, not Plotly.
 
-    Trace models available in the workspace: Scatter, Area, Bar, Pie, Choropleth.
-    Layout configures presentation; Figure is the returned chart handle.
-    Use help(Choropleth) or help(Layout) for usage and types. For exact fields
-    and constraints, print(Choropleth.model_json_schema()). Do not assume
-    Plotly fields are supported.
+    Use scatter(), area(), bar(), pie(), or choropleth() for a single series.
+    Read help(ui.bar), help(ui.choropleth), etc. for arguments and examples.
+    Use plot() for multiple series or advanced trace models and layout settings.
+    This is not Plotly; only the documented fields are supported.
 
     Example bar chart:
-        chart = ui.plot(data=[{"type": "bar", "x": ["A", "B"], "y": [10, 20]}],
-                        layout={"title": {"text": "Counts"}})
+        chart = ui.bar(["A", "B"], [10, 20], title="Counts")
 
     Example country map with built-in boundaries (no GeoJSON download needed):
-        chart = ui.plot(data=[{"type": "choropleth", "geography": "world",
-                               "locations": ["FRA", "DEU"], "values": [10, 20]}])
+        chart = ui.choropleth(["FRA", "DEU"], [10, 20])
         print(chart.surface_id)
 
     Use geography_info("world") to discover supported country codes and names;
@@ -47,6 +46,154 @@ class UI:
         self._closed = False
         self.state = state if state is not None else UIState()
 
+    def scatter(
+        self,
+        x: list[str | float | int],
+        y: list[float | int | None],
+        *,
+        mode: Literal["lines", "markers", "lines+markers"] = "lines",
+        name: str = "",
+        title: str = "",
+        surface_id: str | None = None,
+    ) -> Figure:
+        """Draw a line or scatter chart.
+
+        Args:
+            x: 1 to 200 coordinates, all numeric or all strings, in display order.
+            y: Equally many finite numbers; None indicates missing data.
+            mode: Draw lines, markers, or both.
+            name: Series label in the legend.
+            title: Chart title.
+            surface_id: Replace this named surface, or create a new one if omitted.
+
+        Returns:
+            A chart handle with surface_id, update(), focus(), pin(), and remove().
+
+        Example:
+            chart = ui.scatter([2024, 2025], [9.0, 9.1], mode="lines+markers")
+
+        """
+        return self.plot(
+            [{"type": "scatter", "x": x, "y": y, "mode": mode, "name": name}], layout={"title": {"text": title}}, surface_id=surface_id
+        )
+
+    def area(
+        self,
+        x: list[str | float | int],
+        y: list[float | int | None],
+        *,
+        curve: Literal["linear", "monotone"] = "linear",
+        name: str = "",
+        title: str = "",
+        surface_id: str | None = None,
+    ) -> Figure:
+        """Draw a series filled to zero.
+
+        Args:
+            x: 1 to 200 coordinates, all numeric or all strings, in display order.
+            y: Equally many finite numbers; None indicates missing data.
+            curve: Straight segments or a smooth monotone curve.
+            name: Series label in the legend.
+            title: Chart title.
+            surface_id: Replace this named surface, or create a new one if omitted.
+
+        Returns:
+            A chart handle with surface_id, update(), focus(), pin(), and remove().
+
+        Example:
+            chart = ui.area([2024, 2025], [10, 20], title="Growth")
+
+        """
+        return self.plot(
+            [{"type": "area", "x": x, "y": y, "curve": curve, "name": name}], layout={"title": {"text": title}}, surface_id=surface_id
+        )
+
+    def bar(
+        self, x: list[str | float | int], y: list[float | int | None], *, name: str = "", title: str = "", surface_id: str | None = None
+    ) -> Figure:
+        """Compare values using bars.
+
+        Args:
+            x: 1 to 200 coordinates, all numeric or all strings, in display order.
+            y: Equally many finite numbers; None indicates missing data.
+            name: Series label in the legend.
+            title: Chart title.
+            surface_id: Replace this named surface, or create a new one if omitted.
+
+        Returns:
+            A chart handle with surface_id, update(), focus(), pin(), and remove().
+
+        Example:
+            chart = ui.bar(["A", "B"], [10, 20], title="Counts")
+
+        """
+        return self.plot([{"type": "bar", "x": x, "y": y, "name": name}], layout={"title": {"text": title}}, surface_id=surface_id)
+
+    def pie(
+        self, labels: list[str], values: list[float | int | None], *, name: str = "", title: str = "", surface_id: str | None = None
+    ) -> Figure:
+        """Show nonnegative shares as pie slices.
+
+        Args:
+            labels: 1 to 200 slice labels.
+            values: Equally many finite nonnegative numbers; None omits a slice.
+            name: Series name.
+            title: Chart title.
+            surface_id: Replace this named surface, or create a new one if omitted.
+
+        Returns:
+            A chart handle with surface_id, update(), focus(), pin(), and remove().
+
+        Example:
+            chart = ui.pie(["A", "B"], [10, 20], title="Shares")
+
+        """
+        return self.plot(
+            [{"type": "pie", "labels": labels, "values": values, "name": name}], layout={"title": {"text": title}}, surface_id=surface_id
+        )
+
+    def choropleth(
+        self,
+        locations: list[str],
+        values: list[float | int | None],
+        *,
+        geography: str = "world",
+        geojson: FeatureCollection | dict[str, object] | None = None,
+        name: str = "",
+        title: str = "",
+        surface_id: str | None = None,
+    ) -> Figure:
+        """Color geographic boundaries by value.
+
+        Args:
+            locations: 1 to 200 unique supported location codes.
+            values: Equally many finite numbers; None indicates missing data.
+            geography: "world" for countries, or an uppercase ISO alpha-3 country
+                code for its administrative regions. Use geography_info() to
+                discover codes. First use downloads and caches boundaries.
+            geojson: Optional custom WGS84 Polygon/MultiPolygon FeatureCollection,
+                overriding geography. Unique string feature IDs must match
+                locations. Limited to 200 features and 4,000 coordinate positions.
+            name: Series label describing the values and their units.
+            title: Chart title.
+            surface_id: Replace this named surface, or create a new one if omitted.
+
+        Returns:
+            A chart handle with surface_id, update(), focus(), pin(), and remove().
+
+        Example:
+            chart = ui.choropleth(["CHE", "FRA"], [9.09, 68.72],
+                                 name="Population (millions)")
+
+        Map zoom, custom colors, and label placement are not supported.
+
+        """
+        return self.plot(
+            [{"type": "choropleth", "locations": locations, "values": values, "geography": geography, "geojson": geojson, "name": name}],
+            layout={"title": {"text": title}},
+            surface_id=surface_id,
+        )
+
     def plot(
         self,
         data: Sequence[Trace | dict[str, object]] | None = None,
@@ -59,9 +206,11 @@ class UI:
 
         The data argument accepts a list of trace dictionaries or trace models,
         not a Figure instance. Supported types: scatter, area, bar, pie, choropleth.
-        This is not Plotly: inspect help(Choropleth), help(Bar), etc. before using
-        unfamiliar fields; model_json_schema() lists exact fields and constraints.
-        Layout supports only title, xaxis, and showlegend; see help(Layout).
+        Prefer bar(), scatter(), area(), pie(), or choropleth() for single series.
+        This is not Plotly. Trace models provide model_json_schema() for advanced
+        field inspection. Layout supports only title, xaxis, and showlegend:
+        {"title": {"text": "Counts"}, "xaxis": {"title": {"text": "Year"}},
+         "showlegend": True}.
 
         Maps require exactly one choropleth trace with locations and values
         (not z). Prefer built-in geography="world" for countries or a country

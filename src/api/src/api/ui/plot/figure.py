@@ -47,7 +47,22 @@ class Figure(UIModel):
         return self._owner
 
     def update(self, **attributes: object) -> None:
-        """Publish validated changes without replacing the figure's identity."""
+        """Publish changes without replacing this chart's surface_id.
+
+        Args:
+            **attributes: data replaces the entire list of trace dictionaries or
+                models; layout replaces the entire layout. Omitted top-level
+                fields are preserved. Identity fields cannot be changed.
+                Layout supports title={"text": "..."},
+                xaxis={"title": {"text": "..."}}, and showlegend=True or False.
+
+        Example:
+            chart.update(data=[{"type": "bar", "x": ["A"], "y": [20]}],
+                         layout={"title": {"text": "Updated"}})
+
+        Invalid changes raise an error without modifying the published chart.
+
+        """
         self._publisher().update(self, attributes)
 
     def focus(self) -> None:

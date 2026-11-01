@@ -20,13 +20,17 @@ def boundaries():
     }
 
 
-def test_inline_map_publishes_and_updates_without_fetching_geography(monkeypatch, boundaries):
+@pytest.mark.parametrize("method", ["plot", "choropleth"])
+def test_inline_map_publishes_and_updates_without_fetching_geography(monkeypatch, boundaries, method):
     def unavailable(geography):
         pytest.fail("Inline maps must not fetch geography")
 
     monkeypatch.setattr("api.ui.plot.choropleth.geography_info", unavailable)
     ui = UI()
-    widget = ui.plot([{"type": "choropleth", "geojson": boundaries, "locations": ["CHE"], "values": [42]}])
+    if method == "plot":
+        widget = ui.plot([{"type": "choropleth", "geojson": boundaries, "locations": ["CHE"], "values": [42]}])
+    else:
+        widget = ui.choropleth(["CHE"], [42], geojson=boundaries)
     trace = widget.model_dump(mode="json")["data"][0]
     assert trace["geojson"]["features"][0]["id"] == "CHE"
     assert trace["geojson"]["features"][0]["properties"] == {"name": "Switzerland"}

@@ -51,6 +51,19 @@ class RemoteShell:
         response.raise_for_status()
         return response.json()
 
+    async def reset(self) -> None:
+        """Clear a confirmed idle execution session without retrying failures."""
+        if self.uncertain:
+            raise RuntimeError(EXECUTION_UNCERTAIN)
+        try:
+            response = await self.client.post("/reset")
+            response.raise_for_status()
+            if response.json() != {"status": "reset"}:
+                raise RuntimeError("The execution reset was not confirmed.")
+        except BaseException:
+            self.uncertain = True
+            raise
+
     async def stream(self, code: str, *, interactive: bool = False) -> Result:
         """Submit once and consume ordered output until completion is confirmed."""
         if self.uncertain:
