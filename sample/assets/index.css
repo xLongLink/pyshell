@@ -30,13 +30,33 @@ iframe {
 
 .voice {
     position: fixed;
-    right: 1.25rem;
-    bottom: 1.25rem;
+    right: calc(50% - 4rem);
+    bottom: calc(50% - 4rem);
     display: flex;
     flex-direction: row-reverse;
     align-items: center;
     gap: .75rem;
-    max-width: 20rem;
+    width: 8rem;
+    height: 8rem;
+    transition: right .7s cubic-bezier(.22, 1, .36, 1),
+                bottom .7s cubic-bezier(.22, 1, .36, 1);
+}
+
+.voice.has-widgets {
+    right: 1.25rem;
+    bottom: 1.25rem;
+}
+
+#voice-error {
+    position: absolute;
+    right: calc(100% + .75rem);
+    width: min(12rem, calc(100vw - 11.25rem));
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .voice {
+        transition: none;
+    }
 }
 
 #voice {

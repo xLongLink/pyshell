@@ -1,9 +1,20 @@
 import { useWorkspace } from "@/lib/hooks/useWorkspace";
 import { Results } from "@/components/results";
 import { ErrorBoundary } from "react-error-boundary";
+import { useEffect } from "react";
 
 export default function App() {
     const { surfaces, error } = useWorkspace();
+    const hasWidgets = surfaces.length > 0;
+
+    useEffect(() => {
+        if (window.parent !== window) {
+            window.parent.postMessage(
+                { type: "workspace:widgets", hasWidgets },
+                "*",
+            );
+        }
+    }, [hasWidgets]);
 
     return (
         <div className="flex h-dvh flex-col">

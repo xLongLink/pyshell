@@ -34,6 +34,25 @@ def test_invalid_request_is_rejected():
     assert api_client.post("/execute/stream", json={"command": "print(42)"}).status_code == 422
 
 
+def test_interactive_stream_buffers_lines_and_reset_clears_pending_input():
+    api_client = TestClient(create_app())
+
+    def submit(line):
+        response = api_client.post("/execute/stream", json={"code": line, "interactive": True})
+        assert response.status_code == 200
+        result, finished = [json.loads(event) for event in response.text.splitlines()]
+        assert finished == {"type": "execution_finished"}
+        return result
+
+    assert submit("for i in range(2):")["more_input"] is True
+    assert submit("    print(i)")["more_input"] is True
+    assert submit("")["stdout"] == "0\n1\n"
+    assert submit("if True:")["more_input"] is True
+    assert api_client.post("/reset").status_code == 200
+    assert submit("6 * 7")["stdout"] == "42\n"
+    assert api_client.post("/execute/stream", json={"code": "x = 1\nx = 2", "interactive": True}).status_code == 422
+
+
 def test_reset_preserves_capture_for_logging_handlers_retained_by_modules(monkeypatch):
     api_client = TestClient(create_app())
     logger = logging.getLogger("reset_capture")

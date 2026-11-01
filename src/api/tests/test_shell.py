@@ -81,3 +81,51 @@ def test_saved_stream_has_a_fresh_budget_and_does_not_capture_between_executions
     assert first[stream] == "é" * 524288
     assert shell.execute("print('recovered', file=saved)")[stream] == "recovered\n"
     assert shell.execute("pass")[stream] == ""
+
+
+def test_interactive_lines_distinguish_silent_completion_from_incomplete_input():
+    shell = PythonShell()
+
+    result = shell.execute("values = []", interactive=True)
+    assert result == {"stdout": "", "stderr": "", "exception": None, "done": False, "more_input": False}
+    for line in ("for i in range(3):", "    values.append(i)"):
+        result = shell.execute(line, interactive=True)
+        assert result["more_input"] is True
+        assert result["exception"] is None
+        assert shell.namespace["values"] == []
+    assert shell.execute("", interactive=True)["more_input"] is False
+    assert shell.execute("values", interactive=True)["stdout"] == "[0, 1, 2]\n"
+    assert shell.execute("done()", interactive=True)["done"] is True
+
+
+def test_interactive_multiline_expression_preserves_indentation():
+    shell = PythonShell()
+
+    for line in ("value = (", "    1 +", "    2"):
+        assert shell.execute(line, interactive=True)["more_input"] is True
+    result = shell.execute(")", interactive=True)
+    assert result["exception"] is None
+    assert result["more_input"] is False
+    assert shell.execute("value", interactive=True)["stdout"] == "3\n"
+
+
+@pytest.mark.parametrize(("lines", "error"), [(["if True:", "bad indentation"], "IndentationError"), (["1 / 0"], "ZeroDivisionError")])
+def test_interactive_errors_clear_pending_input(lines, error):
+    shell = PythonShell()
+
+    for line in lines:
+        result = shell.execute(line, interactive=True)
+    assert error in result["exception"]
+    assert result["more_input"] is False
+    assert shell.execute("40 + 2", interactive=True)["stdout"] == "42\n"
+
+
+def test_interactive_runtime_failure_keeps_successful_changes():
+    shell = PythonShell()
+    for line in ("values = []", "for i in range(3):", "    values.append(i)", "    1 / 0"):
+        shell.execute(line, interactive=True)
+
+    result = shell.execute("", interactive=True)
+
+    assert "ZeroDivisionError" in result["exception"]
+    assert shell.execute("values", interactive=True)["stdout"] == "[0]\n"

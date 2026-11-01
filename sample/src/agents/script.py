@@ -1,22 +1,25 @@
-import ast
 import json
 import traceback
+import contextlib
 from time import monotonic
-from pydantic import Field, BaseModel, ConfigDict
-from pydantic_ai import Agent as PydanticAgent
-from pydantic_ai import ModelRetry, ToolOutput
-from collections.abc import Callable
+from typing import Any
+from pydantic_ai import RunContext
+from collections.abc import Callable, AsyncGenerator
 from sample.src.shell import RemoteShell
 from pydantic_ai.usage import RunUsage, UsageLimits
-from pydantic_ai.models import Model, ModelRequestParameters
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models import Model, StreamedResponse, ModelRequestParameters
+from pydantic_ai.messages import TextPart, ModelMessage, ModelRequest, ModelResponse, UserPromptPart
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.models.wrapper import WrapperModel
 
-INSTRUCTIONS = """You work in a persistent Python workspace.
-Return each step using the generated_code output tool, with executable Python in its code field.
+INSTRUCTIONS = """You work in a persistent interactive Python terminal.
+Return exactly one line of Python as your text output, then wait for execution feedback.
 Do not emit prose, Markdown, or text pretending to call tools.
 
+- Each response is one press of Enter. Preserve indentation. Return an empty line to finish a compound statement.
+- Feedback includes more_input: true when Python is waiting for the next line of an unfinished statement.
+  Continue that statement; do not repeat lines already submitted. When more_input is false, the statement finished.
+- Expressions display their repr automatically, just like a Python REPL. Assignments may complete without output.
 - Execute incrementally: inspect, act, read the output, and continue until the request is complete.
 - Variables and imports persist. Import what you need; use print() to see results.
 - Use the provided ui object for visual output. Its chart component is api.ui.plot.figure.Figure.
@@ -47,21 +50,18 @@ Installed packages in the worker's execution environment (distribution names may
 """
 
 
-class GeneratedCode(BaseModel):
-    """Python source for one execution step in the persistent workspace."""
-
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    code: str = Field(description="Executable Python source, without prose, Markdown fences, or tool-call markup.")
-
-
 class LoggedModel(WrapperModel):
     """Log generation requests and diagnostics for any model provider."""
 
-    async def request(
-        self, messages: list[ModelMessage], model_settings: ModelSettings | None, model_request_parameters: ModelRequestParameters
-    ) -> ModelResponse:
-        """Generate code without prefill or code-fence stop sequences."""
+    @contextlib.asynccontextmanager
+    async def request_stream(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+        run_context: RunContext[Any] | None = None,
+    ) -> AsyncGenerator[StreamedResponse]:
+        """Log one streamed generation, including early newline cancellation."""
         started = monotonic()
         print(
             f"[worker:generation] model={self.model_name} messages={len(messages)} "
@@ -69,7 +69,9 @@ class LoggedModel(WrapperModel):
             flush=True,
         )
         try:
-            response = await super().request(messages, model_settings, model_request_parameters)
+            async with super().request_stream(messages, model_settings, model_request_parameters, run_context) as stream:
+                yield stream
+                response = stream.get()
         except BaseException:
             print(f"[worker:generation] failed after {monotonic() - started:.2f}s", flush=True)
             traceback.print_exc()
@@ -81,9 +83,6 @@ class LoggedModel(WrapperModel):
         )
         for call in response.tool_calls:
             print(f"[worker:generation] tool={call.tool_name}", flush=True)
-        if not response.text and not response.tool_calls:
-            print(f"[worker:generation] missing text; parts={[part.part_kind for part in response.parts]}", flush=True)
-        return response
 
 
 class Agent:
@@ -93,35 +92,28 @@ class Agent:
         """Create a model-backed agent for a remote Python session."""
         self.shell = shell
 
-        # Resolve the execution environment's package inventory on the first turn.
-        self.agent = PydanticAgent(
-            model, instructions=self._instructions, output_type=ToolOutput(GeneratedCode, name="generated_code"), retries=1
-        )
-        self.agent.output_validator(self._validate_code)
+        self.model = model
 
-        self.message_history = []
+        self.message_history: list[ModelMessage] = []
         self.pending_feedback = None
 
-    @staticmethod
-    def _validate_code(output: GeneratedCode) -> GeneratedCode:
-        """Normalize and validate Python before it reaches the container."""
-        code = output.code.strip()
-        lines = code.splitlines()
-        if len(lines) >= 2 and lines[0].lower() in {"```", "```python", "```py"} and lines[-1] == "```":
-            code = "\n".join(lines[1:-1]).strip()
-        if not code:
-            raise ModelRetry("No Python code was returned. Use generated_code with executable Python in its code field.")
-        try:
-            tree = ast.parse(code, filename="<agent>", mode="exec")
-            compile(tree, "<agent>", "exec")
-        except SyntaxError as error:
-            raise ModelRetry(
-                f"Invalid Python at line {error.lineno}: {error.msg}. "
-                "Use generated_code with corrected Python in its code field; this step was not executed."
-            ) from error
-        if not tree.body:
-            raise ModelRetry("The response contains no Python statements. Use generated_code with executable Python in its code field.")
-        return GeneratedCode(code=code)
+    async def _generate_line(self, messages: list[ModelMessage], usage: RunUsage, limits: UsageLimits) -> str:
+        """Consume only the first line, preserving indentation and blank input."""
+        limits.check_before_request(usage)
+        usage.requests += 1
+        async with self.model.request_stream(messages, {"stop_sequences": ["\n"]}, ModelRequestParameters()) as stream:
+            newline = False
+            async for _event in stream:
+                if "\n" in stream.get().text:
+                    newline = True
+                    await stream.cancel()
+                    break
+            response = stream.get()
+            usage.incr(response.usage)
+            limits.check_tokens(usage)
+            if response.tool_calls or (not newline and response.finish_reason != "stop"):
+                raise RuntimeError(f"Model response {response.finish_reason}; line was not submitted.")
+            return response.text.split("\n", 1)[0].removesuffix("\r")
 
     async def _instructions(self) -> str:
         libraries = await self.shell.inventory()
@@ -130,33 +122,30 @@ class Agent:
     async def arun(self, instruction: str, on_phase: Callable[[str], None]) -> str:
         """Generate code and return the last 4,000 characters of confirmed output."""
         usage = RunUsage()
-        limits = UsageLimits(request_limit=50, total_tokens_limit=200_000)
+        limits = UsageLimits(request_limit=200, total_tokens_limit=200_000)
         print(f"[worker:instruction] {instruction}", flush=True)
 
         # Share usage limits across every execution step in this task.
         output = ""
         prompt = f"{self.pending_feedback}\n{instruction}" if self.pending_feedback else instruction
+        instructions = await self._instructions()
         step = 0
         while True:
             on_phase("generating_code")
             print(f"[worker:step] {step + 1} generating code", flush=True)
-            response = await self.agent.run(prompt, message_history=self.message_history, usage=usage, usage_limits=limits)
-            if response.response.finish_reason not in {"stop", "tool_call"}:
-                raise RuntimeError(f"Model response {response.response.finish_reason}; code was not executed.")
-            code = response.output.code
-            self.message_history = response.all_messages()
+            request = ModelRequest(parts=[UserPromptPart(prompt)], instructions=instructions)
+            code = await self._generate_line([*self.message_history, request], usage, limits)
+            self.message_history.extend([request, ModelResponse(parts=[TextPart(code + "\n")], finish_reason="stop")])
 
             on_phase("executing_python")
             print(f"[worker:execution] step={step + 1} submitting code", flush=True)
-            result = await self.shell.stream(code)
+            result = await self.shell.stream(code, interactive=True)
 
             # Retain the completed exchange before deciding whether to continue.
             message = result.model_dump_json(exclude={"type"})
             self.pending_feedback = message
             prompt = message
-            output = "".join(text[-4000:] for text in (output, "\n" if step else "", result.stdout, result.stderr, result.exception or ""))[
-                -4000:
-            ]
+            output = "".join(text[-4000:] for text in (output, result.stdout, result.stderr, result.exception or ""))[-4000:]
 
             # Carry final execution feedback into the next user turn.
             if result.done:

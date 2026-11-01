@@ -17,6 +17,7 @@ class Result(BaseModel):
     stderr: str
     exception: str | None
     done: bool
+    more_input: bool = False
 
 
 class _Finished(BaseModel):
@@ -50,7 +51,7 @@ class RemoteShell:
         response.raise_for_status()
         return response.json()
 
-    async def stream(self, code: str) -> Result:
+    async def stream(self, code: str, *, interactive: bool = False) -> Result:
         """Submit once and consume ordered output until completion is confirmed."""
         if self.uncertain:
             raise RuntimeError(EXECUTION_UNCERTAIN)
@@ -61,7 +62,10 @@ class RemoteShell:
 
         # Once submitted, a broken stream leaves execution state uncertain.
         try:
-            async with asyncio.timeout(180), self.client.stream("POST", "/execute/stream", json={"code": code}) as response:
+            async with (
+                asyncio.timeout(180),
+                self.client.stream("POST", "/execute/stream", json={"code": code, "interactive": interactive}) as response,
+            ):
                 response.raise_for_status()
 
                 # Bound the aggregate stream, not only individual output events.

@@ -22,7 +22,14 @@
         import { mountVoice } from "/voice.mjs";
         const widgets = new URL("/", window.location.href);
         widgets.port = "8000";
-        document.querySelector("iframe").src = widgets.href;
+        const frame = document.querySelector("iframe");
+        const voice = document.querySelector(".voice");
+        window.addEventListener("message", (event) => {
+            if (event.origin !== widgets.origin || event.source !== frame.contentWindow) return;
+            if (event.data?.type !== "workspace:widgets" || typeof event.data.hasWidgets !== "boolean") return;
+            voice.classList.toggle("has-widgets", event.data.hasWidgets);
+        });
+        frame.src = widgets.href;
         mountVoice();
     </script>
 </body>

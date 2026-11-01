@@ -27,6 +27,7 @@ class ExecutionRequest(BaseModel):
     """Python source submitted for execution."""
 
     code: str
+    interactive: bool = False
 
 
 def create_app() -> FastAPI:
@@ -104,12 +105,14 @@ def create_app() -> FastAPI:
     @app.post("/execute/stream", dependencies=[Depends(require_server_request)])
     async def stream(request: ExecutionRequest) -> StreamingResponse:
         """Stream a submitted execution without coupling it to the HTTP connection."""
+        if request.interactive and ("\n" in request.code or "\r" in request.code):
+            raise HTTPException(status_code=422, detail="Submit exactly one interactive line without a newline")
         queue: Queue[dict[str, object]] = Queue(maxsize=2)
 
         def execute() -> None:
             try:
                 with lock:
-                    result = shell.execute(request.code)
+                    result = shell.execute(request.code, interactive=True) if request.interactive else shell.execute(request.code)
                 queue.put({"type": "result", **result})
 
             # Terminate connected readers even when execution fails.
