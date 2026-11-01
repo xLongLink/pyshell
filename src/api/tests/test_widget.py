@@ -1,13 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from api.ui.session import UI
 from api.ui.plot.figure import Figure
-from src.api.tests.ui_helpers import RecordingUIState
-
-
-@pytest.fixture
-def ui():
-    return UI(RecordingUIState())
 
 
 def test_widget_creation_and_updates_publish_protocol_messages(ui):

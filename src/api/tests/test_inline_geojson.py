@@ -24,7 +24,7 @@ def test_inline_map_publishes_and_updates_without_fetching_geography(monkeypatch
     def unavailable(geography):
         pytest.fail("Inline maps must not fetch geography")
 
-    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", unavailable)
+    monkeypatch.setattr("api.ui.plot.choropleth.geography_info", unavailable)
     ui = UI()
     widget = ui.plot([{"type": "choropleth", "geojson": boundaries, "locations": ["CHE"], "values": [42]}])
     trace = widget.model_dump(mode="json")["data"][0]

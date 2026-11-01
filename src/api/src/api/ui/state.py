@@ -90,8 +90,7 @@ class UIState:
                     self.surfaces[identifier] = Surface(message, messages[index + 1])
                     self._focus(identifier)
                 elif "updateComponents" in message:
-                    surface = self.surfaces[message["updateComponents"]["surfaceId"]]
-                    surface.latest_update = message
+                    self.surfaces[message["updateComponents"]["surfaceId"]].latest_update = message
                 elif "deleteSurface" in message:
                     self.surfaces.pop(message["deleteSurface"]["surfaceId"], None)
             self._broadcast()
@@ -109,12 +108,13 @@ class UIState:
             charts = []
             for identifier, surface in self.surfaces.items():
                 component = surface.latest_update["updateComponents"]["components"][0]
+                traces = component.get("data", [])
                 charts.append(
                     {
                         "surface_id": identifier,
                         "title": component.get("layout", {}).get("title", {}).get("text", "")[:300],
-                        "trace_types": list(dict.fromkeys(trace["type"] for trace in component.get("data", []))),
-                        "series": [trace.get("name", "")[:100] for trace in component.get("data", [])],
+                        "trace_types": list(dict.fromkeys(trace["type"] for trace in traces)),
+                        "series": [trace.get("name", "")[:100] for trace in traces],
                         "pinned": surface.pinned,
                     }
                 )

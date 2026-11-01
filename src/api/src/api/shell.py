@@ -33,15 +33,14 @@ class ExecutionOutput(io.StringIO):
 
     def write(self, text: str) -> int:
         """Capture and immediately forward each write."""
-        count = len(text)
         if self.capturing:
             self.size += len(text.encode())
             if self.size > 1_048_576:
                 raise RuntimeError("Python output exceeded 1 MiB per stream")
-            count = super().write(text)
+            super().write(text)
         self.stream.write(text)
         self.stream.flush()
-        return count
+        return len(text)
 
 
 class PythonShell:

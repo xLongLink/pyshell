@@ -7,7 +7,8 @@ export function Results({ surfaces }: { surfaces: Surface[] }) {
     const centered = surfaces.filter((surface) => !surface.pinned);
     const sidebar = surfaces.filter((surface) => surface.pinned);
 
-    function widget(surface: Surface, index: number, center = false) {
+    function widget(surface: Surface, index: number) {
+        const center = !surface.pinned;
         return (
             <article
                 key={surface.id}
@@ -45,9 +46,7 @@ export function Results({ surfaces }: { surfaces: Surface[] }) {
                         centered.length >= 3 && "md:grid-cols-2",
                     )}
                 >
-                    {centered.map((surface, index) =>
-                        widget(surface, index, true),
-                    )}
+                    {centered.map((surface, index) => widget(surface, index))}
                 </section>
                 {sidebar.length > 0 && (
                     <aside

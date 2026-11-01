@@ -72,7 +72,7 @@ export function mountVoice() {
           samples.reduce((sum, sample) => sum + sample * sample, 0) /
             samples.length,
         );
-        setLevel(Math.min(1, Math.max(0, rms - 0.005) * 8));
+        setLevel((rms - 0.005) * 8);
         current.frame = requestAnimationFrame(draw);
       }
 
@@ -192,13 +192,20 @@ export function mountVoice() {
           failVoice("Audio playback was blocked. Restart voice to try again.");
         });
       };
+      function ready() {
+        if (
+          current.started &&
+          peer.connectionState === "connected" &&
+          phase !== "stopping"
+        ) {
+          clearTimeout(current.timer);
+          setPhase("on");
+        }
+      }
       peer.onconnectionstatechange = () => {
         if (current !== resources || phase === "stopping") return;
         if (peer.connectionState === "connected") {
-          if (current.started) {
-            clearTimeout(current.timer);
-            setPhase("on");
-          }
+          ready();
         } else if (["failed", "disconnected"].includes(peer.connectionState)) {
           failVoice("Voice connection lost.");
         }
@@ -211,10 +218,7 @@ export function mountVoice() {
           const event = JSON.parse(data);
           if (event.type === "session.started") {
             current.started = true;
-            if (peer.connectionState === "connected" && phase !== "stopping") {
-              clearTimeout(current.timer);
-              setPhase("on");
-            }
+            ready();
           } else if (event.type === "session.closed") {
             stop(true);
           }

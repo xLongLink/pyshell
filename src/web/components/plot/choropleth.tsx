@@ -26,26 +26,23 @@ export default function Choropleth(props: MapProps) {
 
 function ProviderMap(props: MapProps) {
     const geography = props.trace.geography;
-    const [result, setResult] = useState<{
-        boundaries?: GeographyData;
-        error?: boolean;
-    }>();
+    const [result, setResult] = useState<GeographyData | null>();
     useEffect(() => {
         if (result !== undefined) return;
         let cancelled = false;
         loadGeography(geography).then(
             (boundaries) => {
-                if (!cancelled) setResult({ boundaries });
+                if (!cancelled) setResult(boundaries);
             },
             () => {
-                if (!cancelled) setResult({ error: true });
+                if (!cancelled) setResult(null);
             },
         );
         return () => {
             cancelled = true;
         };
     }, [geography, result]);
-    if (result?.error) {
+    if (result === null) {
         return (
             <div role="alert" className="py-8 text-sm text-muted-foreground">
                 Unable to load map boundaries.{" "}
@@ -58,19 +55,16 @@ function ProviderMap(props: MapProps) {
             </div>
         );
     }
-    if (!result?.boundaries) {
+    if (result === undefined) {
         return (
             <p role="status" className="py-8 text-sm text-muted-foreground">
                 Loading map…
             </p>
         );
     }
-    const locations = new Set(
-        result.boundaries.features.map((feature) => feature.id),
-    );
+    const locations = new Set(result.features.map((feature) => feature.id));
     if (
-        result.boundaries.level !==
-            (geography === "world" ? "country" : "region") ||
+        result.level !== (geography === "world" ? "country" : "region") ||
         props.trace.locations.some((code) => !locations.has(code))
     ) {
         return (
@@ -79,7 +73,7 @@ function ProviderMap(props: MapProps) {
             </p>
         );
     }
-    return <BoundaryMap {...props} boundaries={result.boundaries} />;
+    return <BoundaryMap {...props} boundaries={result} />;
 }
 
 function BoundaryMap({

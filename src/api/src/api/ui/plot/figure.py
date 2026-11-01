@@ -57,13 +57,11 @@ class Figure(UIModel):
     @model_validator(mode="after")
     def traces(self) -> "Figure":
         """Require compatible traces on one coordinate system."""
-        standalone = next((trace for trace in self.data if isinstance(trace, (Pie, Choropleth))), None)
-        if standalone is not None:
+        if any(isinstance(trace, (Pie, Choropleth)) for trace in self.data):
             if len(self.data) != 1:
                 if any(isinstance(trace, Choropleth) for trace in self.data):
                     raise ValueError("A map figure requires exactly one choropleth trace")
                 raise ValueError("A pie figure requires exactly one pie trace")
-            count = len(standalone.values)
 
         # Cartesian traces share one numeric or categorical coordinate system.
         else:
@@ -71,7 +69,7 @@ class Figure(UIModel):
                 raise ValueError("All x coordinates must be numeric or all categorical")
             count = sum(len(trace.x) for trace in self.data)
 
-        # The point budget applies to the entire figure, not each trace.
-        if count > 200:
-            raise ValueError("A figure accepts at most 200 total points")
+            # The point budget applies to the entire figure, not each trace.
+            if count > 200:
+                raise ValueError("A figure accepts at most 200 total points")
         return self

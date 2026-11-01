@@ -3,12 +3,6 @@ import pytest
 from api.shell import PythonShell
 from api.ui.session import UI
 from api.ui.plot.figure import Figure
-from src.api.tests.ui_helpers import RecordingUIState
-
-
-@pytest.fixture
-def ui():
-    return UI(RecordingUIState())
 
 
 @pytest.mark.parametrize("split", [False, True])

@@ -108,7 +108,7 @@ test("batch complexity limits stop validation before message parsing", () => {
     }
 });
 
-test("snapshot batches retain message-count and UTF-8 byte limits", () => {
+test("snapshot batches require two messages and retain UTF-8 byte limits", () => {
     const create = {
         version: "v0.9",
         createSurface: { surfaceId: "sales" },
@@ -138,14 +138,18 @@ test("snapshot batches retain message-count and UTF-8 byte limits", () => {
     const serialized = JSON.stringify(oversized);
     assert.ok(serialized.length < 1048576);
     assert.ok(new TextEncoder().encode(serialized).length > 1048576);
-    for (const payload of [Array(101).fill(create), oversized]) {
-        const parsed = a2uiBatchSchema.safeParse(payload);
-        assert(!parsed.success);
-        assert.deepEqual(
-            parsed.error.issues.map(({ message }) => message),
-            ["UI batch exceeds the display limits"],
+    for (const length of [3, 101, 501]) {
+        assert.equal(
+            a2uiBatchSchema.safeParse(Array(length).fill(create)).success,
+            false,
         );
     }
+    const parsed = a2uiBatchSchema.safeParse(oversized);
+    assert(!parsed.success);
+    assert.deepEqual(
+        parsed.error.issues.map(({ message }) => message),
+        ["UI batch exceeds the display limits"],
+    );
 });
 
 test.each([

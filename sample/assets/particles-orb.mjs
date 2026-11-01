@@ -11,12 +11,12 @@ const rgb = (hex) => {
 };
 
 const STATES = {
-  idle: { spin: 0.14, breathe: 0.05, drift: 1, ripple: 0, swell: 0.04, flow: 0, swirl: 0, pulse: 0, pulseRate: 1, ring: 0, jitter: 0, shake: 0, alpha: 0.72, rest: 0 },
-  connecting: { spin: 0.3, breathe: 0.02, drift: 0.2, ripple: 0, swell: 0, flow: 0, swirl: 0, pulse: 0.06, pulseRate: 0.5, ring: 1, jitter: 0, shake: 0, alpha: 0.8, rest: 0.12 },
-  listening: { spin: 0.55, breathe: 0.012, drift: 0, ripple: 1, swell: 0.12, flow: 0, swirl: 0, pulse: 0, pulseRate: 1, ring: 0, jitter: 0, shake: 0, alpha: 0.92, rest: 0.55 },
-  speaking: { spin: 0.24, breathe: 0.01, drift: 0, ripple: 0, swell: 0.06, flow: 1, swirl: 1, pulse: 0, pulseRate: 1, ring: 0, jitter: 0.6, shake: 0, alpha: 0.94, rest: 0.55 },
-  error: { spin: 0.08, breathe: 0, drift: 0, ripple: 0, swell: 0, flow: 0, swirl: 0, pulse: 0, pulseRate: 1, ring: 0, jitter: 0.7, shake: 1, alpha: 0.85, rest: 0.2 },
-  disabled: { spin: 0, breathe: 0, drift: 0, ripple: 0, swell: 0, flow: 0, swirl: 0, pulse: 0, pulseRate: 1, ring: 0, jitter: 0, shake: 0, alpha: 0.45, rest: 0 },
+  idle: { spin: 0.14, breathe: 0.05, drift: 1, ripple: 0, swell: 0.04, flow: 0, pulse: 0, pulseRate: 1, ring: 0, jitter: 0, shake: 0, alpha: 0.72, rest: 0 },
+  connecting: { spin: 0.3, breathe: 0.02, drift: 0.2, ripple: 0, swell: 0, flow: 0, pulse: 0.06, pulseRate: 0.5, ring: 1, jitter: 0, shake: 0, alpha: 0.8, rest: 0.12 },
+  listening: { spin: 0.55, breathe: 0.012, drift: 0, ripple: 1, swell: 0.12, flow: 0, pulse: 0, pulseRate: 1, ring: 0, jitter: 0, shake: 0, alpha: 0.92, rest: 0.55 },
+  speaking: { spin: 0.24, breathe: 0.01, drift: 0, ripple: 0, swell: 0.06, flow: 1, pulse: 0, pulseRate: 1, ring: 0, jitter: 0.6, shake: 0, alpha: 0.94, rest: 0.55 },
+  error: { spin: 0.08, breathe: 0, drift: 0, ripple: 0, swell: 0, flow: 0, pulse: 0, pulseRate: 1, ring: 0, jitter: 0.7, shake: 1, alpha: 0.85, rest: 0.2 },
+  disabled: { spin: 0, breathe: 0, drift: 0, ripple: 0, swell: 0, flow: 0, pulse: 0, pulseRate: 1, ring: 0, jitter: 0, shake: 0, alpha: 0.45, rest: 0 },
 };
 
 const sphere = Array.from({ length: COUNT }, (_, index) => {
@@ -51,7 +51,6 @@ export class ParticlesOrb extends HTMLElement {
     this.params = { ...STATES.idle };
     this.targetLevel = 0;
     this.energy = 0;
-    this.errorWeight = 0;
     this.clock = 0;
     this.pulseClock = 0;
     this.angle = 0;
@@ -163,7 +162,6 @@ export class ParticlesOrb extends HTMLElement {
     for (const key of Object.keys(target)) this.params[key] = mix(this.params[key], target[key], blend);
     const p = this.params;
     this.energy = mix(this.energy, this.targetLevel, 1 - Math.exp(-dt * (this.targetLevel > this.energy ? 16 : 7.5)));
-    this.errorWeight = mix(this.errorWeight, Number(this.state === "error"), blend);
     const level = this.motion.matches ? p.rest : this.energy;
     const elapsed = this.motion.matches ? 0 : dt;
     this.clock += elapsed;
@@ -179,7 +177,7 @@ export class ParticlesOrb extends HTMLElement {
     const radius = center * 0.62 * (1 + p.breathe * Math.sin(t * 1.1) + level * p.swell - p.pulse * (0.06 + 0.12 * beat ** 3));
     const jitter = p.jitter * radius * (0.012 + level * 0.07);
     const drift = p.drift * radius * 0.055;
-    const swirl = p.swirl * (0.35 + level * 0.9);
+    const swirl = p.flow * (0.35 + level * 0.9);
     const shakeX = p.shake * radius * 0.05 * (Math.sin(t * 26) + 0.5 * Math.sin(t * 15.7));
     const shakeY = p.shake * radius * 0.05 * (Math.cos(t * 22.5) + 0.5 * Math.sin(t * 13.1));
     this.counts.fill(0);
@@ -222,7 +220,7 @@ export class ParticlesOrb extends HTMLElement {
     }
     for (let i = 0; i < COUNT; i++) this.order[this.starts[this.buckets[i]]++] = i;
 
-    const paletteKey = `${this.getAttribute("color-from")}|${this.getAttribute("color-to")}|${Math.round(this.errorWeight * 64)}`;
+    const paletteKey = `${this.getAttribute("color-from")}|${this.getAttribute("color-to")}|${Math.round(p.shake * 64)}`;
     if (paletteKey !== this.paletteKey) {
       this.paletteKey = paletteKey;
       const from = rgb(this.getAttribute("color-from") || "#f0abfc");
@@ -230,7 +228,7 @@ export class ParticlesOrb extends HTMLElement {
       const errorFrom = [248, 113, 113];
       const errorTo = [251, 146, 60];
       this.palette = Array.from({ length: TONES }, (_, b) => {
-        const channels = from.map((value, channel) => mix(mix(value, errorFrom[channel], this.errorWeight), mix(to[channel], errorTo[channel], this.errorWeight), (b + 0.5) / TONES));
+        const channels = from.map((value, channel) => mix(mix(value, errorFrom[channel], p.shake), mix(to[channel], errorTo[channel], p.shake), (b + 0.5) / TONES));
         return `rgb(${channels.join(",")})`;
       });
     }

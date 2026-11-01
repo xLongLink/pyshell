@@ -78,7 +78,7 @@ class Workspace:
         for listener in tuple(self.listeners):
             listener.publish(event)
 
-    def start(self, instruction: str) -> None:
+    def start(self, instruction: str) -> asyncio.Task[dict[str, object]]:
         """Submit work once, outside the socket's lifetime."""
         instruction = instruction_adapter.validate_python(instruction)
         if self.closing:
@@ -97,6 +97,7 @@ class Workspace:
 
         self.publish({"type": "instruction"})
         self.task = asyncio.create_task(self._execute(instruction))
+        return self.task
 
     async def _execute(self, instruction: str) -> dict[str, object]:
         """Record execution feedback for voice and publish shared status."""

@@ -156,7 +156,6 @@ export const a2uiBatchSchema = z.preprocess((value, context) => {
     }
     if (
         !Array.isArray(value) ||
-        value.length > 100 ||
         new TextEncoder().encode(JSON.stringify(value)).length > 1048576
     ) {
         context.addIssue({

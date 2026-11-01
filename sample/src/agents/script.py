@@ -193,8 +193,9 @@ class Agent:
             print(f"[worker:feedback] step={step + 1} {message}", flush=True)
             self.pending_feedback = message
             prompt = message
-            for text in ("\n" if step else "", result.stdout, result.stderr, result.exception or ""):
-                output = (output + text[-4000:])[-4000:]
+            output = "".join(text[-4000:] for text in (output, "\n" if step else "", result.stdout, result.stderr, result.exception or ""))[
+                -4000:
+            ]
 
             # Carry final execution feedback into the next user turn.
             if result.done:

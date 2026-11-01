@@ -9,7 +9,7 @@ action_adapter = TypeAdapter(Action)
 
 
 def _encoded_json_size(value: object) -> int:
-    return len(json.dumps(value, allow_nan=False).encode())
+    return len(json.dumps(value, allow_nan=False))
 
 
 class UI:
@@ -91,7 +91,7 @@ class UI:
         self._node_count = count
 
     def _active(self, widget: Figure) -> None:
-        if self._closed or self._widgets.get(widget.surface_id) is not widget:
+        if self._widgets.get(widget.surface_id) is not widget:
             raise RuntimeError("This widget was removed, replaced, or reset")
 
     def update(self, widget: Figure, attributes: dict[str, object]) -> None:
@@ -99,7 +99,7 @@ class UI:
         self._active(widget)
         if {"id", "component"} & attributes.keys():
             raise ValueError("Widget identity and type cannot be changed by update()")
-        candidate = Figure.model_validate({**widget.model_dump(mode="json"), **attributes})
+        candidate = Figure.model_validate({**widget.model_dump(mode="json", exclude=set(attributes)), **attributes})
         self._publish([self._content(widget.surface_id, candidate)])
 
         # Commit validated attributes only after the update has been published.

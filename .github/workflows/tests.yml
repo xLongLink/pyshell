@@ -5,9 +5,17 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+    inputs:
+      export-image:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !inputs.export-image && github.ref_type != 'tag' }}
 
 jobs:
   lint:
@@ -15,13 +23,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: '0.13.4'
           enable-cache: true
-      - run: uvx ruff check .
-      - run: uvx ruff format --check .
-      - run: uvx pyunslop
+      - run: uvx ruff==0.17.3 check .
+      - run: uvx ruff==0.17.3 format --check .
+      - run: uvx pyunslop==0.0.4
 
   tests:
     runs-on: ubuntu-24.04
@@ -31,31 +41,63 @@ jobs:
         python: ['3.10', '3.12']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: '0.13.4'
           enable-cache: true
-      - run: uv run --locked --project src/api --python "${PYTHON_VERSION}" pytest -c src/api/pyproject.toml src/api/tests -v
-        env:
-          PYTHON_VERSION: ${{ matrix.python }}
+      - run: uv run --directory src/api --locked --python "${{ matrix.python }}" pytest -v
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: src/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - run: npm ci
+      - run: npm test
 
   container:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker build -t pyshell:test -f src/api/Dockerfile src
-      - name: Check startup with a read-only filesystem
-        run: |
-          docker run --rm --network none --read-only \
-            --tmpfs /tmp:size=512m,mode=1777,exec \
-            pyshell:test --help
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: src
+          file: src/api/Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          load: true
+          tags: pyshell:test
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.description=Python agent shell
+          cache-from: type=gha,scope=pyshell
+          cache-to: type=gha,mode=max,scope=pyshell
       - name: Check container permissions and workspace
         run: |
           docker run --rm --network none --entrypoint python pyshell:test -c '
           import os
           from pathlib import Path
-          import api.main
           assert os.getuid() != 0
           assert Path.cwd() == Path("/workspace")
           path = Path("smoke.txt")
@@ -64,10 +106,18 @@ jobs:
           '
       - name: Check persistent execution API
         run: |
-          docker run --detach --name pyshell-api-check --network none --read-only \
-            --tmpfs /tmp:size=512m,mode=1777,exec pyshell:test
-          trap 'docker rm --force pyshell-api-check' EXIT
-          docker exec -i pyshell-api-check python - <<'PY'
+          container=$(docker run --detach --network none --read-only \
+            --tmpfs /tmp:size=512m,mode=1777,exec pyshell:test)
+          cleanup() {
+            status=$?
+            if (( status != 0 )); then
+              docker logs "$container" || true
+            fi
+            docker rm --force "$container" || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+          docker exec -i "$container" python - <<'PY'
           import json
           import time
           import urllib.request
@@ -98,3 +148,15 @@ jobs:
           assert execute("value = 42")["exception"] is None
           assert execute("print(value)")["stdout"] == "42\n"
           PY
+      - name: Export tested image
+        if: inputs.export-image
+        run: docker save --output "${RUNNER_TEMP}/pyshell.tar" pyshell:test
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: inputs.export-image
+        with:
+          name: pyshell-image
+          path: ${{ runner.temp }}/pyshell.tar
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+          compression-level: 0

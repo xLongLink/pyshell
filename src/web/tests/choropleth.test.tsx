@@ -66,6 +66,28 @@ test("a successful retry keeps its boundaries without additional loads", async (
     expect(load).toHaveBeenCalledTimes(2);
 });
 
+test("provider maps render the same boundary for either ring winding without mutating it", async () => {
+    const reversed = structuredClone(boundaries);
+    reversed.features[0].geometry.coordinates[0].reverse();
+    const original = structuredClone(reversed);
+    vi.spyOn(geographyLoader, "loadGeography")
+        .mockResolvedValueOnce(boundaries)
+        .mockResolvedValueOnce(reversed);
+    const first = render(<Figure {...props} />);
+    const path = (
+        await screen.findByRole("img", { name: "France: 42" })
+    ).getAttribute("d");
+    expect(path).toBeTruthy();
+    first.unmount();
+    render(<Figure {...props} />);
+    expect(
+        (await screen.findByRole("img", { name: "France: 42" })).getAttribute(
+            "d",
+        ),
+    ).toBe(path);
+    expect(reversed).toEqual(original);
+});
+
 test("changing geography replaces the pending map and ignores its old load", async () => {
     let resolve!: (value: geographyLoader.Geography) => void;
     const pending = new Promise<geographyLoader.Geography>((yes) => {

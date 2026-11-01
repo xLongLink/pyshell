@@ -67,6 +67,10 @@ export function Cartesian({
             ? 1
             : Math.min(...xs.slice(1).map((x, index) => x - xs[index]));
     const padding = xs.length === 1 ? 0.5 : hasBars ? spacing / 2 : 0;
+    const domain: [number, number] = [
+        xs[0] - padding,
+        xs[xs.length - 1] + padding,
+    ];
     const ys = data.flatMap((trace) =>
         trace.y.filter((y): y is number => y !== null),
     );
@@ -126,7 +130,7 @@ export function Cartesian({
                 <XAxis
                     dataKey="tooltipX"
                     type="number"
-                    domain={[xs[0] - padding, xs[xs.length - 1] + padding]}
+                    domain={domain}
                     ticks={
                         numeric
                             ? undefined
@@ -150,7 +154,7 @@ export function Cartesian({
                     xAxisId="traces"
                     dataKey="x"
                     type="number"
-                    domain={[xs[0] - padding, xs[xs.length - 1] + padding]}
+                    domain={domain}
                     allowDataOverflow
                     hide
                 />
@@ -195,7 +199,6 @@ export function Cartesian({
                             name={name}
                             fill={color}
                             radius={4}
-                            maxBarSize={48}
                             isAnimationActive={false}
                         />
                     ) : (

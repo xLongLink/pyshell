@@ -3,7 +3,7 @@ from pydantic import Field, model_validator
 from api.ui.model import UIModel
 from api.ui.types import Number, TextValue, ImmutableList
 from api.ui.plot.geojson import FeatureCollection
-from api.ui.plot.geography import _geography_info
+from api.ui.plot.geography import geography_info
 
 
 class Choropleth(UIModel):
@@ -32,7 +32,7 @@ class Choropleth(UIModel):
                 raise ValueError("Unknown location for the supplied GeoJSON")
             return self
         try:
-            geography = _geography_info(self.geography)
+            geography = geography_info(self.geography)
         except OSError as error:
             raise ValueError("Map data is unavailable; first use requires internet access") from error
         if geography["level"] != ("country" if self.geography == "world" else "region"):

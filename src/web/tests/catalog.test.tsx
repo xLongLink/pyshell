@@ -128,3 +128,18 @@ test("the sidebar renders every backend-pinned widget in surface order", () => {
             .querySelectorAll("article"),
     ).toHaveLength(0);
 });
+
+test("only the third centered widget spans both columns", () => {
+    const surfaces = ["first", "second", "third", "side"].flatMap((id) =>
+        bar("", id),
+    );
+    surfaces[3].pinned = true;
+    render(<Results surfaces={surfaces} />);
+    for (const surface of surfaces) {
+        expect(
+            screen
+                .getByRole("article", { name: `Widget ${surface.id}` })
+                .classList.contains("md:col-span-2"),
+        ).toBe(surface.id === "third");
+    }
+});

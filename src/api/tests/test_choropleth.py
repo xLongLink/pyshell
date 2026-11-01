@@ -17,7 +17,7 @@ INVALID_TRACES = [
 
 @pytest.mark.parametrize(("name", "level", "location"), [("world", "country", "CHE"), ("CHE", "region", "CH-ZH")])
 def test_geography_determines_level_without_a_trace_field(monkeypatch, name, level, location):
-    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", lambda geography: {"level": level, "locations": {location: "Location"}})
+    monkeypatch.setattr("api.ui.plot.choropleth.geography_info", lambda geography: {"level": level, "locations": {location: "Location"}})
     ui = UI()
     chart = ui.plot([{"type": "choropleth", "geography": name, "locations": [location], "values": [1]}])
     assert chart.data[0].geography == name
@@ -30,7 +30,7 @@ def test_geography_determines_level_without_a_trace_field(monkeypatch, name, lev
 @pytest.mark.parametrize(("name", "level"), [("world", "region"), ("CHE", "country")])
 @pytest.mark.parametrize("operation", ["update", "replace"])
 def test_wrong_boundary_level_preserves_an_existing_plot(monkeypatch, name, level, operation):
-    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", lambda geography: {"level": level, "locations": {"CHE": "Switzerland"}})
+    monkeypatch.setattr("api.ui.plot.choropleth.geography_info", lambda geography: {"level": level, "locations": {"CHE": "Switzerland"}})
     ui = UI()
     chart = ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id="map")
     snapshot = ui.state.snapshot()
@@ -69,7 +69,7 @@ def test_validation_checks_input_structure_before_geography_lookup(monkeypatch, 
     def unexpected_lookup(name):
         pytest.fail("Invalid input must be rejected before geography lookup")
 
-    monkeypatch.setattr("api.ui.plot.choropleth._geography_info", unexpected_lookup)
+    monkeypatch.setattr("api.ui.plot.choropleth.geography_info", unexpected_lookup)
 
     with pytest.raises(ValidationError) as error:
         UI().plot([{"type": "choropleth", "geography": "CHE", **trace}])

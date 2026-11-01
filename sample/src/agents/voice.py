@@ -164,50 +164,44 @@ class VoiceSession:
                 result = await self.workspace.context()
             elif call.name == "worker":
                 arguments = _WorkerArguments.model_validate_json(call.arguments)
-                self.workspace.start(arguments.instructions)
-                task = self.workspace.task
-                if task is None:
-                    raise RuntimeError("The workspace did not create a task.")
+                task = self.workspace.start(arguments.instructions)
                 result = await asyncio.shield(task)
             else:
                 raise ValueError(f"Unknown tool: {call.name}")
         except (ValueError, RuntimeError) as error:
             result = {"error": str(error), "instruction": "Do not automatically retry this operation."}
-        print(f"[voice:tool-result] {call.name} {json.dumps(result)}", flush=True)
-        await session.response.item.create(item={"type": "function_call_output", "call_id": call.call_id, "output": json.dumps(result)})
+        output = json.dumps(result)
+        print(f"[voice:tool-result] {call.name} {output}", flush=True)
+        await session.response.item.create(item={"type": "function_call_output", "call_id": call.call_id, "output": output})
         await session.response.create()
 
-    async def _serve(self, session: AsyncSidebandConnection, sdp: str) -> bool:
+    async def _serve(self, session: AsyncSidebandConnection, sdp: str) -> None:
         """Read Live events while backend tools run independently of the audio."""
         seen: set[str] = set()
         tasks: set[asyncio.Task[None]] = set()
-        try:
-            async with asyncio.TaskGroup() as group:
-                self.emit({"type": "voice", "name": "answer", "sdp": sdp})
-                async for event in session:
-                    if event.type in {"session.input_transcript.delta", "session.output_transcript.delta"}:
-                        speaker = "user" if event.type == "session.input_transcript.delta" else "assistant"
-                        print(f"[voice:{speaker}] {event.delta}", flush=True)
-                    elif event.type == "response.event" and event.event.get("type") == "response.output_item.done":
-                        item = event.event.get("item")
-                        if isinstance(item, dict) and item.get("type") == "function_call":
-                            call = ResponseFunctionToolCall.model_validate(item)
-                            if call.call_id not in seen:
-                                seen.add(call.call_id)
-                                task = group.create_task(self._run_tool(session, call))
-                                tasks.add(task)
-                                task.add_done_callback(tasks.discard)
-                    elif event.type == "error":
-                        raise RuntimeError(f"Live provider error: {event.error.code}: {event.error.message}")
-                    elif event.type == "session.closed":
-                        print(f"[voice:closed] usage={event.usage}", flush=True)
-                        for task in tasks:
-                            task.cancel()
-                        return True
-                raise RuntimeError("The Live event stream ended before session.closed.")
-        finally:
-            for task in tasks:
-                task.cancel()
+        async with asyncio.TaskGroup() as group:
+            self.emit({"type": "voice", "name": "answer", "sdp": sdp})
+            async for event in session:
+                if event.type in {"session.input_transcript.delta", "session.output_transcript.delta"}:
+                    speaker = "user" if event.type == "session.input_transcript.delta" else "assistant"
+                    print(f"[voice:{speaker}] {event.delta}", flush=True)
+                elif event.type == "response.event" and event.event.get("type") == "response.output_item.done":
+                    item = event.event.get("item")
+                    if isinstance(item, dict) and item.get("type") == "function_call":
+                        call = ResponseFunctionToolCall.model_validate(item)
+                        if call.call_id not in seen:
+                            seen.add(call.call_id)
+                            task = group.create_task(self._run_tool(session, call))
+                            tasks.add(task)
+                            task.add_done_callback(tasks.discard)
+                elif event.type == "error":
+                    raise RuntimeError(f"Live provider error: {event.error.code}: {event.error.message}")
+                elif event.type == "session.closed":
+                    print(f"[voice:closed] usage={event.usage}", flush=True)
+                    for task in tasks:
+                        task.cancel()
+                    return
+            raise RuntimeError("The Live event stream ended before session.closed.")
 
     async def _connect(self, sdp: str) -> None:
         """Negotiate WebRTC and keep the provider sideband alive until hangup."""
@@ -220,7 +214,8 @@ class VoiceSession:
                 async with self.client.live.sideband.connect(session_id=session_id, max_retries=0) as session:
                     setup.reschedule(None)
                     try:
-                        finalized = await self._serve(session, answer.transport.sdp)
+                        await self._serve(session, answer.transport.sdp)
+                        finalized = True
                     finally:
                         if not finalized:
                             with suppress(Exception):

@@ -102,8 +102,7 @@ def test_widget_connection_cannot_submit_python():
 def test_container_state_preserves_focus_and_partial_updates():
     ui = UI()
     charts = [ui.plot([{"type": "bar", "x": ["A"], "y": [1]}], surface_id=f"chart_{index}") for index in range(5)]
-    before = ui.state.snapshot()
-    assert before["placements"]["chart_0"] == {"pinned": True}
+    assert ui.state.snapshot()["placements"]["chart_0"] == {"pinned": True}
     charts[0].focus()
     assert ui.state.snapshot()["placements"]["chart_1"] == {"pinned": True}
     charts[2].pin()

@@ -38,7 +38,7 @@ export function loadGeography(geography: string): Promise<Geography> {
             const data = geographySchema.parse(await response.json());
             if (data.geography !== geography)
                 throw new Error("Unexpected geography");
-            return orientBoundaries(data);
+            return data;
         },
     );
 }
