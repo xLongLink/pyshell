@@ -12,7 +12,10 @@ export function Figure({
     compact = false,
 }: FigureProps & { compact?: boolean }) {
     const trace = data[0];
-    const cartesian = data as Extract<Trace, { type: "bar" | "scatter" }>[];
+    const cartesian = data as Extract<
+        Trace,
+        { type: "bar" | "scatter" | "area" }
+    >[];
     const chartLayout = compact
         ? {
               ...layout,

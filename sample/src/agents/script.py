@@ -1,4 +1,3 @@
-import json
 import traceback
 import contextlib
 from time import monotonic
@@ -22,6 +21,7 @@ Do not emit prose, Markdown, or text pretending to call tools.
 - Expressions display their repr automatically, just like a Python REPL. Assignments may complete without output.
 - Execute incrementally: inspect, act, read the output, and continue until the request is complete.
 - Variables and imports persist. Import what you need; use print() to see results.
+- Startup exchanges show the preloaded imports and installed packages. Reuse those imports.
 - Use the provided ui object for visual output. Its chart component is api.ui.plot.figure.Figure.
 - Before using an unfamiliar library or application API:
   - Discover available members with dir(module).
@@ -45,9 +45,17 @@ Do not emit prose, Markdown, or text pretending to call tools.
   Otherwise, continue inspecting and working. If blocked, print the limitation and call done()
   without claiming success.
 
-Installed packages in the worker's execution environment (distribution names may differ from import names):
-{libraries}
 """
+
+STARTUP_LINES = (
+    "import inspect, json, math, statistics",
+    "import numpy as np; import pandas as pd; import scipy; import openpyxl",
+    "from api.ui.plot.figure import Figure; from importlib.metadata import distributions",
+    "print(json.dumps({'preloaded': ['inspect', 'json', 'math', 'statistics', 'np', 'pd', 'scipy', 'openpyxl', 'Figure'], "
+    "'workspace': ['ui', 'done'], 'installed_packages': sorted("
+    "({'name': package.metadata['Name'], 'version': package.version} for package in distributions()), "
+    "key=lambda package: package['name'].casefold())}))",
+)
 
 
 class LoggedModel(WrapperModel):
@@ -96,15 +104,39 @@ class Agent:
 
         self.message_history: list[ModelMessage] = []
         self.pending_feedback = None
+        self.initialized = False
+
+    async def _initialize(self, on_phase: Callable[[str], None]) -> None:
+        """Seed the conversation with confirmed imports and environment output."""
+        if self.initialized:
+            return
+        on_phase("executing_python")
+        self.message_history.append(
+            ModelRequest(
+                parts=[UserPromptPart("Initialize the Python terminal and report the available libraries.")], instructions=INSTRUCTIONS
+            )
+        )
+        for code in STARTUP_LINES:
+            result = await self.shell.stream(code, interactive=True)
+            self.message_history.extend(
+                [
+                    ModelResponse(parts=[TextPart(code + "\n")], finish_reason="stop"),
+                    ModelRequest(parts=[UserPromptPart(result.model_dump_json(exclude={"type"}))], instructions=INSTRUCTIONS),
+                ]
+            )
+            if result.exception or result.more_input or result.done:
+                raise RuntimeError(f"Python terminal initialization failed: {result.model_dump_json(exclude={'type'})}")
+        self.initialized = True
 
     async def _generate_line(self, messages: list[ModelMessage], usage: RunUsage, limits: UsageLimits) -> str:
         """Consume only the first line, preserving indentation and blank input."""
         limits.check_before_request(usage)
         usage.requests += 1
-        async with self.model.request_stream(messages, {"stop_sequences": ["\n"]}, ModelRequestParameters()) as stream:
+        async with self.model.request_stream(messages, None, ModelRequestParameters()) as stream:
             newline = False
             async for _event in stream:
-                if "\n" in stream.get().text:
+                text = stream.get().text
+                if text is not None and "\n" in text:
                     newline = True
                     await stream.cancel()
                     break
@@ -113,27 +145,26 @@ class Agent:
             limits.check_tokens(usage)
             if response.tool_calls or (not newline and response.finish_reason != "stop"):
                 raise RuntimeError(f"Model response {response.finish_reason}; line was not submitted.")
-            return response.text.split("\n", 1)[0].removesuffix("\r")
-
-    async def _instructions(self) -> str:
-        libraries = await self.shell.inventory()
-        return INSTRUCTIONS.format(libraries=json.dumps(libraries))
+            text = response.text
+            if not text:
+                raise RuntimeError("Model returned no Python text; line was not submitted.")
+            return text.split("\n", 1)[0].removesuffix("\r")
 
     async def arun(self, instruction: str, on_phase: Callable[[str], None]) -> str:
         """Generate code and return the last 4,000 characters of confirmed output."""
         usage = RunUsage()
         limits = UsageLimits(request_limit=200, total_tokens_limit=200_000)
         print(f"[worker:instruction] {instruction}", flush=True)
+        await self._initialize(on_phase)
 
         # Share usage limits across every execution step in this task.
         output = ""
         prompt = f"{self.pending_feedback}\n{instruction}" if self.pending_feedback else instruction
-        instructions = await self._instructions()
         step = 0
         while True:
             on_phase("generating_code")
             print(f"[worker:step] {step + 1} generating code", flush=True)
-            request = ModelRequest(parts=[UserPromptPart(prompt)], instructions=instructions)
+            request = ModelRequest(parts=[UserPromptPart(prompt)], instructions=INSTRUCTIONS)
             code = await self._generate_line([*self.message_history, request], usage, limits)
             self.message_history.extend([request, ModelResponse(parts=[TextPart(code + "\n")], finish_reason="stop")])
 

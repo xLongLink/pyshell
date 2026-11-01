@@ -1,4 +1,5 @@
 import {
+    Area,
     Bar,
     CartesianGrid,
     ComposedChart,
@@ -9,6 +10,7 @@ import {
     XAxis,
     YAxis,
 } from "recharts";
+import { useId } from "react";
 import {
     ChartContainer,
     ChartLegendContent,
@@ -16,7 +18,7 @@ import {
 } from "@/components/ui/chart";
 import { traceColor, type FigureProps, type Trace } from "./common";
 
-type CartesianTrace = Extract<Trace, { type: "bar" | "scatter" }>;
+type CartesianTrace = Extract<Trace, { type: "bar" | "scatter" | "area" }>;
 
 function SizedBar({
     spacing,
@@ -42,6 +44,7 @@ export function Cartesian({
     data: CartesianTrace[];
     layout: FigureProps["layout"];
 }) {
+    const gradientId = useId().replace(/:/g, "");
     const numeric = typeof data[0].x[0] === "number";
     const categories = numeric
         ? []
@@ -126,6 +129,31 @@ export function Cartesian({
                     left: 0,
                 }}
             >
+                <defs>
+                    {data.map((trace, index) =>
+                        trace.type === "area" ? (
+                            <linearGradient
+                                key={index}
+                                id={`${gradientId}-area-${index}`}
+                                x1="0"
+                                y1="0"
+                                x2="0"
+                                y2="1"
+                            >
+                                <stop
+                                    offset="0%"
+                                    stopColor={traceColor(index)}
+                                    stopOpacity={0.65}
+                                />
+                                <stop
+                                    offset="100%"
+                                    stopColor={traceColor(index)}
+                                    stopOpacity={0.12}
+                                />
+                            </linearGradient>
+                        ) : null,
+                    )}
+                </defs>
                 <CartesianGrid vertical={false} />
                 <XAxis
                     dataKey="tooltipX"
@@ -186,6 +214,36 @@ export function Cartesian({
                     const key = `trace_${index}`;
                     const name = trace.name || `Series ${index + 1}`;
                     const color = traceColor(index);
+                    if (trace.type === "area") {
+                        return (
+                            <Area
+                                key={key}
+                                xAxisId="traces"
+                                data={trace.x.map((x, point) => ({
+                                    x: coordinate(x),
+                                    tooltipX: coordinate(x),
+                                    [key]: trace.y[point],
+                                }))}
+                                dataKey={key}
+                                name={name}
+                                type={trace.curve}
+                                stroke={color}
+                                strokeWidth={2}
+                                fill={`url(#${gradientId}-area-${index})`}
+                                fillOpacity={1}
+                                baseValue={0}
+                                dot={false}
+                                activeDot={{
+                                    r: 6,
+                                    fill: color,
+                                    stroke: "var(--card)",
+                                    strokeWidth: 2,
+                                }}
+                                connectNulls={false}
+                                isAnimationActive={false}
+                            />
+                        );
+                    }
                     return trace.type === "bar" ? (
                         <SizedBar
                             key={key}

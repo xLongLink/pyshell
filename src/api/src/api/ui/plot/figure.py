@@ -3,6 +3,7 @@ from pydantic import Field, PrivateAttr, model_validator
 from api.ui.model import UIModel
 from api.ui.types import ImmutableList
 from api.ui.plot.bar import Bar
+from api.ui.plot.area import Area
 from api.ui.plot.pie import Pie
 from api.ui.plot.layout import Layout
 from api.ui.plot.scatter import Scatter
@@ -11,7 +12,7 @@ from api.ui.plot.choropleth import Choropleth
 if TYPE_CHECKING:
     from api.ui.session import UI
 
-Trace = Annotated[Scatter | Bar | Pie | Choropleth, Field(discriminator="type")]
+Trace = Annotated[Scatter | Area | Bar | Pie | Choropleth, Field(discriminator="type")]
 
 
 class Figure(UIModel):

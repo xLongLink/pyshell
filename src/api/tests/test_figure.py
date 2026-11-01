@@ -3,6 +3,23 @@ from pydantic import ValidationError
 from api.ui.session import UI
 
 
+@pytest.mark.parametrize("curve", ["linear", "monotone"])
+def test_area_traces_survive_publication(curve):
+    ui = UI()
+    ui.plot([{"type": "area", "curve": curve, "x": [1, 2, 3], "y": [3, None, -1]}])
+    published = ui.state.snapshot()["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"]
+    assert published == [{"type": "area", "name": "", "curve": curve, "x": [1, 2, 3], "y": [3, None, -1]}]
+
+
+def test_area_defaults_and_validation():
+    chart = UI().plot([{"type": "area", "x": [1, 2], "y": [2, 4]}])
+    assert chart.data[0].curve == "linear"
+    with pytest.raises(ValidationError):
+        UI().plot([{"type": "area", "curve": "invalid", "x": [1], "y": [2]}])
+    with pytest.raises(ValidationError, match="equal lengths"):
+        UI().plot([{"type": "area", "x": [1, 2], "y": [2]}])
+
+
 @pytest.mark.parametrize(
     ("data", "message"),
     [

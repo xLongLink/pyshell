@@ -20,6 +20,11 @@ export const traceSchema = z.discriminatedUnion("type", [
     }),
     z.strictObject({ type: z.literal("bar"), ...coordinates }),
     z.strictObject({
+        type: z.literal("area"),
+        ...coordinates,
+        curve: z.enum(["linear", "monotone"]).default("linear"),
+    }),
+    z.strictObject({
         type: z.literal("pie"),
         name: text.default(""),
         labels: z.array(text).min(1).max(200),

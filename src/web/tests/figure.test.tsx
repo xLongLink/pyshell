@@ -12,6 +12,54 @@ import { figureProps } from "../lib/a2ui";
 
 afterEach(cleanup);
 
+test("area charts fill to zero with unique gradients and preserve missing values", async () => {
+    const props = figureProps.parse({
+        data: [
+            {
+                type: "area",
+                name: "Revenue",
+                curve: "monotone",
+                x: [1, 2, 3, 4, 5],
+                y: [2, 4, null, -1, 3],
+            },
+        ],
+    });
+    const { container } = render(
+        <>
+            <Figure {...props} />
+            <Figure {...props} />
+        </>,
+    );
+    await waitFor(() =>
+        expect(container.querySelectorAll(".recharts-area-area")).toHaveLength(
+            2,
+        ),
+    );
+    const gradients = [...container.querySelectorAll("linearGradient")];
+    expect(gradients).toHaveLength(2);
+    expect(new Set(gradients.map((gradient) => gradient.id)).size).toBe(2);
+    const fills = [...container.querySelectorAll(".recharts-area-area")];
+    fills.forEach((fill, index) => {
+        expect(fill.getAttribute("fill")).toBe(`url(#${gradients[index].id})`);
+        expect((fill.getAttribute("d")?.match(/M/g) ?? []).length).toBe(2);
+    });
+    expect(container.querySelectorAll(".recharts-line")).toHaveLength(0);
+});
+
+test("area schema defaults to linear and rejects unsupported curves and mismatched coordinates", () => {
+    const trace = { type: "area", x: [1, 2], y: [2, 4] };
+    expect(figureProps.parse({ data: [trace] }).data[0]).toMatchObject({
+        curve: "linear",
+    });
+    expect(
+        figureProps.safeParse({ data: [{ ...trace, curve: "invalid" }] })
+            .success,
+    ).toBe(false);
+    expect(
+        figureProps.safeParse({ data: [{ ...trace, y: [2] }] }).success,
+    ).toBe(false);
+});
+
 test("pie rendering preserves missing slice positions and colors", async () => {
     const props = figureProps.parse({
         data: [
