@@ -1,0 +1,74 @@
+body {
+    margin: 0;
+    background: #f8f9f6;
+    color: #202b25;
+    font-family: system-ui, sans-serif;
+}
+
+main {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+}
+
+iframe {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    border: 0;
+}
+
+#workspace-error {
+    margin: 0;
+    padding: 1rem;
+}
+
+[role="alert"] {
+    color: #bd3939;
+    font-size: .875rem;
+}
+
+.voice {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 1.25rem;
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: center;
+    gap: .75rem;
+    max-width: 20rem;
+}
+
+#voice {
+    position: relative;
+    width: 8rem;
+    height: 8rem;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    background: transparent;
+}
+
+#voice:focus-visible {
+    outline: 3px solid #315c45;
+    outline-offset: 8px;
+}
+
+#voice:disabled {
+    cursor: wait;
+    opacity: .5;
+}
+
+#voice particles-orb {
+    display: block;
+    width: 100%;
+    height: 100%;
+    opacity: .75;
+}
+
+#voice[data-state="on"] particles-orb {
+    opacity: 1;
+    filter: drop-shadow(0 0 12px #ffc83d80);
+}

@@ -1,0 +1,12 @@
+**
+!api/
+!api/Dockerfile
+!api/pyproject.toml
+!api/uv.lock
+!api/src/
+!api/src/**
+api/src/api/static/
+!web/
+!web/**
+web/node_modules/
+web/dist/

@@ -1,0 +1,216 @@
+import { useEffect, useMemo, useState } from "react";
+import { geoPath } from "d3-geo";
+import { plotClassName, type Trace } from "./common";
+import type { InlineGeography } from "@/lib/geojson";
+import {
+    loadGeography,
+    mapProjection,
+    orientBoundaries,
+    type Geography as GeographyData,
+} from "./geography";
+
+type MapProps = {
+    trace: Extract<Trace, { type: "choropleth" }>;
+    showlegend: boolean;
+};
+
+const format = new Intl.NumberFormat(undefined, {
+    maximumSignificantDigits: 6,
+});
+
+export default function Choropleth(props: MapProps) {
+    if (props.trace.geojson)
+        return <BoundaryMap {...props} boundaries={props.trace.geojson} />;
+    return <ProviderMap {...props} />;
+}
+
+function ProviderMap(props: MapProps) {
+    const geography = props.trace.geography;
+    const [result, setResult] = useState<{
+        boundaries?: GeographyData;
+        error?: boolean;
+    }>();
+    useEffect(() => {
+        if (result !== undefined) return;
+        let cancelled = false;
+        loadGeography(geography).then(
+            (boundaries) => {
+                if (!cancelled) setResult({ boundaries });
+            },
+            () => {
+                if (!cancelled) setResult({ error: true });
+            },
+        );
+        return () => {
+            cancelled = true;
+        };
+    }, [geography, result]);
+    if (result?.error) {
+        return (
+            <div role="alert" className="py-8 text-sm text-muted-foreground">
+                Unable to load map boundaries.{" "}
+                <button
+                    className="underline"
+                    onClick={() => setResult(undefined)}
+                >
+                    Retry
+                </button>
+            </div>
+        );
+    }
+    if (!result?.boundaries) {
+        return (
+            <p role="status" className="py-8 text-sm text-muted-foreground">
+                Loading map…
+            </p>
+        );
+    }
+    const locations = new Set(
+        result.boundaries.features.map((feature) => feature.id),
+    );
+    if (
+        result.boundaries.level !==
+            (geography === "world" ? "country" : "region") ||
+        props.trace.locations.some((code) => !locations.has(code))
+    ) {
+        return (
+            <p role="alert" className="py-8 text-sm text-muted-foreground">
+                Map locations do not match the selected geography.
+            </p>
+        );
+    }
+    return <BoundaryMap {...props} boundaries={result.boundaries} />;
+}
+
+function BoundaryMap({
+    trace,
+    showlegend,
+    boundaries: inputBoundaries,
+}: MapProps & { boundaries: GeographyData | InlineGeography }) {
+    const boundaries = useMemo(
+        () => orientBoundaries(inputBoundaries),
+        [inputBoundaries],
+    );
+    const [active, setActive] = useState<string | null>(null);
+    const paths = useMemo(() => {
+        const path = geoPath(
+            mapProjection(
+                boundaries,
+                !trace.geojson && trace.geography === "world",
+            ),
+        );
+        return boundaries.features.map((feature) => ({
+            feature,
+            d: path(feature) ?? undefined,
+        }));
+    }, [trace.geography, trace.geojson, boundaries]);
+    const values = new Map(
+        trace.locations.map((code, index) => [code, trace.values[index]]),
+    );
+    const present = trace.values.filter((value) => value !== null);
+    const min = present.length ? Math.min(...present) : 0;
+    const max = present.length ? Math.max(...present) : 0;
+    const scale = Math.max(Math.abs(min), Math.abs(max)) || 1;
+    const color = (value: number | null | undefined) => {
+        if (value == null) return "var(--muted)";
+        const position =
+            min === max
+                ? 0.5
+                : (value / scale - min / scale) / (max / scale - min / scale);
+        return `color-mix(in oklch, var(--chart-1) ${20 + position * 80}%, var(--card))`;
+    };
+    const describe = (code: string, name: string) => {
+        const value = values.get(code);
+        return `${name}: ${value == null ? "No data" : format.format(value)}`;
+    };
+    const activeFeature = boundaries.features.find(
+        (feature) => feature.id === active,
+    );
+
+    return (
+        <div className={`${plotClassName} flex min-h-0 flex-col`}>
+            <svg
+                viewBox="0 0 800 450"
+                role="group"
+                aria-label={
+                    trace.name ||
+                    (trace.geojson
+                        ? "Geographic statistical map"
+                        : trace.geography === "world"
+                          ? "World statistical map"
+                          : `${"name" in boundaries ? boundaries.name : trace.geography} first-level divisions statistical map`)
+                }
+                className="min-h-0 w-full flex-1"
+            >
+                {paths.map(({ feature, d }) => {
+                    const code = feature.id;
+                    const label = describe(
+                        code,
+                        feature.properties.name || code,
+                    );
+                    return (
+                        <path
+                            key={code}
+                            d={d}
+                            fill={color(values.get(code))}
+                            stroke="var(--border)"
+                            strokeWidth={0.6}
+                            vectorEffect="non-scaling-stroke"
+                            tabIndex={0}
+                            role="img"
+                            aria-label={label}
+                            className="outline-none hover:stroke-foreground focus-visible:stroke-foreground focus-visible:stroke-2"
+                            onMouseEnter={() => setActive(code)}
+                            onMouseLeave={() => setActive(null)}
+                            onFocus={() => setActive(code)}
+                            onBlur={() => setActive(null)}
+                        >
+                            <title>{label}</title>
+                        </path>
+                    );
+                })}
+            </svg>
+            <p
+                role="status"
+                className="min-h-5 shrink-0 text-center text-xs text-muted-foreground"
+            >
+                {activeFeature
+                    ? describe(
+                          activeFeature.id,
+                          activeFeature.properties.name || activeFeature.id,
+                      )
+                    : present.length
+                      ? "Hover or focus a region for details."
+                      : "No values to display."}
+            </p>
+            {showlegend && (
+                <div
+                    aria-label="Map legend"
+                    className="mx-auto mt-2 flex w-full max-w-sm shrink-0 items-center gap-2 text-xs text-muted-foreground"
+                >
+                    {present.length > 0 && (
+                        <>
+                            <span>{format.format(min)}</span>
+                            <span
+                                aria-hidden="true"
+                                className="h-2 flex-1 rounded"
+                                style={{
+                                    background:
+                                        min === max
+                                            ? color(min)
+                                            : "linear-gradient(to right, color-mix(in oklch, var(--chart-1) 20%, var(--card)), var(--chart-1))",
+                                }}
+                            />
+                            <span>{format.format(max)}</span>
+                        </>
+                    )}
+                    <span
+                        aria-hidden="true"
+                        className="ml-2 size-3 rounded border bg-muted"
+                    />
+                    <span>No data</span>
+                </div>
+            )}
+        </div>
+    );
+}

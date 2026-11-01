@@ -28,24 +28,15 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        include:
-          - project: api
-            python: '3.10'
-          - project: api
-            python: '3.12'
-          - project: web
-            python: '3.11'
-          - project: web
-            python: '3.12'
+        python: ['3.10', '3.12']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: '0.13.4'
           enable-cache: true
-      - run: uv run --locked --project "${PROJECT}" --python "${PYTHON_VERSION}" pytest -c "${PROJECT}/pyproject.toml" "${PROJECT}/tests" -v
+      - run: uv run --locked --project src/api --python "${PYTHON_VERSION}" pytest -c src/api/pyproject.toml src/api/tests -v
         env:
-          PROJECT: ${{ matrix.project }}
           PYTHON_VERSION: ${{ matrix.python }}
 
   container:
@@ -53,26 +44,18 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: docker build -t pyshell:test api
-      - run: docker run --rm --network none pyshell:test --help
-      - name: Check startup requirements with a read-only filesystem
+      - run: docker build -t pyshell:test -f src/api/Dockerfile src
+      - name: Check startup with a read-only filesystem
         run: |
           docker run --rm --network none --read-only \
             --tmpfs /tmp:size=512m,mode=1777,exec \
-            -e PYSHELL_REQUIREMENTS=$'fastapi\nuvicorn' \
             pyshell:test --help
-          if docker run --rm --network none --read-only \
-            --tmpfs /tmp:size=512m,mode=1777,exec \
-            -e PYSHELL_REQUIREMENTS='invalid requirement !!!' \
-            pyshell:test --help; then
-            exit 1
-          fi
       - name: Check container permissions and workspace
         run: |
           docker run --rm --network none --entrypoint python pyshell:test -c '
           import os
           from pathlib import Path
-          import main
+          import api.main
           assert os.getuid() != 0
           assert Path.cwd() == Path("/workspace")
           path = Path("smoke.txt")
@@ -103,11 +86,14 @@ jobs:
 
           def execute(code):
               request = urllib.request.Request(
-                  url, data=json.dumps({"code": code}).encode(),
+                  url + "execute/stream", data=json.dumps({"code": code}).encode(),
                   headers={"Content-Type": "application/json"},
               )
               with urllib.request.urlopen(request, timeout=5) as response:
-                  return json.load(response)
+                  events = [json.loads(line) for line in response]
+                  assert events[-1] == {"type": "execution_finished"}
+                  assert events[-2]["type"] == "result"
+                  return events[-2]
 
           assert execute("value = 42")["exception"] is None
           assert execute("print(value)")["stdout"] == "42\n"

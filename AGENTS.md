@@ -2,29 +2,28 @@
 
 - AVOID extra comments that a human wouldn't add or is inconsistent with the rest of the file
 - MINIMIZE comment to the bare minimun.
-- DO NOT add content to markdown files, only fix what is outdated or wrong
+- DO NOT add content to markdown files, only fix what is outdated or wrong. DO NOT add tests for the sample application.
 
 ## Project layout
 
 ```bash
-├── api/
-│   ├── main.py        # FastAPI application and endpoints
-│   ├── src/           # Execution API and persistent Python namespace
-│   │   └── ui/        # One module per UI element
-│   ├── tests/         # Server tests
-│   ├── Dockerfile     # Execution container image
+├── src/
+│   ├── api/           # Execution backend project
+│   │   ├── src/api/   # FastAPI endpoints, Python namespace, and widget library
+│   │   ├── tests/     # Server tests
+│   │   ├── Dockerfile # Execution container image
+│   │   ├── pyproject.toml # API dependencies
+│   │   └── uv.lock
+│   ├── web/           # Container-owned widget frontend and tests
 │   ├── .dockerignore
-│   ├── pyproject.toml # API dependencies
-│   ├── uv.lock
 │   └── compose.yaml   # Execution environment configuration
-├── web/
+├── sample/
 │   ├── main.py        # Browser-facing FastAPI app and shared workspace
+│   ├── assets/        # index.html and browser voice signaling
 │   ├── src/
 │   │   ├── agents/    # Execution agent loop and voice assistant
 │   │   ├── shell.py   # Execution container client
-│   │   ├── settings.py # Shared application settings
-│   │   └── ui/        # Self-contained React frontend, npm configuration, and tests
-│   ├── tests/         # Agent and server tests
+│   │   └── settings.py # Shared application settings
 │   ├── pyproject.toml # Client dependencies
 │   └── uv.lock
 ├── README.md          # Setup and usage
