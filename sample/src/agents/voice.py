@@ -138,6 +138,7 @@ class VoiceSession:
                 "type": "responses",
                 "responses": {
                     "model": self.backend_model,
+                    "reasoning": {"effort": "low"},
                     "instructions": BACKEND_INSTRUCTIONS + f"\nCurrent UTC date: {today}.",
                     "parallel_tool_calls": False,
                     "tool_choice": "auto",

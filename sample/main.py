@@ -13,7 +13,7 @@ from sample.src.settings import Settings
 from sample.src.workspace import Workspace, Subscription
 from sample.src.agents.voice import VoiceSession, voice_command_adapter
 from sample.src.agents.script import Agent, LoggedModel
-from pydantic_ai.models.openai import OpenAIResponsesModel
+from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from src.api.src.api.websocket import run_websocket
 from pydantic_ai.providers.openai import OpenAIProvider
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -29,7 +29,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         provider = OpenAIProvider(openai_client=openai)
         async with (
             httpx2.AsyncClient(base_url="http://127.0.0.1:8000", timeout=httpx2.Timeout(180, connect=10), trust_env=False) as client,
-            LoggedModel(OpenAIResponsesModel(settings.model.removeprefix("openai:"), provider=provider)) as model,
+            LoggedModel(
+                OpenAIResponsesModel(
+                    "gpt-6.1-sol",
+                    provider=provider,
+                    settings=OpenAIResponsesModelSettings(openai_reasoning_effort="low"),
+                )
+            ) as model,
         ):
             workspace = Workspace(Agent(model, shell=RemoteShell(client)))
             app.state.workspace = workspace
