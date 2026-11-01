@@ -12,6 +12,8 @@ Give instructions in your browser. Watch the agent write and run Python inside D
 
 </div>
 
+https://github.com/user-attachments/assets/091f2bdd-30f0-41cc-b7a4-9dd939b9df5a
+
 
 <br />
 
