@@ -11,15 +11,15 @@ from pydantic_ai.messages import TextPart, ModelMessage, ModelRequest, ModelResp
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.models.wrapper import WrapperModel
 
-INSTRUCTIONS = """You work in a persistent interactive Python terminal.
-Return exactly one line of Python as your text output, then wait for execution feedback.
+INSTRUCTIONS = """You work in a persistent Python execution workspace.
+Return a complete Python code block as plain text, then wait for execution feedback.
 Do not emit prose, Markdown, or text pretending to call tools.
 
-- Each response is one press of Enter. Preserve indentation. Return an empty line to finish a compound statement.
-- Feedback includes more_input: true when Python is waiting for the next line of an unfinished statement.
-  Continue that statement; do not repeat lines already submitted. When more_input is false, the statement finished.
-- Expressions display their repr automatically, just like a Python REPL. Assignments may complete without output.
-- Execute incrementally: act, read the output, and continue until the request is complete.
+- Group related statements into a small complete block, including loops and functions with normal Python indentation.
+  Batch known steps such as retrieving data, preparing it, and publishing a chart to minimize round trips.
+- Blocks execute as scripts, not REPL input. Use print() to see expression values; bare expressions do not display output.
+- Pause for feedback when a later step depends on inspecting an unfamiliar API or reading an intermediate result.
+  Do not inspect an uncertain API and guess its usage in the same block.
 - Variables and imports persist. Import what you need; use print() to see results.
 - Startup exchanges show the preloaded imports. Reuse them; check package availability or versions only when needed.
 - Use the preloaded wbgapi library as wb for World Bank data retrieval.
@@ -69,7 +69,7 @@ class LoggedModel(WrapperModel):
         model_request_parameters: ModelRequestParameters,
         run_context: RunContext[Any] | None = None,
     ) -> AsyncGenerator[StreamedResponse]:
-        """Log one streamed generation, including early newline cancellation."""
+        """Log one streamed code generation."""
         started = monotonic()
         print(
             f"[worker:generation] model={self.model_name} messages={len(messages)} "
@@ -116,39 +116,34 @@ class Agent:
                 parts=[UserPromptPart("Initialize the Python terminal and report the preloaded names.")], instructions=INSTRUCTIONS
             )
         )
-        for code in STARTUP_LINES:
-            result = await self.shell.stream(code, interactive=True)
-            self.message_history.extend(
-                [
-                    ModelResponse(parts=[TextPart(code + "\n")], finish_reason="stop"),
-                    ModelRequest(parts=[UserPromptPart(result.model_dump_json(exclude={"type"}))], instructions=INSTRUCTIONS),
-                ]
-            )
-            if result.exception or result.more_input or result.done is not None:
-                raise RuntimeError(f"Python terminal initialization failed: {result.model_dump_json(exclude={'type'})}")
+        code = "\n".join(STARTUP_LINES)
+        result = await self.shell.stream(code)
+        self.message_history.extend(
+            [
+                ModelResponse(parts=[TextPart(code)], finish_reason="stop"),
+                ModelRequest(parts=[UserPromptPart(result.model_dump_json(exclude={"type"}))], instructions=INSTRUCTIONS),
+            ]
+        )
+        if result.exception or result.more_input or result.done is not None:
+            raise RuntimeError(f"Python terminal initialization failed: {result.model_dump_json(exclude={'type'})}")
         self.initialized = True
 
-    async def _generate_line(self, messages: list[ModelMessage], usage: RunUsage, limits: UsageLimits) -> str:
-        """Consume only the first line, preserving indentation and blank input."""
+    async def _generate_code(self, messages: list[ModelMessage], usage: RunUsage, limits: UsageLimits) -> str:
+        """Consume a complete response without submitting partial code."""
         limits.check_before_request(usage)
         usage.requests += 1
         async with self.model.request_stream(messages, None, ModelRequestParameters()) as stream:
-            newline = False
             async for _event in stream:
-                text = stream.get().text
-                if text is not None and "\n" in text:
-                    newline = True
-                    await stream.cancel()
-                    break
+                pass
             response = stream.get()
             usage.incr(response.usage)
             limits.check_tokens(usage)
-            if response.tool_calls or (not newline and response.finish_reason != "stop"):
-                raise RuntimeError(f"Model response {response.finish_reason}; line was not submitted.")
+            if response.tool_calls or response.finish_reason != "stop":
+                raise RuntimeError(f"Model response {response.finish_reason}; code was not submitted.")
             text = response.text
-            if not text:
-                raise RuntimeError("Model returned no Python text; line was not submitted.")
-            return text.split("\n", 1)[0].removesuffix("\r")
+            if not text or not text.strip():
+                raise RuntimeError("Model returned no Python text; code was not submitted.")
+            return text
 
     async def arun(self, instruction: str, on_phase: Callable[[str], None]) -> str:
         """Generate code and return the confirmed done() message."""
@@ -163,13 +158,17 @@ class Agent:
         while True:
             on_phase("generating_code")
             print(f"[worker:step] {step + 1} generating code", flush=True)
+            started = monotonic()
             request = ModelRequest(parts=[UserPromptPart(prompt)], instructions=INSTRUCTIONS)
-            code = await self._generate_line([*self.message_history, request], usage, limits)
-            self.message_history.extend([request, ModelResponse(parts=[TextPart(code + "\n")], finish_reason="stop")])
+            code = await self._generate_code([*self.message_history, request], usage, limits)
+            print(f"[worker:step] {step + 1} generation_seconds={monotonic() - started:.2f}", flush=True)
+            self.message_history.extend([request, ModelResponse(parts=[TextPart(code)], finish_reason="stop")])
 
             on_phase("executing_python")
             print(f"[worker:execution] step={step + 1} submitting code", flush=True)
-            result = await self.shell.stream(code, interactive=True)
+            started = monotonic()
+            result = await self.shell.stream(code)
+            print(f"[worker:execution] step={step + 1} execution_seconds={monotonic() - started:.2f}", flush=True)
 
             # Retain the completed exchange before deciding whether to continue.
             message = result.model_dump_json(exclude={"type"})
