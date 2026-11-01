@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "Persistent Python execution API"
 requires-python = ">=3.10"
 dependencies = [
+    "anyio>=4,<5",
     "fastapi>=0.115,<1",
     "numpy>=1.26,<3",
     "openpyxl>=3.1,<4",

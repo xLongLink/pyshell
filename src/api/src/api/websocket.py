@@ -1,4 +1,5 @@
 import asyncio
+from anyio import CancelScope
 from collections.abc import Coroutine
 from starlette.websockets import WebSocketDisconnect
 
@@ -17,7 +18,8 @@ async def run_websocket(
     finally:
         for task in tasks:
             task.cancel()
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        with CancelScope(shield=True):
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
     for result in results:
         if isinstance(result, BaseException) and not isinstance(result, (asyncio.CancelledError, WebSocketDisconnect)):

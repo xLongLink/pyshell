@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+from anyio import CancelScope
 from api.websocket import run_websocket
 from starlette.websockets import WebSocketDisconnect
 
@@ -122,6 +123,31 @@ def test_simultaneous_disconnect_does_not_hide_failure():
 
         with pytest.raises(ValueError, match="socket failed"):
             await run_websocket(disconnect(), fail(), wait())
+        assert asyncio.all_tasks() == {asyncio.current_task()}
+
+    asyncio.run(scenario())
+
+
+def test_scope_cancellation_during_cleanup_still_drains_peers():
+    async def scenario():
+        started = asyncio.Event()
+        drained = []
+        with CancelScope() as scope:
+
+            async def finish():
+                await started.wait()
+
+            async def peer():
+                started.set()
+                try:
+                    await asyncio.Future()
+                finally:
+                    scope.cancel()
+                    await asyncio.sleep(0)
+                    drained.append(True)
+
+            await run_websocket(finish(), peer())
+        assert drained == [True]
         assert asyncio.all_tasks() == {asyncio.current_task()}
 
     asyncio.run(scenario())
