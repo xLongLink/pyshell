@@ -33,7 +33,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 OpenAIResponsesModel(
                     "gpt-6.1-sol",
                     provider=provider,
-                    settings=OpenAIResponsesModelSettings(openai_reasoning_effort="low"),
+                    settings=OpenAIResponsesModelSettings(
+                        openai_reasoning_effort="low", extra_body={"service_tier": settings.openai_worker_service_tier}
+                    ),
                 )
             ) as model,
         ):

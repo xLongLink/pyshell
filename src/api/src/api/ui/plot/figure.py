@@ -3,8 +3,8 @@ from pydantic import Field, PrivateAttr, model_validator
 from api.ui.model import UIModel
 from api.ui.types import ImmutableList
 from api.ui.plot.bar import Bar
-from api.ui.plot.area import Area
 from api.ui.plot.pie import Pie
+from api.ui.plot.area import Area
 from api.ui.plot.layout import Layout
 from api.ui.plot.scatter import Scatter
 from api.ui.plot.choropleth import Choropleth
@@ -16,7 +16,14 @@ Trace = Annotated[Scatter | Area | Bar | Pie | Choropleth, Field(discriminator="
 
 
 class Figure(UIModel):
-    """Publish a bounded Plotly-style figure on one surface."""
+    """Represent a chart in the custom UI schema, not the Plotly API.
+
+    Publish trace dictionaries or models with ui.plot(data=[...], layout={...}).
+    Cartesian charts accept at most 200 total points and 20 traces; pie and map
+    charts require exactly one trace. Only fields in the models are supported.
+    The returned handle exposes surface_id for references and update(), focus(),
+    pin(), and remove(). Its id is always the internal component ID "root".
+    """
 
     id: Literal["root"] = "root"
     component: Literal["Figure"] = "Figure"

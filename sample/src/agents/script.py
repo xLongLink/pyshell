@@ -24,6 +24,9 @@ Do not emit prose, Markdown, or text pretending to call tools.
 - Startup exchanges show the preloaded imports. Reuse them; check package availability or versions only when needed.
 - Use the preloaded wbgapi library as wb for World Bank data retrieval.
 - Use the provided ui object for visual output. Its chart component is api.ui.plot.figure.Figure.
+- Startup prints help(ui): follow that custom API, not Plotly. Trace models, Layout,
+  and geography_info are preloaded. Before using an unfamiliar chart type, read help() on its model;
+  use model_json_schema() only when exact fields or constraints are needed.
 - Publish charts with ui.plot(data=[trace_dict, ...], layout={...}); it returns a Figure handle.
   Pass trace data, not a Figure instance. Reuse the returned handle for chart updates.
 - Use known APIs directly. When an API or parameter is uncertain, inspect only what is needed:
@@ -53,8 +56,17 @@ STARTUP_LINES = (
     "import inspect, json, math, statistics",
     "import numpy as np; import pandas as pd; import scipy; import openpyxl; import wbgapi as wb",
     "from api.ui.plot.figure import Figure",
-    "print(json.dumps({'preloaded': ['inspect', 'json', 'math', 'statistics', 'np', 'pd', 'scipy', 'openpyxl', 'wb', 'Figure'], "
+    "from api.ui.plot.scatter import Scatter",
+    "from api.ui.plot.area import Area",
+    "from api.ui.plot.bar import Bar",
+    "from api.ui.plot.pie import Pie",
+    "from api.ui.plot.choropleth import Choropleth",
+    "from api.ui.plot.layout import Layout",
+    "from api.ui.plot.geography import geography_info",
+    "print(json.dumps({'preloaded': ['inspect', 'json', 'math', 'statistics', 'np', 'pd', 'scipy', 'openpyxl', 'wb', "
+    "'Figure', 'Scatter', 'Area', 'Bar', 'Pie', 'Choropleth', 'Layout', 'geography_info'], "
     "'workspace': ['ui', 'done']}))",
+    "help(ui)",
 )
 
 
@@ -113,7 +125,8 @@ class Agent:
         on_phase("executing_python")
         self.message_history.append(
             ModelRequest(
-                parts=[UserPromptPart("Initialize the Python terminal and report the preloaded names.")], instructions=INSTRUCTIONS
+                parts=[UserPromptPart("Initialize the Python terminal, report the preloaded names, and display help(ui).")],
+                instructions=INSTRUCTIONS,
             )
         )
         code = "\n".join(STARTUP_LINES)

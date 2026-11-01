@@ -16,7 +16,14 @@ class Axis(UIModel):
 
 
 class Layout(UIModel):
-    """Configure figure-wide presentation."""
+    """Configure title, xaxis title, and legend visibility; no other fields.
+
+    Example: ui.plot(data=[...], layout={"title": {"text": "Population"},
+                                       "showlegend": False})
+    For Cartesian charts, xaxis={"title": {"text": "Year"}} sets the x-axis title.
+    Plotly geo, height, margin, annotations, and other layout fields are unsupported.
+    Print Layout.model_json_schema() for exact field types and constraints.
+    """
 
     # Each figure owns its title and axis defaults.
     title: Title = Field(default_factory=Title)

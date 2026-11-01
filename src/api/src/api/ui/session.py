@@ -2,7 +2,9 @@ import json
 from pydantic import TypeAdapter
 from api.ui.state import UIState
 from api.ui.types import Action, Identifier
-from api.ui.plot.figure import Figure
+from collections.abc import Sequence
+from api.ui.plot.figure import Trace, Figure
+from api.ui.plot.layout import Layout
 
 identifier_adapter = TypeAdapter(Identifier)
 action_adapter = TypeAdapter(Action)
@@ -13,7 +15,29 @@ def _encoded_json_size(value: object) -> int:
 
 
 class UI:
-    """Own widget handles and publish A2UI messages from persistent Python."""
+    """Publish charts from persistent Python using a custom API, not Plotly.
+
+    Trace models available in the workspace: Scatter, Area, Bar, Pie, Choropleth.
+    Layout configures presentation; Figure is the returned chart handle.
+    Use help(Choropleth) or help(Layout) for usage and types. For exact fields
+    and constraints, print(Choropleth.model_json_schema()). Do not assume
+    Plotly fields are supported.
+
+    Example bar chart:
+        chart = ui.plot(data=[{"type": "bar", "x": ["A", "B"], "y": [10, 20]}],
+                        layout={"title": {"text": "Counts"}})
+
+    Example country map with built-in boundaries (no GeoJSON download needed):
+        chart = ui.plot(data=[{"type": "choropleth", "geography": "world",
+                               "locations": ["FRA", "DEU"], "values": [10, 20]}])
+        print(chart.surface_id)
+
+    Use geography_info("world") to discover supported country codes and names;
+    geography_info("FRA") discovers administrative regions within France.
+    Read that output before choosing locations. Map coverage varies by provider.
+    Reuse chart.update(data=[...], layout={...}) to update a chart; chart.focus(),
+    chart.pin(), and chart.remove() control placement and removal.
+    """
 
     def __init__(self, state: UIState | None = None) -> None:
         """Keep protocol state local to one execution session."""
@@ -23,12 +47,33 @@ class UI:
         self._closed = False
         self.state = state if state is not None else UIState()
 
-    def plot(self, data: object = None, *, surface_id: str | None = None, **attributes: object) -> Figure:
+    def plot(
+        self,
+        data: Sequence[Trace | dict[str, object]] | None = None,
+        *,
+        layout: Layout | dict[str, object] | None = None,
+        surface_id: str | None = None,
+        **attributes: object,
+    ) -> Figure:
         """Publish trace data with ui.plot(data=[...], layout={...}) and return a Figure handle.
 
-        The data argument accepts a list of traces, not a Figure instance.
+        The data argument accepts a list of trace dictionaries or trace models,
+        not a Figure instance. Supported types: scatter, area, bar, pie, choropleth.
+        This is not Plotly: inspect help(Choropleth), help(Bar), etc. before using
+        unfamiliar fields; model_json_schema() lists exact fields and constraints.
+        Layout supports only title, xaxis, and showlegend; see help(Layout).
+
+        Maps require exactly one choropleth trace with locations and values
+        (not z). Prefer built-in geography="world" for countries or a country
+        code such as "FRA" for its administrative regions. Use geography_info()
+        to discover supported locations. Missing values are None.
+
         Pass surface_id to replace a named surface; otherwise a new surface is created.
+        The returned chart.surface_id identifies the published surface;
+        chart.id is the internal component ID, not a chart reference.
         """
+        if layout is not None:
+            attributes["layout"] = layout
         widget = Figure.model_validate({"data": data, **attributes})
 
         # Automatic IDs must not replace explicitly named surfaces.

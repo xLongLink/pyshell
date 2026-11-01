@@ -211,7 +211,19 @@ def _lookup(path: Path, _revision: int) -> dict:
 
 
 def geography_info(geography: str = "world") -> dict:
-    """Return the selected map's name, level, and available location codes."""
+    """Return built-in map metadata and supported location codes for a choropleth.
+
+    Use "world" for country boundaries, or an uppercase three-letter country code
+    such as "FRA" for administrative regions within that country. First use
+    downloads and caches provider boundaries; internet access is required.
+
+    The result has name, level ("country" or "region"), and locations keys.
+    locations maps each supported code to its display name. Inspect these codes
+    before retrieving or matching data; provider coverage may omit small states.
+    Pass matching codes to the choropleth locations field, with the same geography.
+
+    Example: print(geography_info("FRA")["locations"])
+    """
     path = geography_path(geography)
     info = _lookup(path, path.stat().st_mtime_ns)
     return {**info, "locations": dict(info["locations"])}

@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,3 +11,4 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr = Field(min_length=1)
     openai_live_model: str = Field(default="gpt-live-1", min_length=1)
     openai_voice_backend_model: str = Field(default="gpt-6.1-sol", min_length=1)
+    openai_worker_service_tier: Literal["ultrafast", "priority"] = "priority"
