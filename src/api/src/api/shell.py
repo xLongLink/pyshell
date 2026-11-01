@@ -59,7 +59,7 @@ class PythonShell:
 
     def execute(self, source: str) -> dict[str, object]:
         """Run source and capture its output, errors, and completion state."""
-        print(source, flush=True)
+        print("\n".join(f"> {line}" for line in source.split("\n")), flush=True)
         stdout, stderr = self.stdout, self.stderr
         self.finished = False
         self.ui.reset_output()

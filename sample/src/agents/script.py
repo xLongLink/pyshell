@@ -1,6 +1,5 @@
 import ast
 import json
-import asyncio
 import traceback
 from time import monotonic
 from pydantic import Field, BaseModel, ConfigDict
@@ -77,23 +76,14 @@ class LoggedModel(WrapperModel):
             raise
         print(
             f"[worker:generation] finished after {monotonic() - started:.2f}s "
-            f"finish_reason={response.finish_reason} usage={response.usage}\n{response.text!r}",
+            f"finish_reason={response.finish_reason} usage={response.usage}",
             flush=True,
         )
         for call in response.tool_calls:
-            print(f"[worker:generation] tool={call.tool_name} arguments={call.args!r}", flush=True)
+            print(f"[worker:generation] tool={call.tool_name}", flush=True)
         if not response.text and not response.tool_calls:
             print(f"[worker:generation] missing text; parts={[part.part_kind for part in response.parts]}", flush=True)
         return response
-
-
-class CodeGenerationError(RuntimeError):
-    """Report whether a generation failure followed any execution in this task."""
-
-    def __init__(self, message: str, *, executed: bool) -> None:
-        """Keep execution status available to workspace failure reporting."""
-        super().__init__(message)
-        self.executed = executed
 
 
 class Agent:
@@ -137,11 +127,6 @@ class Agent:
         libraries = await self.shell.inventory()
         return INSTRUCTIONS.format(libraries=json.dumps(libraries))
 
-    def _with_pending_feedback(self, message: str) -> str:
-        if self.pending_feedback is None:
-            return message
-        return self.pending_feedback + "\n" + message
-
     async def arun(self, instruction: str, on_phase: Callable[[str], None]) -> str:
         """Generate code and return the last 4,000 characters of confirmed output."""
         usage = RunUsage()
@@ -150,47 +135,23 @@ class Agent:
 
         # Share usage limits across every execution step in this task.
         output = ""
-        prompt = self._with_pending_feedback(instruction)
-        for step in range(10):
-            try:
-                on_phase("generating_code")
-                print(f"[worker:step] {step + 1}/10 generating code", flush=True)
+        prompt = f"{self.pending_feedback}\n{instruction}" if self.pending_feedback else instruction
+        step = 0
+        while True:
+            on_phase("generating_code")
+            print(f"[worker:step] {step + 1} generating code", flush=True)
+            response = await self.agent.run(prompt, message_history=self.message_history, usage=usage, usage_limits=limits)
+            if response.response.finish_reason not in {"stop", "tool_call"}:
+                raise RuntimeError(f"Model response {response.response.finish_reason}; code was not executed.")
+            code = response.output.code
+            self.message_history = response.all_messages()
 
-                # Finish generation before executing any code.
-                response = await self.agent.run(prompt, message_history=self.message_history, usage=usage, usage_limits=limits)
-                if response.response.finish_reason not in {"stop", "tool_call"}:
-                    raise RuntimeError(f"Model response {response.response.finish_reason}; code was not executed.")
-                code, history = response.output.code, response.all_messages()
-
-            # Record that the interrupted response never reached the container.
-            except (Exception, KeyboardInterrupt, asyncio.CancelledError) as error:
-                feedback = json.dumps({"model_error": f"{type(error).__name__}: {error}", "executed": False})
-
-                # Keep prior execution feedback alongside this unexecuted request.
-                self.pending_feedback = self._with_pending_feedback(feedback)
-                if isinstance(error, Exception):
-                    raise CodeGenerationError(f"Code generation failed: {error}", executed=step > 0) from error
-                raise
-
-            # Execute once; an ambiguous transport failure must not trigger a retry.
             on_phase("executing_python")
-            print(f"[worker:execution] step={step + 1} submitting code\n{code}", flush=True)
-
-            try:
-                result = await self.shell.stream(code)
-
-            # Preserve history without allowing an ambiguous execution to replay.
-            except BaseException:
-                self.pending_feedback = json.dumps(
-                    {"execution_error": "Execution was not confirmed; earlier changes may have applied. Do not replay."}
-                )
-                raise
-            finally:
-                self.message_history = history
+            print(f"[worker:execution] step={step + 1} submitting code", flush=True)
+            result = await self.shell.stream(code)
 
             # Retain the completed exchange before deciding whether to continue.
             message = result.model_dump_json(exclude={"type"})
-            print(f"[worker:feedback] step={step + 1} {message}", flush=True)
             self.pending_feedback = message
             prompt = message
             output = "".join(text[-4000:] for text in (output, "\n" if step else "", result.stdout, result.stderr, result.exception or ""))[
@@ -200,7 +161,4 @@ class Agent:
             # Carry final execution feedback into the next user turn.
             if result.done:
                 return output or "Task completed without printed output."
-        self.pending_feedback = (
-            message + "\nTask stopped at the ten-execution limit; completion was not confirmed. Do not replay earlier mutations."
-        )
-        raise RuntimeError("Task reached the ten-execution limit; earlier changes may have applied.")
+            step += 1

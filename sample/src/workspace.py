@@ -4,7 +4,7 @@ from typing import Annotated
 from pydantic import Field, TypeAdapter
 from collections import deque
 from sample.src.shell import EXECUTION_UNCERTAIN
-from sample.src.agents.script import Agent, CodeGenerationError
+from sample.src.agents.script import Agent
 
 instruction_adapter = TypeAdapter(Annotated[str, Field(strict=True, max_length=8000)])
 
@@ -112,10 +112,7 @@ class Workspace:
             outcome = "failed"
             print(f"[worker:failed] {type(error).__name__}: {error}", flush=True)
             traceback.print_exc()
-            if isinstance(error, CodeGenerationError) and not error.executed:
-                result = f"Task failed: {error}. Nothing was executed during this task."[-4000:]
-            else:
-                result = f"Task failed: {error}. Earlier changes may have applied; do not automatically resubmit."[-4000:]
+            result = str(error)[-4000:]
             self.publish({"type": "error", "text": result})
         finally:
             self.phase = "idle"
