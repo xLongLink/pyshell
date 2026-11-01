@@ -51,20 +51,24 @@ class PythonShell:
         """Initialize the namespace and completion hook."""
         self.ui = UI(ui_state)
         self.namespace = {"__name__": "__main__", "done": self.done, "ui": self.ui}
-        self.finished = False
+        self.finished: str | None = None
         self.compiler = codeop.CommandCompiler()
         self.pending_lines: list[str] = []
         self.stdout, self.stderr = streams if streams is not None else (ExecutionOutput(sys.stdout), ExecutionOutput(sys.stderr))
 
-    def done(self) -> None:
-        """Mark the current task as complete."""
-        self.finished = True
+    def done(self, message: str) -> None:
+        """Complete the current task with its final result."""
+        if not isinstance(message, str):
+            raise TypeError("done() requires a string result")
+        if not message.strip():
+            raise ValueError("done() requires a non-empty result")
+        self.finished = message
 
     def execute(self, source: str, *, interactive: bool = False) -> dict[str, object]:
         """Run source and capture its output, errors, and completion state."""
         print("\n".join(f"> {line}" for line in source.split("\n")), flush=True)
         stdout, stderr = self.stdout, self.stderr
-        self.finished = False
+        self.finished = None
         self.ui.reset_output()
         error = None
         more_input = False
@@ -86,7 +90,7 @@ class PythonShell:
 
             # Completion is valid only if the entire response finishes.
             except (Exception, SystemExit, KeyboardInterrupt):
-                self.finished = False
+                self.finished = None
                 if interactive:
                     self.pending_lines.clear()
                 error = traceback.format_exc()

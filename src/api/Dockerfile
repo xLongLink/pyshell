@@ -28,6 +28,7 @@ FROM python:3.12-slim AS runtime-base
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PAGER=cat
 
 RUN useradd --create-home --uid 1000 pyshell \
     && mkdir /workspace \

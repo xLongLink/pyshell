@@ -10,7 +10,7 @@ def test_execution_logs_source_and_streams_output_before_completion(capsys):
 
     result = shell.execute(source)
 
-    assert observed[0].out == source + "\nrunning\n"
+    assert observed[0].out == "\n".join(f"> {line}" for line in source.split("\n")) + "\nrunning\n"
     assert observed[0].err == "warning\n"
     assert capsys.readouterr().out == "finished\n"
 
@@ -27,14 +27,14 @@ def test_execution_logs_errors_and_keeps_them_in_response(capsys):
     result = shell.execute(source)
 
     output = capsys.readouterr()
-    assert output.out == source + "\nbefore failure\n"
+    assert output.out == "\n".join(f"> {line}" for line in source.split("\n")) + "\nbefore failure\n"
     assert output.err == result["exception"]
     assert "ValueError: failed" in output.err
 
     # Tracebacks remain separate from captured Python stderr.
     assert result["stdout"] == "before failure\n"
     assert result["stderr"] == ""
-    assert result["done"] is False
+    assert result["done"] is None
 
 
 @pytest.mark.parametrize("stream", ["stdout", "stderr"])
@@ -68,15 +68,15 @@ def test_saved_stream_has_a_fresh_budget_and_does_not_capture_between_executions
     assert saved.getvalue() == first[stream]
     assert "outside execution\n" in getattr(capsys.readouterr(), "out" if stream == "stdout" else "err")
 
-    source = "saved.write('é' * 524288)\nsaved.write('x')\ndone()"
+    source = "saved.write('é' * 524288)\nsaved.write('x')\ndone('Finished')"
     second = shell.execute(source)
 
     assert second[stream] == "é" * 524288
     assert second["stderr" if stream == "stdout" else "stdout"] == ""
     assert "Python output exceeded 1 MiB per stream" in second["exception"]
-    assert second["done"] is False
+    assert second["done"] is None
     output = capsys.readouterr()
-    assert output.out == source + "\n" + (second["stdout"] if stream == "stdout" else "")
+    assert output.out == "\n".join(f"> {line}" for line in source.split("\n")) + "\n" + (second["stdout"] if stream == "stdout" else "")
     assert output.err == second["stderr"] + second["exception"]
     assert first[stream] == "é" * 524288
     assert shell.execute("print('recovered', file=saved)")[stream] == "recovered\n"
@@ -87,7 +87,7 @@ def test_interactive_lines_distinguish_silent_completion_from_incomplete_input()
     shell = PythonShell()
 
     result = shell.execute("values = []", interactive=True)
-    assert result == {"stdout": "", "stderr": "", "exception": None, "done": False, "more_input": False}
+    assert result == {"stdout": "", "stderr": "", "exception": None, "done": None, "more_input": False}
     for line in ("for i in range(3):", "    values.append(i)"):
         result = shell.execute(line, interactive=True)
         assert result["more_input"] is True
@@ -95,7 +95,26 @@ def test_interactive_lines_distinguish_silent_completion_from_incomplete_input()
         assert shell.namespace["values"] == []
     assert shell.execute("", interactive=True)["more_input"] is False
     assert shell.execute("values", interactive=True)["stdout"] == "[0, 1, 2]\n"
-    assert shell.execute("done()", interactive=True)["done"] is True
+    assert shell.execute("done('Finished')", interactive=True)["done"] == "Finished"
+
+
+def test_completion_message_is_separate_from_output_and_resets_between_executions():
+    shell = PythonShell()
+
+    result = shell.execute("print('diagnostics')\ndone('Updated chart root')")
+
+    assert result["done"] == "Updated chart root"
+    assert result["stdout"] == "diagnostics\n"
+    assert result["exception"] is None
+    assert shell.execute("pass")["done"] is None
+
+
+@pytest.mark.parametrize("argument", ["", "None", "42", "''", "'   '"])
+def test_completion_requires_a_non_empty_string(argument):
+    result = PythonShell().execute(f"done({argument})")
+
+    assert result["done"] is None
+    assert result["exception"] is not None
 
 
 def test_interactive_multiline_expression_preserves_indentation():

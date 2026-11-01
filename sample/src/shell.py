@@ -16,7 +16,7 @@ class Result(BaseModel):
     stdout: str
     stderr: str
     exception: str | None
-    done: bool
+    done: str | None
     more_input: bool = False
 
 

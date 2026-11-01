@@ -24,7 +24,11 @@ class UI:
         self.state = state if state is not None else UIState()
 
     def plot(self, data: object = None, *, surface_id: str | None = None, **attributes: object) -> Figure:
-        """Validate and publish a figure, accepting positional or keyword data."""
+        """Publish trace data with ui.plot(data=[...], layout={...}) and return a Figure handle.
+
+        The data argument accepts a list of traces, not a Figure instance.
+        Pass surface_id to replace a named surface; otherwise a new surface is created.
+        """
         widget = Figure.model_validate({"data": data, **attributes})
 
         # Automatic IDs must not replace explicitly named surfaces.

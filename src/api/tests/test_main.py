@@ -24,9 +24,9 @@ def test_libraries_discovers_extra_packages(monkeypatch):
 def test_execution_preserves_namespace_and_captures_output():
     api_client = TestClient(create_app())
     assert execute(api_client, "import math\nvalue = math.sqrt(16)")["exception"] is None
-    result = execute(api_client, "print(value)\nimport sys\nprint('warning', file=sys.stderr)\ndone()")
-    assert result == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": True}
-    assert execute(api_client, "pass") == {"stdout": "", "stderr": "", "exception": None, "done": False}
+    result = execute(api_client, "print(value)\nimport sys\nprint('warning', file=sys.stderr)\ndone('Calculated 4.0')")
+    assert result == {"stdout": "4.0\n", "stderr": "warning\n", "exception": None, "done": "Calculated 4.0"}
+    assert execute(api_client, "pass") == {"stdout": "", "stderr": "", "exception": None, "done": None}
 
 
 def test_invalid_request_is_rejected():
@@ -97,14 +97,14 @@ def test_stream_reports_partial_output_and_python_failure():
     # Act
     result = execute(
         api_client,
-        "value = 42\nprint('before')\nui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='notice')\ndone()\n1 / 0\nvalue = 99",
+        "value = 42\nprint('before')\nui.plot([{'type': 'bar', 'x': ['A'], 'y': [1]}], surface_id='notice')\ndone('Updated chart')\n1 / 0\nvalue = 99",
     )
 
     # Assert
     assert api_client.get("/ui/context").json()["charts"][0]["surface_id"] == "notice"
     assert result["stdout"] == "before\n"
     assert "ZeroDivisionError" in result["exception"]
-    assert result["done"] is False
+    assert result["done"] is None
     subsequent = execute(api_client, "print(value)")
     assert subsequent["stdout"] == "42\n"
     for source, error in (("if :", "SyntaxError"), ("raise SystemExit(1)", "SystemExit"), ("raise KeyboardInterrupt", "KeyboardInterrupt")):
