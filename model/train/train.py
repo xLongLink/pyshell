@@ -21,6 +21,7 @@ from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import AutoModelForImageTextToText, AutoTokenizer
 
 from dataset.benchmark.src.serialization import FORMAT, serialize, target_text
+from model.train.cpu_resources import exclusive_cpu
 
 ROOT = Path(__file__).resolve().parent
 
@@ -85,6 +86,7 @@ def evaluate(model, items):
     return total / tokens
 
 
+@exclusive_cpu()
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", type=Path, default=ROOT / "artifacts/base")
