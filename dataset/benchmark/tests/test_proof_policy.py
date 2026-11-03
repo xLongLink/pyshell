@@ -1,0 +1,37 @@
+"""Protect selection thresholds while orchestration changes."""
+
+import unittest
+from dataset.benchmark.src.proof_policy import final_passed, development_ready
+from dataset.benchmark.src.proof_report import execution_metrics
+
+
+class ProofPolicyTests(unittest.TestCase):
+    def test_development_requires_complete_overall_and_family_minimums(self):
+        summary = {"complete": True, "tasks": 60, "success_rate": 0.9, "by_family": {"recovery": {"tasks": 5, "passed": 3}}}
+        self.assertTrue(development_ready(summary))
+        for override in (
+            {"complete": False},
+            {"tasks": 59},
+            {"success_rate": 0.89},
+            {"by_family": {"recovery": {"tasks": 5, "passed": 2}}},
+        ):
+            with self.subTest(override=override):
+                self.assertFalse(development_ready({**summary, **override}))
+
+    def test_final_requires_the_full_set_and_strictly_more_than_eighty_percent(self):
+        self.assertTrue(final_passed(120, 97))
+        self.assertFalse(final_passed(120, 96))
+        self.assertFalse(final_passed(100, 97))
+
+    def test_metrics_count_failures_and_group_by_family(self):
+        rows = [
+            {"family": "join", "status": "passed"},
+            {"family": "recovery", "status": "call_limit"},
+            {"family": "join", "status": "incorrect"},
+        ]
+        metrics = execution_metrics(rows)
+        self.assertEqual(metrics["tasks"], 3)
+        self.assertEqual(metrics["passed"], 1)
+        self.assertEqual(metrics["success_rate"], 1 / 3)
+        self.assertEqual(metrics["by_family"], {"join": {"tasks": 2, "passed": 1}, "recovery": {"tasks": 1, "passed": 0}})
+        self.assertEqual(metrics["statuses"], {"passed": 1, "call_limit": 1, "incorrect": 1})

@@ -8,9 +8,8 @@ import unittest
 import subprocess
 from types import SimpleNamespace
 from pathlib import Path
-from unittest.mock import patch
-from model.train.cpu_resources import exclusive_cpu
-from dataset.benchmark.cpu_evaluate import trial, evaluate
+from model.train.src.resources import exclusive_cpu
+from dataset.benchmark.src.cpu_evaluate import trial, evaluate
 
 
 class Worker:
@@ -51,8 +50,7 @@ class CPUProofTests(unittest.TestCase):
             return next(scripts), True
 
         record = self.record()
-        with patch("dataset.benchmark.cpu_evaluate.completion", side_effect=complete):
-            result = trial(worker, record)
+        result = trial(worker, record, complete)
         self.assertEqual(result["status"], "passed")
         for prompt in prompts:
             for hidden in (record["setup"], record["check"], record["code"], record["inspect"]):
@@ -62,14 +60,12 @@ class CPUProofTests(unittest.TestCase):
         self.assertEqual(worker.sources[-1][0], record["check"])
 
     def test_done_claim_does_not_bypass_oracle(self):
-        with patch("dataset.benchmark.cpu_evaluate.completion", return_value=("result = 999\ndone('success')", True)):
-            result = trial(Worker(fail_check=True), self.record())
+        result = trial(Worker(fail_check=True), self.record(), lambda prompt: ("result = 999\ndone('success')", True))
         self.assertEqual(result["status"], "incorrect")
 
     def test_missing_end_marker_is_not_executed(self):
         worker = Worker()
-        with patch("dataset.benchmark.cpu_evaluate.completion", return_value=("result = 11", False)):
-            result = trial(worker, self.record())
+        result = trial(worker, self.record(), lambda prompt: ("result = 11", False))
         self.assertEqual(result["status"], "boundary_error")
         self.assertEqual(len(worker.sources), 1)
 
@@ -83,8 +79,7 @@ class CPUProofTests(unittest.TestCase):
             return "done('ok')", True
 
         worker = Worker()
-        with patch("dataset.benchmark.cpu_evaluate.completion", side_effect=complete):
-            result = trial(worker, record)
+        result = trial(worker, record, complete)
         self.assertEqual(result["status"], "passed")
         self.assertEqual(sum(action == "reset" for _, action in worker.sources), 1)
         self.assertIn("Append 9 in place.", prompts[1])
@@ -118,7 +113,7 @@ class CPUProofTests(unittest.TestCase):
                 evaluate(args)
 
     def test_cpu_experiments_wait_for_each_other_without_polling(self):
-        source = "from model.train.cpu_resources import exclusive_cpu\nwith exclusive_cpu(): print('acquired', flush=True)"
+        source = "from model.train.src.resources import exclusive_cpu\nwith exclusive_cpu(): print('acquired', flush=True)"
         with exclusive_cpu():
             child = subprocess.Popen([sys.executable, "-c", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
-from dataset.benchmark.main import run, parser
+from dataset.benchmark.src.cli import run, parser
 from dataset.benchmark.src.backend import ContainerBackend
 
 
@@ -15,7 +15,7 @@ class EntrypointTests(unittest.IsolatedAsyncioTestCase):
             root = Path(temporary)
             (root / ".env").write_text("OPENAI_API_KEY=fixture-key\n", encoding="utf-8")
             args = parser().parse_args(["run", "--model", "test", "--shell-url", "http://testserver"])
-            with patch("dataset.benchmark.main.ROOT", root), patch.dict(os.environ, {}, clear=True):
+            with patch("dataset.benchmark.src.cli.ROOT", root), patch.dict(os.environ, {}, clear=True):
                 with self.assertRaisesRegex(ValueError, "requires --allow-reset"):
                     await run(args)
                 self.assertEqual(os.environ["OPENAI_API_KEY"], "fixture-key")

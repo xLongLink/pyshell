@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
-from dataset.benchmark.checkpoint_eval import main
+from dataset.benchmark.src.checkpoint_eval import main
 
 
 class CheckpointEvaluationTests(unittest.TestCase):
@@ -51,8 +51,8 @@ class CheckpointEvaluationTests(unittest.TestCase):
             ]
             with (
                 patch("sys.argv", arguments),
-                patch("dataset.benchmark.checkpoint_eval.subprocess.run"),
-                patch("dataset.benchmark.checkpoint_eval.subprocess.Popen", return_value=process),
+                patch("dataset.benchmark.src.checkpoint_eval.subprocess.run"),
+                patch("dataset.benchmark.src.checkpoint_eval.subprocess.Popen", return_value=process),
             ):
                 self.assertEqual(main(), 1)
             record = json.loads(history.read_text())

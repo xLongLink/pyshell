@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 
 from dataset.benchmark.src.serialization import END_CODE
-from model.train.train import encode, loss_for
+from model.train.src.supervision import encode, loss_for
 
 
 class Tokenizer:

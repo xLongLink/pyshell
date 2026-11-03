@@ -3,8 +3,8 @@
 import httpx2
 import unittest
 from unittest.mock import patch
-from dataset.benchmark.audit import rollout, execute_candidate
-from dataset.benchmark.sampling import balanced_sample
+from dataset.benchmark.src.audit import rollout, execute_candidate
+from dataset.benchmark.src.sampling import balanced_sample
 from dataset.benchmark.src.serialization import CODE, END_CODE
 from dataset.benchmark.tests.test_harness import ExecutionTransport
 
@@ -40,7 +40,7 @@ class ExecutionAuditTests(unittest.IsolatedAsyncioTestCase):
             return original_client(**kwargs, transport=httpx2.MockTransport(transport))
 
         record = {"setup": "values = [1, 2, 3]", "previous": previous or [], "check": "assert result == sum(values)"}
-        with patch("dataset.benchmark.audit.httpx2.AsyncClient", side_effect=client):
+        with patch("dataset.benchmark.src.audit.httpx2.AsyncClient", side_effect=client):
             return await execute_candidate(Backend(), record, code)
 
     async def test_success_is_verified_by_state(self):
@@ -81,7 +81,7 @@ class ExecutionAuditTests(unittest.IsolatedAsyncioTestCase):
             "check": "assert result == 6",
             "prompt": "Sum values.\n" + CODE + "\n",
         }
-        with patch("dataset.benchmark.audit.httpx2.AsyncClient", side_effect=client):
+        with patch("dataset.benchmark.src.audit.httpx2.AsyncClient", side_effect=client):
             result = await rollout(Backend(), Generator(), record, 4)
         self.assertEqual(result["status"], "passed")
         self.assertEqual(len(result["steps"]), 2)

@@ -3,7 +3,7 @@
 import pandas as pd
 import statistics
 from dataclasses import dataclass
-from dataset.benchmark.cpu_tasks import TaskFixture
+from dataset.benchmark.src.task_types import TaskFixture
 
 
 @dataclass
