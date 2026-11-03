@@ -1,6 +1,5 @@
 """Freeze independent execution tasks for a CPU fine-tuning experiment."""
 
-import io
 import json
 import numpy as np
 import pandas as pd
@@ -8,9 +7,10 @@ import random
 import hashlib
 import secrets
 import argparse
-import contextlib
 import statistics
 from pathlib import Path
+from dataclasses import asdict, dataclass
+from dataset.benchmark.src.reference import feedback
 from dataset.benchmark.src.serialization import serialize
 
 ROOT = Path(__file__).resolve().parent
@@ -39,7 +39,39 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+@dataclass
+class TaskRecord:
+    id: str
+    family: str
+    setup: str
+    instruction: str
+    inspect: str
+    code: str
+    check: str
+    followup: dict | None
+
+
+@dataclass
+class ConverterSpec:
+    gain: int
+    offset: int
+    multiplier: str
+    shift: str
+
+
+@dataclass
+class TaskFixture:
+    record: TaskRecord
+    values: list[int]
+    converter: ConverterSpec | None = None
+    extra: int | None = None
+
+
 def task(family, index, seed, split):
+    return asdict(build_task(family, index, seed, split).record)
+
+
+def build_task(family, index, seed, split):
     rng = random.Random(seed + index * 104729)
     prefix = {"train": "source", "dev": "workspace", "test": "input"}[split]
     name = f"{prefix}_{rng.randrange(100000, 999999)}"
@@ -50,6 +82,8 @@ def task(family, index, seed, split):
     setup = f"{name} = {values!r}"
     inspect = f"print(type({name}).__name__)\nprint({name})"
     followup = None
+    converter = None
+    extra = None
     if family == "statistics":
         request = f"For the numeric list {name}, return a dict with count, mean, median, and population_std."
         alternate = f"Summarize {name} into result: keys count, mean, median, population_std (population standard deviation)."
@@ -111,6 +145,7 @@ def task(family, index, seed, split):
     elif family == "inspect_callable":
         gain, offset = rng.randint(2, 8), rng.randint(-9, 9)
         multiplier, shift = rng.choice([("scale", "offset"), ("multiplier", "shift"), ("factor", "bias")])
+        converter = ConverterSpec(gain, offset, multiplier, shift)
         setup += f'\nclass Converter:\n    def convert(self, values, *, {multiplier}, {shift}):\n        """Return value * {multiplier} + {shift} for each item. Both options are keyword-only."""\n        return [value * {multiplier} + {shift} for value in values]\n{other} = Converter()'
         inspect = f"help({other}.convert)"
         request = f"Inspect {other}.convert before calling it on {name}. Multiply each item by {gain}, then add {offset}. Use the callable's documented keyword arguments."
@@ -195,25 +230,17 @@ def task(family, index, seed, split):
             "filtered_means": f"Records in {name} carry a group, a value, and an active flag. Report average value separately for each group using active records only. Return a dictionary with no inactive-only groups.",
             "joined_totals": f"Compute spending per group from {name}. Each row supplies item and quantity; dictionary {other} supplies item prices. Add quantity times price to the row's group, but discard rows whose item has no listed price.",
         }[family]
-    return {
-        "id": f"{split}-{family}-{index:04d}",
-        "family": family,
-        "setup": setup,
-        "instruction": instruction + "\n" + CONTRACT,
-        "inspect": inspect,
-        "code": code + "\ndone(str(result))",
-        "check": check,
-        "followup": followup,
-    }
-
-
-def execute(source, namespace):
-    output, errors = io.StringIO(), io.StringIO()
-    finished = []
-    namespace["done"] = lambda message: finished.append(message)
-    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
-        exec(compile(source, "<reference>", "exec"), namespace)
-    return {"stdout": output.getvalue(), "stderr": errors.getvalue(), "exception": None, "done": finished[-1] if finished else None}
+    record = TaskRecord(
+        id=f"{split}-{family}-{index:04d}",
+        family=family,
+        setup=setup,
+        instruction=instruction + "\n" + CONTRACT,
+        inspect=inspect,
+        code=code + "\ndone(str(result))",
+        check=check,
+        followup=followup,
+    )
+    return TaskFixture(record, values, converter, extra)
 
 
 def supervision(record):
@@ -224,15 +251,19 @@ def supervision(record):
     actions = [record["inspect"], record["code"]]
     for index, source in enumerate(actions):
         rows.append({"id": f"{record['id']}-{index}", "family": record["family"], "prompt": serialize(turns), "completion": source})
-        feedback = execute(source, namespace)
-        turns += [{"role": "assistant", "content": source}, {"role": "user", "content": json.dumps(feedback)}]
+        result = feedback(source, namespace)
+        if result["exception"]:
+            raise AssertionError((record["id"], result["exception"]))
+        turns += [{"role": "assistant", "content": source}, {"role": "user", "content": json.dumps(result)}]
     exec(record["check"], namespace)
     if record["followup"]:
         namespace["saved_result"] = namespace["result"]
         turns.append({"role": "user", "content": record["followup"]["instruction"]})
         source = record["followup"]["code"] + "\ndone(str(result))"
         rows.append({"id": record["id"] + "-followup", "family": record["family"], "prompt": serialize(turns), "completion": source})
-        execute(source, namespace)
+        result = feedback(source, namespace)
+        if result["exception"]:
+            raise AssertionError((record["id"], result["exception"]))
         exec(record["followup"]["check"], namespace)
     return rows
 

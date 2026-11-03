@@ -1,7 +1,0 @@
-repo_id = "LongLink/pyshell-worker-data"
-private = true
-serialization = "task-code-console-v1"
-
-[splits]
-train = "data/train.jsonl"
-validation = "data/validation.jsonl"

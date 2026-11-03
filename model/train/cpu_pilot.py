@@ -12,6 +12,12 @@ REPO = ROOT.parents[1]
 
 
 def run(args):
+    if args.baseline_before_training and (
+        not args.initialize_adapter or args.backend != "hf"
+    ):
+        raise ValueError(
+            "The baseline comparison requires an initial adapter and the HF backend"
+        )
     manifest = json.loads((args.data / "manifest.json").read_text())
     for split, metadata in manifest["splits"].items():
         actual = hashlib.sha256(
@@ -63,6 +69,31 @@ def run(args):
             subprocess.run(
                 arguments, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, check=True
             )
+
+    if args.baseline_before_training:
+        baseline = args.output / "baseline-dev"
+        command(
+            "baseline_development",
+            [
+                sys.executable,
+                "-u",
+                "-m",
+                "dataset.benchmark.cpu_evaluate",
+                "--data",
+                str(args.data.resolve()),
+                "--adapter",
+                str(args.initialize_adapter.resolve()),
+                "--backend",
+                "hf",
+                "--label",
+                args.output.name + "-baseline",
+                "--output",
+                str(baseline.resolve()),
+            ],
+        )
+        metadata["baseline_development"] = json.loads(
+            (baseline / "summary.json").read_text()
+        )
 
     adapter = args.output / "adapter"
     command(
@@ -170,4 +201,5 @@ if __name__ == "__main__":
     parser.add_argument("--initialize-adapter", type=Path)
     parser.add_argument("--backend", choices=("gguf", "hf"), default="gguf")
     parser.add_argument("--final-if-ready", action="store_true")
+    parser.add_argument("--baseline-before-training", action="store_true")
     run(parser.parse_args())

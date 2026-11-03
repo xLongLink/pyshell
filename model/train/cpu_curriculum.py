@@ -1,13 +1,10 @@
 """Build a broader training-only curriculum without reading final-test tasks."""
 
 import argparse
-import contextlib
 import hashlib
-import io
 import json
 import random
 import statistics
-import traceback
 from collections import Counter
 from pathlib import Path
 
@@ -15,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from dataset.benchmark.cpu_tasks import FAMILIES, task
+from dataset.benchmark.src.reference import feedback
 from dataset.benchmark.src.serialization import serialize
 
 ROOT = Path(__file__).resolve().parent
@@ -40,24 +38,6 @@ FOCUS = {
     "recover_execution",
     "filtered_means",
 }
-
-
-def feedback(source, namespace):
-    output, errors = io.StringIO(), io.StringIO()
-    done = []
-    namespace["done"] = lambda message: done.append(message)
-    error = None
-    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
-        try:
-            exec(compile(source, "<agent>", "exec"), namespace)
-        except Exception:
-            error = traceback.format_exc()
-    return {
-        "stdout": output.getvalue(),
-        "stderr": errors.getvalue(),
-        "exception": error,
-        "done": done[-1] if done and error is None else None,
-    }
 
 
 def prepare(output, evaluation):
