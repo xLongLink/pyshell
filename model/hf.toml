@@ -1,0 +1,7 @@
+repo_id = "LongLink/pyshell-worker-qwen35-08b"
+private = true
+base_model = "Qwen/Qwen3.5-0.8B"
+base_revision = "2fc06364715b967f1860aea9cf38778875588b17"
+dataset_repo_id = "LongLink/pyshell-worker-data"
+checkpoint = "model/train/artifacts/adapter-raw5000/checkpoint-600"
+evaluations = "model/train/artifacts/adapter-raw5000/evaluations.jsonl"

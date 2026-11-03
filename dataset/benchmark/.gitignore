@@ -1,0 +1,8 @@
+.venv/
+.venv-before-move/
+__pycache__/
+results/
+.env
+local/
+logs/
+artifacts/

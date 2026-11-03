@@ -1,0 +1,6 @@
+.venv/
+.venv-before-move/
+__pycache__/
+data/
+artifacts/
+logs/
