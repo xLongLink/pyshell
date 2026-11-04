@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from dataset.benchmark.src.proof_policy import acceptance_metadata
 from dataset.benchmark.src.reference import ReferenceSession
 from dataset.benchmark.src.task_types import CONTRACT, FAMILIES
 from dataset.benchmark.src.transfer_families import BUILDERS, BuildContext
@@ -219,6 +220,19 @@ def make_task(family, pair, variant, seed, split, slot):
     return record
 
 
+def make_contrast_pair(family, pair, seed, split, slot):
+    for attempt in range(32):
+        variants = [
+            make_task(
+                family, pair, variant, seed + attempt * 1000000007, split, slot
+            )
+            for variant in (0, 1)
+        ]
+        if variants[0]["expected"] != variants[1]["expected"]:
+            return variants
+    raise ValueError(f"Could not construct a nontrivial contrast for {family}")
+
+
 def supervision(record, include_inspection):
     session = ReferenceSession(record)
 
@@ -259,25 +273,9 @@ def prepare(output):
         for family_index, family in enumerate(FAMILIES):
             for pair in range((count + 1) // 2):
                 slot = slots[pair % len(slots)]
-                pair_seed = seed + family_index * 10000019
-                for attempt in range(32):
-                    variants = [
-                        make_task(
-                            family,
-                            pair,
-                            variant,
-                            pair_seed + attempt * 1000000007,
-                            split,
-                            slot,
-                        )
-                        for variant in (0, 1)
-                    ]
-                    if variants[0]["expected"] != variants[1]["expected"]:
-                        break
-                else:
-                    raise ValueError(
-                        f"Could not construct a nontrivial contrast for {family}"
-                    )
+                variants = make_contrast_pair(
+                    family, pair, seed + family_index * 10000019, split, slot
+                )
                 if pair * 2 + 1 < count:
                     contrast_pairs += 1
                     same_workspace_pairs += variants[0]["setup"] == variants[1]["setup"]
@@ -318,12 +316,7 @@ def prepare(output):
     manifest = {
         "experiment": "cpu-template-transfer-v1",
         "scope": "unseen instruction templates and task instances across 12 supported families, including paired contrasting operations; not unseen families or UI tasks",
-        "acceptance": {
-            "test_tasks": 120,
-            "required_passes": 97,
-            "strictly_greater_than": 0.8,
-            "max_calls_per_stage": 4,
-        },
+        "acceptance": acceptance_metadata(),
         "test_seed": test_seed,
         "splits": splits,
         "training_records": len(train_rows),

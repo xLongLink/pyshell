@@ -17,17 +17,21 @@ from dataset.benchmark.src.serialization import CODE, TASK, CONSOLE, END_CODE
 ROOT = Path(__file__).resolve().parents[1]
 
 
+async def _initialize_shell(shell, record):
+    bootstrap = await shell.stream("\n".join(STARTUP_LINES))
+    setup = await shell.stream(record["setup"])
+    if bootstrap.exception or setup.exception:
+        raise RuntimeError(f"Fixture failed: {bootstrap.exception or setup.exception}")
+    for previous in record["previous"]:
+        await shell.stream(previous)
+
+
 async def execute_candidate(backend, record, source):
     await backend.fresh()
     async with httpx2.AsyncClient(base_url=backend.url, timeout=60, trust_env=False) as client:
         shell = RemoteShell(client)
         async with asyncio.timeout(45):
-            bootstrap = await shell.stream("\n".join(STARTUP_LINES))
-            setup = await shell.stream(record["setup"])
-            if bootstrap.exception or setup.exception:
-                raise RuntimeError(f"Fixture failed: {bootstrap.exception or setup.exception}")
-            for previous in record["previous"]:
-                await shell.stream(previous)
+            await _initialize_shell(shell, record)
             result = await shell.stream(source)
             if result.exception:
                 return {"status": "execution_error", "error": result.exception, "done": result.done}
@@ -45,12 +49,7 @@ async def rollout(backend, client, record, max_rounds):
     async with httpx2.AsyncClient(base_url=backend.url, timeout=60, trust_env=False) as shell_client:
         shell = RemoteShell(shell_client)
         async with asyncio.timeout(90):
-            bootstrap = await shell.stream("\n".join(STARTUP_LINES))
-            setup = await shell.stream(record["setup"])
-            if bootstrap.exception or setup.exception:
-                raise RuntimeError(f"Fixture failed: {bootstrap.exception or setup.exception}")
-            for previous in record["previous"]:
-                await shell.stream(previous)
+            await _initialize_shell(shell, record)
             prompt = record["prompt"]
             for index in range(max_rounds):
                 started = time.monotonic()

@@ -63,24 +63,27 @@ def run(args):
                 arguments, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, check=True
             )
 
+    evaluation = [
+        sys.executable,
+        "-u",
+        "-m",
+        "dataset.benchmark.main",
+        "cpu",
+        "--data",
+        str(args.data.resolve()),
+        "--backend",
+        args.backend,
+        "--threads",
+        str(args.threads),
+    ]
     if args.baseline_before_training:
         baseline = args.output / "baseline-dev"
         command(
             "baseline_development",
             [
-                sys.executable,
-                "-u",
-                "-m",
-                "dataset.benchmark.main",
-                "cpu",
-                "--data",
-                str(args.data.resolve()),
+                *evaluation,
                 "--adapter",
                 str(args.initialize_adapter.resolve()),
-                "--backend",
-                "hf",
-                "--threads",
-                str(args.threads),
                 "--label",
                 args.output.name + "-baseline",
                 "--output",
@@ -126,19 +129,9 @@ def run(args):
         command("export", export_command(adapter.resolve(), gguf.resolve()))
     dev = args.output / "dev"
     evaluation = [
-        sys.executable,
-        "-u",
-        "-m",
-        "dataset.benchmark.main",
-        "cpu",
-        "--data",
-        str(args.data.resolve()),
+        *evaluation,
         "--adapter",
         str(adapter.resolve()) if args.backend == "hf" else str(gguf.resolve()),
-        "--backend",
-        args.backend,
-        "--threads",
-        str(args.threads),
         "--label",
         args.output.name,
     ]

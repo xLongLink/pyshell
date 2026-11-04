@@ -2,12 +2,13 @@
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 import torch.nn.functional as F
 
 from dataset.benchmark.src.serialization import END_CODE
-from model.train.src.supervision import encode, loss_for
+from model.train.src.supervision import encode, evaluate_loss, loss_for
 
 
 class Tokenizer:
@@ -64,3 +65,16 @@ class SupervisionTests(unittest.TestCase):
                 3,
                 "raw",
             )
+
+    def test_validation_loss_is_weighted_by_target_length(self):
+        items = [
+            {"ids": [1, 2, 3], "prefix_length": 2},
+            {"ids": [1, 2, 3, 4], "prefix_length": 1},
+        ]
+        model = Model(4)
+        with patch(
+            "model.train.src.supervision.loss_for",
+            side_effect=[torch.tensor(2.0), torch.tensor(6.0)],
+        ):
+            self.assertEqual(evaluate_loss(model, items), 5.0)
+        self.assertTrue(model.training)

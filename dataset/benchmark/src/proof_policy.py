@@ -5,6 +5,15 @@ FINAL_TASKS = 120
 REQUIRED_PASSES = 97
 
 
+def acceptance_metadata():
+    return {
+        "test_tasks": FINAL_TASKS,
+        "required_passes": REQUIRED_PASSES,
+        "strictly_greater_than": 0.8,
+        "max_calls_per_stage": MAX_CALLS,
+    }
+
+
 def development_ready(summary):
     return (
         summary["complete"]

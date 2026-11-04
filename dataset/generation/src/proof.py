@@ -8,6 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from dataset.benchmark.src.corpus import sha256 as digest
+from dataset.benchmark.src.proof_policy import acceptance_metadata
 from dataset.benchmark.src.reference import ReferenceSession
 from dataset.benchmark.src.task_families import BUILDERS, FixtureSeed
 from dataset.benchmark.src.task_types import CONTRACT, FAMILIES, TaskFixture, TaskRecord
@@ -98,12 +99,7 @@ def prepare(output):
         "base_model": "Qwen/Qwen3.5-0.8B",
         "test_seed": test_seed,
         "scope": "unseen task instances and wording across 12 supported families; not unseen task families or UI tasks",
-        "acceptance": {
-            "test_tasks": 120,
-            "required_passes": 97,
-            "strictly_greater_than": 0.8,
-            "max_calls_per_stage": 4,
-        },
+        "acceptance": acceptance_metadata(),
         "selection_split": "dev",
         "test_policy": "Do not inspect test predictions or tune after the final test. A failed final test remains a reported failure.",
         "splits": splits,

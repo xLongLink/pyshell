@@ -102,3 +102,25 @@ class ExperimentTests(unittest.TestCase):
                 json.loads((output / "experiment.json").read_text())["status"],
                 "complete",
             )
+
+    def test_baseline_and_development_share_evaluation_options(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output, calls = self.experiment(directory, "hf", True)
+            baseline, _, development, final = calls
+            for command in (baseline, development, final):
+                self.assertEqual(command[command.index("--backend") + 1], "hf")
+                self.assertEqual(command[command.index("--threads") + 1], "1")
+                self.assertEqual(
+                    command[command.index("--data") + 1],
+                    str((output.parent / "data").resolve()),
+                )
+            self.assertEqual(
+                baseline[baseline.index("--adapter") + 1],
+                str((output.parent / "initial").resolve()),
+            )
+            self.assertEqual(baseline[baseline.index("--label") + 1], "run-baseline")
+            self.assertEqual(
+                development[development.index("--adapter") + 1],
+                str((output / "adapter").resolve()),
+            )
+            self.assertEqual(development[development.index("--label") + 1], "run")

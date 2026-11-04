@@ -8,12 +8,50 @@ import statistics
 from pathlib import Path
 from contextlib import redirect_stdout
 from importlib.util import find_spec
+from unittest.mock import call, patch
 
 AVAILABLE = find_spec("pandas") is not None
 
 
 @unittest.skipUnless(AVAILABLE, "Install the benchmark project's data extra")
 class TransferTests(unittest.TestCase):
+    def test_contrast_pair_retries_with_matching_seeds_in_variant_order(self):
+        from dataset.generation.src.transfer import make_contrast_pair
+
+        for successful_attempt in (0, 1, 31):
+            with self.subTest(successful_attempt=successful_attempt):
+                rejected = [{"expected": 0}, {"expected": 0}]
+                accepted = [{"expected": 1}, {"expected": 2}]
+                with patch(
+                    "dataset.generation.src.transfer.make_task",
+                    side_effect=rejected * successful_attempt + accepted,
+                ) as make_task:
+                    pair = make_contrast_pair("statistics", 3, 183731, "dev", 7)
+                self.assertEqual(pair, accepted)
+                self.assertIs(pair[0], accepted[0])
+                self.assertIs(pair[1], accepted[1])
+                self.assertEqual(make_task.call_args_list, [
+                    call("statistics", 3, variant, 183731 + attempt * 1000000007, "dev", 7)
+                    for attempt in range(successful_attempt + 1)
+                    for variant in (0, 1)
+                ])
+
+    def test_contrast_pair_raises_after_exhausting_retries(self):
+        from dataset.generation.src.transfer import make_contrast_pair
+
+        with patch(
+            "dataset.generation.src.transfer.make_task", return_value={"expected": 0}
+        ) as make_task:
+            with self.assertRaisesRegex(
+                ValueError, "^Could not construct a nontrivial contrast for statistics$"
+            ):
+                make_contrast_pair("statistics", 3, 183731, "dev", 7)
+        self.assertEqual(make_task.call_args_list, [
+            call("statistics", 3, variant, 183731 + attempt * 1000000007, "dev", 7)
+            for attempt in range(32)
+            for variant in (0, 1)
+        ])
+
     def test_pairs_require_different_answers_and_cross_answers_fail(self):
         import numpy as np
         import pandas as pd

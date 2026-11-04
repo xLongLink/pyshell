@@ -2,7 +2,7 @@
 
 import httpx2
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 from dataset.benchmark.src.audit import rollout, execute_candidate
 from dataset.benchmark.src.sampling import balanced_sample
 from dataset.benchmark.src.serialization import CODE, END_CODE
@@ -53,6 +53,46 @@ class ExecutionAuditTests(unittest.IsolatedAsyncioTestCase):
     async def test_previous_partial_updates_survive_errors(self):
         previous = ["values.append(4)\nraise ValueError('after successful append')"]
         self.assertEqual((await self.grade("result = sum(values)\ndone('ok')", previous))["status"], "passed")
+
+    async def test_fixture_failures_stop_execution_after_setup(self):
+        original_client = httpx2.AsyncClient
+        for operation in ("candidate", "rollout"):
+            for bootstrap_fails, setup_fails in ((True, False), (False, True), (True, True)):
+                with self.subTest(operation=operation, bootstrap_fails=bootstrap_fails, setup_fails=setup_fails):
+                    transport = ExecutionTransport()
+                    generator = AsyncMock()
+                    bootstrap = "stage = 'bootstrap'"
+                    if bootstrap_fails:
+                        bootstrap += "\nraise ValueError('bootstrap failed')"
+                    setup = "assert stage == 'bootstrap'\nstage = 'setup'"
+                    if setup_fails:
+                        setup += "\nraise ValueError('setup failed')"
+                    record = {
+                        "id": "test",
+                        "audit_split": "known",
+                        "family": "sum",
+                        "setup": setup,
+                        "previous": ["stage = 'previous'"],
+                        "check": "stage = 'check'",
+                        "prompt": "Complete the task.\n" + CODE + "\n",
+                    }
+
+                    def client(**kwargs):
+                        return original_client(**kwargs, transport=httpx2.MockTransport(transport))
+
+                    error = "bootstrap failed" if bootstrap_fails else "setup failed"
+                    with (
+                        patch("dataset.benchmark.src.audit.httpx2.AsyncClient", side_effect=client),
+                        patch("dataset.benchmark.src.audit.STARTUP_LINES", [bootstrap]),
+                        self.assertRaisesRegex(RuntimeError, f"^Fixture failed: ValueError: {error}$"),
+                    ):
+                        if operation == "candidate":
+                            await execute_candidate(Backend(), record, "stage = 'candidate'\ndone('ok')")
+                        else:
+                            await rollout(Backend(), generator, record, 4)
+                    self.assertEqual(transport.submitted, [bootstrap, setup])
+                    self.assertEqual(transport.namespace["stage"], "setup")
+                    generator.post.assert_not_awaited()
 
     async def test_rollout_allows_inspection_without_leaking_oracle(self):
         transport = ExecutionTransport()

@@ -10,7 +10,7 @@ from dataset.benchmark.src.corpus import sha256
 from dataset.benchmark.src.execution import Worker
 from dataset.benchmark.src.reference import ReferenceSession
 from dataset.benchmark.src.task_types import FAMILIES
-from dataset.generation.src.transfer import make_task
+from dataset.generation.src.transfer import make_contrast_pair
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -44,25 +44,9 @@ def trajectory(record, workspace, *, retry=False):
 def training_tasks(pairs, seed):
     for family_index, family in enumerate(FAMILIES):
         for pair in range(pairs):
-            for attempt in range(32):
-                variants = [
-                    make_task(
-                        family,
-                        pair,
-                        variant,
-                        seed + family_index * 10000019 + attempt * 1000000007,
-                        "train",
-                        pair % 6,
-                    )
-                    for variant in (0, 1)
-                ]
-                if variants[0]["expected"] != variants[1]["expected"]:
-                    break
-            else:
-                raise ValueError(
-                    f"Could not construct a nontrivial contrast for {family}"
-                )
-            yield from variants
+            yield from make_contrast_pair(
+                family, pair, seed + family_index * 10000019, "train", pair % 6
+            )
 
 
 def prepare(output, evaluation, pairs=8, seed=917341):

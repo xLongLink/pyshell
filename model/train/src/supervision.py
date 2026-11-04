@@ -38,7 +38,6 @@ def encode(record, tokenizer, max_length, serialization="chat"):
         "id": record["id"],
         "ids": ids,
         "prefix_length": len(prompt_ids),
-        "target_tokens": len(target_ids),
     }
 
 
@@ -57,7 +56,8 @@ def evaluate_loss(model, items):
     total, tokens = 0.0, 0
     with torch.no_grad():
         for item in items:
-            total += float(loss_for(model, item)) * item["target_tokens"]
-            tokens += item["target_tokens"]
+            target_tokens = len(item["ids"]) - item["prefix_length"]
+            total += float(loss_for(model, item)) * target_tokens
+            tokens += target_tokens
     model.train()
     return total / tokens
