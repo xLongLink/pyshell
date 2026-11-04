@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from dataset.benchmark.src.corpus import sha256
+from model.benchmark.src.corpus import sha256
 
 
 def load_resume(adapter, data, accumulation, serialization):

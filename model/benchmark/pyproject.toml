@@ -1,0 +1,75 @@
+[project]
+name = "pyshell-benchmark"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pyshell",
+    "httpx2>=2.16,<3",
+    "pydantic-ai-slim[openai]>=2.64,<3",
+    "python-dotenv>=1,<2",
+]
+
+[project.optional-dependencies]
+data = ["numpy>=2,<3", "pandas>=3,<4"]
+local = [
+    "torch>=2.10,<3",
+    "transformers>=5.3,<6",
+    "peft>=0.18,<1",
+]
+cuda = ["torch>=2.10,<3", "transformers>=5.3,<6", "peft>=0.18,<1"]
+
+[dependency-groups]
+dev = ["anyio>=4,<5", "pytest>=9,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../.."]
+addopts = "--import-mode=importlib"
+
+[tool.uv]
+conflicts = [[{ extra = "local" }, { extra = "cuda" }]]
+
+[tool.uv.sources]
+pyshell = { path = "../protocol", editable = true }
+torch = [
+    { index = "pytorch-cpu", extra = "local" },
+    { index = "pytorch-cuda", extra = "cuda" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+preview = true
+select = [
+    "F", "UP", "D", "DTZ", "I", "ICN", "PIE", "RET", "ARG", "N",
+    "PERF", "PTH", "A", "S", "ASYNC", "ANN", "B006", "E302", "E305",
+    "E262", "E265", "C403", "C419",
+    "PGH003", "PT", "RUF100", "TID252",
+]
+ignore = ["D100", "D104", "D202", "D203", "D213"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "ARG", "D", "N803", "S"]
+
+[tool.ruff.lint.isort]
+no-sections = true
+length-sort = true
+split-on-trailing-comma = false

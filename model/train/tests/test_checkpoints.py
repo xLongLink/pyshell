@@ -9,7 +9,8 @@ from unittest.mock import Mock, call, patch
 
 import pytest
 import torch
-from dataset.benchmark.src.corpus import sha256
+
+from model.benchmark.src.corpus import sha256
 from model.train.src.checkpoints import load_resume, save_checkpoint, sync_directory
 
 

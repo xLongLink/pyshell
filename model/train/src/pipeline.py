@@ -5,10 +5,10 @@ import json
 import sys
 from pathlib import Path
 
-from dataset.benchmark.src.corpus import default_training_data
+from model.benchmark.src.corpus import default_training_data
 from model.train.src.checkpoint_evaluation import evaluation_command
 from model.train.src.export import CONVERTER, export_command
-from model.train.src.processes import run_logged
+from model.train.src.processes import benchmark_command, run_logged
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -70,11 +70,7 @@ def main(argv=None):
         ),
         (
             "syntax",
-            [
-                sys.executable,
-                "-u",
-                "-m",
-                "dataset.benchmark.main",
+            benchmark_command(
                 "evaluate",
                 "--adapter",
                 str(gguf),
@@ -87,7 +83,7 @@ def main(argv=None):
                 args.name,
                 "--syntax-data",
                 str(data / "validation.jsonl"),
-            ],
+            ),
         ),
         (
             "benchmark",

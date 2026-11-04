@@ -14,7 +14,7 @@ def evaluation_command(checkpoint, step, history, serialization, *, gguf=None):
         sys.executable,
         "-u",
         "-m",
-        "dataset.benchmark.main",
+        "model.train.main",
         "checkpoint",
         "--checkpoint",
         str(checkpoint),

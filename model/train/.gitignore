@@ -1,6 +1,12 @@
 .venv/
 .venv-before-move/
 __pycache__/
-data/
+data/*
+!data/raw/
+data/raw/*
+!data/raw/manifest.json
 artifacts/
 logs/
+weights/
+exports/
+.cache/

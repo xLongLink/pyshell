@@ -1,17 +1,20 @@
-"""Entry point for model training, experiments, and independent verification."""
+"""Entry point for dataset generation, model training, and export."""
 
 import argparse
 from importlib import import_module
 
 COMMANDS = {
+    "generate": ("generation.cli", "Generate or convert training datasets"),
+    "export": ("export", "Export a saved adapter to GGUF"),
+    "checkpoint": ("checkpoint_eval", "Export and evaluate a saved checkpoint"),
+    "audit-pipeline": ("audit_pipeline", "Compare historical HF and GGUF checkpoints"),
     "iterate": (
         "iteration",
         "Run sequential CPU pilots with development selection and final replay",
     ),
-    "train": ("training", "Train or resume a CPU LoRA adapter"),
+    "train": ("training", "Train or resume a LoRA adapter"),
     "experiment": ("experiment", "Run a development-gated execution-proof experiment"),
     "pipeline": ("pipeline", "Train and evaluate through the GGUF worker benchmark"),
-    "verify": ("verification", "Independently replay a completed final evaluation"),
 }
 
 

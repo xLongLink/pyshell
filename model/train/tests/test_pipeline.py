@@ -9,8 +9,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from dataset.benchmark.src import checkpoint_eval
-from model.train.src import pipeline
+
+from model.train.src import checkpoint_eval, pipeline
 
 
 class TestPipelineData:
@@ -53,10 +53,10 @@ class TestPipelineData:
         assert "--gguf" not in command
 
     def test_default_and_explicit_data_paths_in_both_modes(self, subtests):
-        repo = Path(__file__).resolve().parents[3]
+        repo = Path(__file__).resolve().parents[2]
         for serialization, directory in (
-            ("raw", "dataset/data"),
-            ("chat", "model/train/data"),
+            ("raw", "train/data/raw"),
+            ("chat", "train/data/chat"),
         ):
             for override in (None, "custom/../data"):
                 with (

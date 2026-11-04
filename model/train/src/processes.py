@@ -1,6 +1,28 @@
 """Stream subprocess output to a log and console with bounded interruption cleanup."""
 
 import subprocess
+from pathlib import Path
+
+
+def benchmark_command(*arguments, backend="gguf", device="cpu"):
+    project = Path(__file__).resolve().parents[2] / "benchmark"
+    return [
+        "uv",
+        "run",
+        "--locked",
+        "--project",
+        str(project),
+        *(
+            ["--extra", "cuda" if device == "cuda" else "local"]
+            if backend == "hf"
+            else []
+        ),
+        "python",
+        "-u",
+        "-m",
+        "model.benchmark.main",
+        *arguments,
+    ]
 
 
 def run_logged(command, log_path, *, cwd, on_line=None):

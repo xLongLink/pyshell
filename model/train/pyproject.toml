@@ -3,9 +3,12 @@ name = "pyshell-training"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "pyshell",
     "transformers>=5.3,<6",
     "peft>=0.18,<1",
     "psutil>=7,<8",
+    "numpy>=2,<3",
+    "pandas>=3,<4",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +27,7 @@ addopts = "--import-mode=importlib"
 conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
 
 [tool.uv.sources]
+pyshell = { path = "../protocol", editable = true }
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cuda", extra = "cuda" },

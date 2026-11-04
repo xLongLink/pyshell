@@ -9,8 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from dataset.benchmark.src.proof_report import execution_metrics
-from dataset.benchmark.src.task_types import FAMILIES
+
+from model.benchmark.src.proof_report import execution_metrics
+from model.benchmark.src.task_types import FAMILIES
 from model.train.src.iteration import run
 
 

@@ -9,8 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from dataset.benchmark.src.corpus import sha256
-from dataset.benchmark.src.task_types import FAMILIES
+
+from model.benchmark.src.corpus import sha256
+from model.benchmark.src.task_types import FAMILIES
 from model.train.src.experiment import main, run
 
 
@@ -53,7 +54,7 @@ class TestExperiment:
 
         def execute(command, **kwargs):
             calls.append(command)
-            if "dataset.benchmark.main" not in command:
+            if "model.benchmark.main" not in command:
                 return
             output = Path(command[command.index("--output") + 1])
             output.mkdir()

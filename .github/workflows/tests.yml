@@ -48,6 +48,8 @@ jobs:
           version: '0.13.4'
           enable-cache: true
       - run: uv run --directory src/api --locked --python "${{ matrix.python }}" pytest -v
+      - if: matrix.python == '3.12'
+        run: uv run --directory model/protocol --locked --python "${{ matrix.python }}" pytest -v
 
   frontend:
     runs-on: ubuntu-24.04

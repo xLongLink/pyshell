@@ -10,16 +10,18 @@ from unittest.mock import Mock, patch
 
 import pytest
 import torch
-from model.train.src import runtime, training
+
+from model.benchmark.src import runtime
+from model.train.src import training
 from model.train.src.training import parse_args
 
 
 class TestTrainingArguments:
     def test_data_defaults_follow_serialization(self, subtests):
-        repo = Path(__file__).resolve().parents[3]
+        repo = Path(__file__).resolve().parents[2]
         for serialization, directory in (
-            ("raw", "dataset/data"),
-            ("chat", "model/train/data"),
+            ("raw", "train/data/raw"),
+            ("chat", "train/data/chat"),
         ):
             with subtests.test(serialization=serialization):
                 args = parse_args(["--serialization", serialization])

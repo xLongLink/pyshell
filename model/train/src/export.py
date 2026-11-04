@@ -1,5 +1,7 @@
 """The pinned llama.cpp adapter export command."""
 
+import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -18,3 +20,13 @@ def export_command(adapter, output):
         str(output),
         str(adapter),
     ]
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--adapter", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+    return subprocess.run(
+        export_command(args.adapter.resolve(), args.output.resolve()), check=False
+    ).returncode

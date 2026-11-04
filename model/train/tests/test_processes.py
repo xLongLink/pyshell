@@ -4,10 +4,42 @@ import io
 import subprocess
 import sys
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
+
 from model.train.src import processes
+
+
+@pytest.mark.parametrize(
+    ("backend", "device", "extra"),
+    [("gguf", "cpu", None), ("hf", "cpu", "local"), ("hf", "cuda", "cuda")],
+)
+def test_benchmark_runs_in_its_own_environment(backend, device, extra):
+    command = processes.benchmark_command(
+        "cpu", "--label", "pilot", backend=backend, device=device
+    )
+    assert command[:5] == [
+        "uv",
+        "run",
+        "--locked",
+        "--project",
+        str(Path(__file__).resolve().parents[2] / "benchmark"),
+    ]
+    assert command[-7:] == [
+        "python",
+        "-u",
+        "-m",
+        "model.benchmark.main",
+        "cpu",
+        "--label",
+        "pilot",
+    ]
+    if extra is None:
+        assert "--extra" not in command
+    else:
+        assert command[command.index("--extra") + 1] == extra
 
 
 class TestProcess:

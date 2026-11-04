@@ -6,9 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dataset.benchmark.src.corpus import sha256, verify_training_data
-from dataset.benchmark.src.proof_policy import development_ready
+from model.benchmark.src.corpus import sha256, verify_training_data
+from model.benchmark.src.proof_policy import development_ready
 from model.train.src.export import export_command
+from model.train.src.processes import benchmark_command
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parents[1]
@@ -67,11 +68,7 @@ def run(args):
                 arguments, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, check=True
             )
 
-    evaluation = [
-        sys.executable,
-        "-u",
-        "-m",
-        "dataset.benchmark.main",
+    evaluation = benchmark_command(
         "cpu",
         "--data",
         str(args.data.resolve()),
@@ -81,7 +78,14 @@ def run(args):
         str(args.threads),
         "--device",
         device,
-    ]
+        *(
+            ["--base-model", str(ROOT / "artifacts/base")]
+            if args.backend == "hf"
+            else []
+        ),
+        backend=args.backend,
+        device=device,
+    )
     if args.baseline_before_training:
         baseline = args.output / "baseline-dev"
         command(
@@ -175,7 +179,7 @@ def run(args):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--data", type=Path, default=REPO / "dataset/benchmark/artifacts/cpu-proof-v1"
+        "--data", type=Path, default=REPO / "model/benchmark/artifacts/cpu-proof-v1"
     )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--steps", type=int, default=750)

@@ -12,14 +12,14 @@ from pathlib import Path
 import psutil
 import torch
 from peft import LoraConfig, PeftModel, get_peft_model
+from pyshell.serialization import FORMAT
 from transformers import AutoModelForImageTextToText, AutoTokenizer
 
-from dataset.benchmark.src.corpus import default_training_data, read_jsonl, sha256
-from dataset.benchmark.src.serialization import FORMAT
+from model.benchmark.src.corpus import default_training_data, read_jsonl, sha256
+from model.benchmark.src.resources import exclusive_cpu
+from model.benchmark.src.runtime import configure_device, configure_threads
 from model.train.src.checkpoint_evaluation import evaluate_checkpoint
 from model.train.src.checkpoints import load_resume, save_checkpoint
-from model.train.src.resources import exclusive_cpu
-from model.train.src.runtime import configure_device, configure_threads
 from model.train.src.supervision import encode, evaluate_loss, loss_for
 
 ROOT = Path(__file__).resolve().parents[1]

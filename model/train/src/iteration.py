@@ -8,9 +8,9 @@ import select
 from pathlib import Path
 from types import SimpleNamespace
 
-from dataset.benchmark.src.corpus import read_jsonl
+from model.benchmark.src.corpus import read_jsonl
+from model.benchmark.src.verification import verify
 from model.train.src.experiment import run as experiment
-from model.train.src.verification import verify
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -150,7 +150,7 @@ def main(argv=None):
     parser.add_argument(
         "--data",
         type=Path,
-        default=REPO / "dataset/benchmark/artifacts/cpu-transfer-v1",
+        default=REPO / "model/benchmark/artifacts/cpu-transfer-v1",
     )
     parser.add_argument("--training-data", type=Path, required=True)
     parser.add_argument("--initialize-adapter", type=Path, required=True)

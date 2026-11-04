@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 import torch
+
 from model.train.src import training
 
 

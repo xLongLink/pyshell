@@ -6,7 +6,8 @@ from unittest.mock import patch
 import pytest
 import torch
 import torch.nn.functional as F
-from dataset.benchmark.src.serialization import END_CODE
+from pyshell.serialization import END_CODE
+
 from model.train.src.supervision import encode, evaluate_loss, loss_for
 
 

@@ -2,8 +2,7 @@
 
 import torch
 import torch.nn.functional as F
-
-from dataset.benchmark.src.serialization import serialize, target_text
+from pyshell.serialization import serialize, target_text
 
 
 def encode(record, tokenizer, max_length, serialization="chat"):
