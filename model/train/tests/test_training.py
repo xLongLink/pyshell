@@ -145,6 +145,7 @@ class TestTrainingProgress:
             args = parse_args(argv)
             model = torch.nn.Linear(1, 1, bias=False)
             model.config = SimpleNamespace(use_cache=True)
+            model.peft_config = {"default": SimpleNamespace(r=16)}
             model.gradient_checkpointing_enable = Mock()
             model.print_trainable_parameters = Mock()
             checkpoints = []
@@ -164,6 +165,7 @@ class TestTrainingProgress:
                 return original_step(optimizer)
 
             def save_checkpoint(model, tokenizer, optimizer, status, output, name):
+                assert status["rank"] == 16
                 checkpoints.append((name, dict(status)))
 
             with (

@@ -164,7 +164,7 @@ def train(args):
         "cuda_version": torch.version.cuda,
         "gpu": torch.cuda.get_device_name() if args.device == "cuda" else None,
         "tf32": False,
-        "rank": 8,
+        "rank": model.peft_config["default"].r,
         "learning_rate": args.learning_rate,
         "steps": args.steps,
         "stop_after": args.stop_after,

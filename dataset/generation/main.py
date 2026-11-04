@@ -4,6 +4,22 @@ import argparse
 from importlib import import_module
 
 COMMANDS = {
+    "join-curriculum": (
+        "join_curriculum",
+        "Consolidate matched-only versus keep-all joins with skill replay",
+    ),
+    "binding-curriculum": (
+        "binding_curriculum",
+        "Build object-role binding, schema recovery and skill replay",
+    ),
+    "binding-evaluation": (
+        "binding_evaluation",
+        "Freeze container-verified binding evaluation before training",
+    ),
+    "binding": (
+        "binding",
+        "Build execution-verified API and schema binding supervision",
+    ),
     "executed": (
         "executed",
         "Build balanced training trajectories using real container feedback",
