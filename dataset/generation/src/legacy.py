@@ -3,12 +3,13 @@
 import argparse
 import ast
 import contextlib
-import hashlib
 import io
 import json
 import random
 import traceback
 from pathlib import Path
+
+from dataset.benchmark.src.corpus import sha256, write_jsonl
 
 REPO = Path(__file__).resolve().parents[3]
 ROOT = REPO / "model/train"
@@ -263,12 +264,12 @@ def scenario(index, seed):
     )
 
 
-def build(index, seed, split):
+def build(index, seed, split, startup=None):
     item = scenario(index, seed)
     namespace = {}
     exec("import inspect, json, math, statistics", namespace)
     exec(item["setup"], namespace)
-    messages = worker_context()
+    messages = list(worker_context() if startup is None else startup)
     messages.append(
         {"role": "user", "content": item["previous_task"] or item["instruction"]}
     )
@@ -303,13 +304,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     args.output.mkdir(parents=True, exist_ok=True)
     records = {}
+    startup = worker_context()
     for split, count, seed in [("train", 500, 20261102), ("validation", 60, 71921)]:
-        items = [build(index, seed, split) for index in range(count)]
+        items = [build(index, seed, split, startup) for index in range(count)]
         records[split] = items
         path = args.output / f"{split}.jsonl"
-        path.write_text(
-            "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in items)
-        )
+        write_jsonl(path, items, ensure_ascii=False)
         print(f"{split}: {len(items)} executable-validated samples -> {path}")
     prompts = [
         {json.dumps(item["messages"][:-1], sort_keys=True) for item in records[split]}
@@ -327,8 +327,6 @@ def main(argv=None):
         "families": 20,
         "source": "deterministic executable templates",
         "benchmark_cases_used": False,
-        "worker_sha256": hashlib.sha256(
-            (REPO / "sample/src/agents/script.py").read_bytes()
-        ).hexdigest(),
+        "worker_sha256": sha256(REPO / "sample/src/agents/script.py"),
     }
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

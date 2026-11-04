@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import torch
 
 from dataset.benchmark.src.serialization import CODE, CONSOLE, END_CODE, TASK
+from model.train.src import runtime
 from model.train.src.inference import HFCompletion
 
 
@@ -30,8 +31,8 @@ class InferenceTests(unittest.TestCase):
 
     def completion(self):
         with (
-            patch("model.train.src.inference.torch.set_num_interop_threads"),
-            patch("model.train.src.inference.torch.set_num_threads"),
+            patch("model.train.src.runtime.torch.set_num_interop_threads"),
+            patch("model.train.src.runtime.torch.set_num_threads"),
             patch(
                 "model.train.src.inference.AutoTokenizer.from_pretrained",
                 return_value=self.tokenizer,
@@ -50,6 +51,36 @@ class InferenceTests(unittest.TestCase):
                 self.tokenizer, [END_CODE, TASK, CONSOLE, CODE]
             )
         return completion
+
+    def test_runtime_failures_propagate_before_model_loading(self):
+        for device, available in (("cuda", False), ("cpu", False), ("cuda", True)):
+            with (
+                self.subTest(device=device, available=available),
+                patch.object(runtime, "torch") as runtime_torch,
+                patch(
+                    "model.train.src.inference.AutoTokenizer.from_pretrained"
+                ) as tokenizer,
+                patch(
+                    "model.train.src.inference.AutoModelForImageTextToText.from_pretrained"
+                ) as model,
+            ):
+                runtime_torch.cuda.is_available.return_value = available
+                error = RuntimeError("interop threads already initialized")
+                runtime_torch.set_num_interop_threads.side_effect = error
+                with self.assertRaises(RuntimeError) as raised:
+                    HFCompletion(device=device, threads=3)
+                if device == "cuda" and not available:
+                    self.assertEqual(
+                        str(raised.exception), "CUDA requested but unavailable"
+                    )
+                    runtime_torch.set_num_threads.assert_not_called()
+                    runtime_torch.set_num_interop_threads.assert_not_called()
+                else:
+                    self.assertIs(raised.exception, error)
+                    runtime_torch.set_num_threads.assert_called_once_with(3)
+                    runtime_torch.set_num_interop_threads.assert_called_once_with(1)
+                tokenizer.assert_not_called()
+                model.assert_not_called()
 
     def test_boundary_matcher_is_built_once_and_reused_across_requests(self):
         completion = self.completion()
@@ -70,6 +101,8 @@ class InferenceTests(unittest.TestCase):
         completion = self.completion()
         for text, expected in (
             ("code" + TASK + END_CODE, ("code", False)),
+            ("code" + CONSOLE + END_CODE, ("code", False)),
+            ("code" + CODE + END_CODE, ("code", False)),
             ("code" + END_CODE + CONSOLE, ("code", True)),
             ("code", ("code", False)),
         ):

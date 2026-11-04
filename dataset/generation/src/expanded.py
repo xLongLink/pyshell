@@ -1,7 +1,6 @@
 """Build execution-verified raw worker supervision without reading benchmark cases."""
 
 import argparse
-import hashlib
 import io
 import json
 import math
@@ -15,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from dataset.benchmark.src.corpus import sha256, write_jsonl
 from dataset.benchmark.src.serialization import serialize
 from dataset.generation.src.legacy import worker_context
 
@@ -498,22 +498,25 @@ def make_record(index, family, seed, split, startup):
     exec("import inspect", namespace)
     exec(spec["setup"], namespace)
     turns = list(startup) + [{"role": "user", "content": spec["instruction"]}]
-    candidates = []
+    supervised_positions = [
+        position for position, (_, supervised) in enumerate(spec["actions"]) if supervised
+    ]
+    variant = index // (40 if split == "train" else 10)
+    chosen_position = supervised_positions[-1 if variant % 5 < 3 else 0]
     for position, (code, supervised) in enumerate(spec["actions"]):
         prompt = serialize(turns)
         feedback = execute(code, namespace)
         if supervised:
             if feedback["exception"]:
                 raise AssertionError((spec["family"], code, feedback["exception"]))
-            candidates.append(
-                {
+            if position == chosen_position:
+                chosen = {
                     "prompt": prompt,
                     "completion": code,
                     "previous": [item[0] for item in spec["actions"][:position]],
                     "target_feedback": feedback,
                     "inspect_only": feedback["done"] is None,
                 }
-            )
         elif (
             feedback["exception"] is None
             and spec["family"] != "finish_after_successful_code"
@@ -525,8 +528,6 @@ def make_record(index, family, seed, split, startup):
         ]
     exec(spec["check"], namespace)
     assert feedback["done"] is not None
-    variant = index // (40 if split == "train" else 10)
-    chosen = candidates[-1] if variant % 5 < 3 else candidates[0]
     return {
         "id": f"{split}-expanded-{index:05d}",
         "family": spec["family"],
@@ -593,20 +594,18 @@ def main(argv=None):
         "legacy_train_examples": 500,
         "new_train_examples": 4500,
         "validation_split": "held-out task compositions",
-        "generator_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "generator_sha256": sha256(Path(__file__)),
         "numpy_version": np.__version__,
         "pandas_version": pd.__version__,
         "splits": {},
     }
     for split, records in [("train", train), ("validation", validation)]:
         path = args.output / f"{split}.jsonl"
-        path.write_text(
-            "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
-        )
+        write_jsonl(path, records, ensure_ascii=False)
         manifest["splits"][split] = {
             "examples": len(records),
             "families": dict(Counter(record["family"] for record in records)),
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "sha256": sha256(path),
         }
         print(
             f"{split}: {len(records)} verified samples across {len(manifest['splits'][split]['families'])} families -> {path}",

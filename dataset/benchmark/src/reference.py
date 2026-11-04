@@ -39,7 +39,7 @@ class ReferenceWorkspace:
 class ReferenceSession:
     """Own one reference workspace and its model-visible trajectory."""
 
-    def __init__(self, record, workspace=None):
+    def __init__(self, record, workspace=None, *, capture_rows=True):
         self.workspace = workspace if workspace is not None else ReferenceWorkspace()
         setup = self.workspace.execute(record["setup"], "reset")
         if setup["exception"]:
@@ -47,10 +47,11 @@ class ReferenceSession:
         self.turns = [{"role": "user", "content": record["instruction"]}]
         self.metadata = {key: record[key] for key in ("family", "template_id") if key in record}
         self.rows = []
+        self.capture_rows = capture_rows
         self.id = record["id"]
 
     def add(self, source, record_id=None, *, expect_error=False):
-        if record_id is not None:
+        if self.capture_rows and record_id is not None:
             self.rows.append({"id": record_id, **self.metadata, "prompt": serialize(self.turns), "completion": source})
         result = self.workspace.execute(source)
         if bool(result["exception"]) != expect_error:

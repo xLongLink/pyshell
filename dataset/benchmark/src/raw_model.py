@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from pydantic_ai.usage import RequestUsage
 from pydantic_ai.models import Model, StreamedResponse
 from pydantic_ai.messages import TextPart, ModelRequest, UserPromptPart
-from dataset.benchmark.src.serialization import CODE, TASK, FORMAT, CONSOLE, END_CODE, serialize
+from dataset.benchmark.src.serialization import FORMAT, END_CODE, MARKERS, serialize
 
 
 def render_history(messages):
@@ -32,7 +32,6 @@ def render_history(messages):
 class RawStream(StreamedResponse):
     lines: AsyncIterator[str]
     name: str
-    prompt: str
     url: str
     _timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -60,7 +59,6 @@ class RawStream(StreamedResponse):
                     "format": FORMAT,
                     "end_marker_seen": ended,
                     "stopping_word": event.get("stopping_word"),
-                    "raw_prompt": self.prompt,
                 }
         if not complete:
             raise RuntimeError("Native completion stream ended without a final result")
@@ -122,11 +120,11 @@ class RawCompletionModel(Model):
             "n_predict": settings.get("max_tokens", 2048),
             "temperature": settings.get("temperature", 0),
             "top_p": settings.get("top_p", 0.8),
-            "stop": [END_CODE, TASK, CONSOLE, CODE],
+            "stop": list(MARKERS),
             "cache_prompt": True,
         }
         async with self.client.stream("POST", "/completion", json=payload) as response:
             response.raise_for_status()
             yield RawStream(
-                model_request_parameters, lines=response.aiter_lines(), name=self.name, prompt=prompt, url=str(self.client.base_url)
+                model_request_parameters, lines=response.aiter_lines(), name=self.name, url=str(self.client.base_url)
             )

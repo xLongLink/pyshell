@@ -1,10 +1,12 @@
 """Check periodic evaluation reporting without running a model."""
 
+import io
 import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
+from dataset.benchmark.src.cases import CASES
 from dataset.benchmark.src.checkpoint_eval import main
 
 
@@ -14,16 +16,17 @@ class CheckpointEvaluationTests(unittest.TestCase):
             root = Path(temporary)
             checkpoint = root / "adapter-test/checkpoint-200"
             checkpoint.mkdir(parents=True)
+            (checkpoint / "adapter.gguf").write_text("previous export")
             results = root / "results"
             (results / "case").mkdir(parents=True)
             summary = {
-                "trials": 10,
+                "trials": len(CASES),
                 "passed": 2,
-                "success_rate": 0.2,
+                "success_rate": 2 / len(CASES),
                 "first_text_seconds": {"median": 0.5, "p95": 1.0},
                 "complete_code_seconds": {"median": 1.2, "p95": 2.0},
                 "mean_calls": 3.0,
-                "statuses": {"passed": 2, "budget_exceeded": 8},
+                "statuses": {"passed": 2, "budget_exceeded": len(CASES) - 2},
             }
             (results / "summary.json").write_text(json.dumps(summary))
             events = [
@@ -33,9 +36,28 @@ class CheckpointEvaluationTests(unittest.TestCase):
                 }
                 for source in ("print(1)", "result = {'bad': 1))")
             ]
+            events.extend(
+                [
+                    {"event": "model_request", "messages": []},
+                    {
+                        "event": "model_response",
+                        "messages": [
+                            {
+                                "parts": [
+                                    {"part_kind": "thinking", "content": "not Python"},
+                                    {"part_kind": "text", "content": "value = "},
+                                    {"part_kind": "text", "content": "2"},
+                                ],
+                                "provider_details": None,
+                            },
+                            {"parts": []},
+                        ],
+                    },
+                ]
+            )
             (results / "case/trace.jsonl").write_text("\n".join(json.dumps(event) for event in events))
             process = MagicMock()
-            process.stdout = iter([f"Results: {results}\n"])
+            process.stdout = io.StringIO(f"Results: {results}\n")
             process.wait.return_value = 1
             history = root / "evaluations.jsonl"
             arguments = [
@@ -51,13 +73,165 @@ class CheckpointEvaluationTests(unittest.TestCase):
             ]
             with (
                 patch("sys.argv", arguments),
-                patch("dataset.benchmark.src.checkpoint_eval.subprocess.run"),
-                patch("dataset.benchmark.src.checkpoint_eval.subprocess.Popen", return_value=process),
+                patch("dataset.benchmark.src.checkpoint_eval.subprocess.run") as export,
+                patch("model.train.src.processes.subprocess.Popen", return_value=process) as worker,
             ):
                 self.assertEqual(main(), 1)
+            export.assert_called_once()
+            command = export.call_args.args[0]
+            self.assertEqual(command[command.index("--outfile") + 1], str(checkpoint / "adapter.gguf"))
+            self.assertEqual(command[-1], str(checkpoint))
+            command = worker.call_args.args[0]
+            self.assertEqual(command[command.index("--adapter") + 1], str(checkpoint / "adapter.gguf"))
             record = json.loads(history.read_text())
             self.assertEqual(record["passed"], 2)
-            self.assertEqual(record["generated_responses"], 2)
-            self.assertEqual(record["valid_python"], 1)
+            self.assertEqual(record["generated_responses"], 4)
+            self.assertEqual(record["valid_python"], 2)
             self.assertEqual(record["raw_python_rate"], 0.5)
+            self.assertEqual(record["end_markers"], 2)
             self.assertEqual(record["status"], "completed")
+
+    def test_explicit_gguf_reuses_export_and_preserves_reporting(self):
+        for filename in ("checkpoint-200/adapter.gguf", "exported.gguf"):
+            with self.subTest(filename=filename), TemporaryDirectory(dir="/tmp/opencode") as temporary:
+                root = Path(temporary)
+                checkpoint = root / "checkpoint-200"
+                checkpoint.mkdir()
+                adapter = root / filename
+                adapter.write_text("exported adapter")
+                (checkpoint / "export.log").write_text("previous export log")
+                results = root / "results"
+                results.mkdir()
+                summary = {
+                    "trials": len(CASES),
+                    "passed": len(CASES),
+                    "success_rate": 1.0,
+                    "first_text_seconds": {"median": 0.5, "p95": 1.0},
+                    "complete_code_seconds": {"median": 1.2, "p95": 2.0},
+                    "mean_calls": 3.0,
+                    "statuses": {"passed": len(CASES)},
+                }
+                (results / "summary.json").write_text(json.dumps(summary))
+                process = MagicMock()
+                process.stdout = io.StringIO(f"Results: {results}\n")
+                process.wait.return_value = 0
+                history = root / "evaluations.jsonl"
+                with (
+                    patch("dataset.benchmark.src.checkpoint_eval.subprocess.run") as export,
+                    patch("model.train.src.processes.subprocess.Popen", return_value=process) as worker,
+                    patch("builtins.print") as output,
+                ):
+                    self.assertEqual(
+                        main(
+                            [
+                                "--checkpoint",
+                                str(checkpoint),
+                                "--step",
+                                "200",
+                                "--history",
+                                str(history),
+                                "--serialization",
+                                "raw",
+                                "--gguf",
+                                str(adapter),
+                            ]
+                        ),
+                        0,
+                    )
+                export.assert_not_called()
+                command = worker.call_args.args[0]
+                self.assertEqual(command[command.index("--adapter") + 1], str(adapter))
+                self.assertNotIn("--syntax-only", command)
+                self.assertEqual(adapter.read_text(), "exported adapter")
+                self.assertEqual((checkpoint / "export.log").read_text(), "previous export log")
+                self.assertEqual((checkpoint / "evaluation.log").read_text(), f"Results: {results}\n")
+                output.assert_any_call(f"Results: {results}\n", end="", flush=True)
+                record = json.loads(history.read_text())
+                self.assertEqual(record["status"], "completed")
+                self.assertEqual(record["results"], str(results))
+                self.assertEqual(record["passed"], len(CASES))
+                self.assertEqual(record["generated_responses"], 0)
+                self.assertEqual(record["valid_python"], 0)
+                self.assertEqual(record["end_markers"], 0)
+                self.assertIsNone(record["raw_python_rate"])
+
+    def test_explicit_gguf_must_be_a_file(self):
+        with TemporaryDirectory(dir="/tmp/opencode") as temporary:
+            root = Path(temporary)
+            checkpoint = root / "checkpoint-200"
+            checkpoint.mkdir()
+            (checkpoint / "adapter.gguf").touch()
+            history = root / "history/evaluations.jsonl"
+            for adapter in (root / "missing.gguf", checkpoint):
+                with (
+                    self.subTest(adapter=adapter),
+                    patch("dataset.benchmark.src.checkpoint_eval.subprocess.run") as export,
+                    patch("model.train.src.processes.subprocess.Popen") as worker,
+                ):
+                    self.assertEqual(
+                        main(
+                            [
+                                "--checkpoint",
+                                str(checkpoint),
+                                "--step",
+                                "200",
+                                "--history",
+                                str(history),
+                                "--serialization",
+                                "raw",
+                                "--gguf",
+                                str(adapter),
+                            ]
+                        ),
+                        2,
+                    )
+                    export.assert_not_called()
+                    worker.assert_not_called()
+                records = [json.loads(line) for line in history.read_text().splitlines()]
+                self.assertEqual(records[-1]["status"], "evaluation_error")
+                self.assertEqual(records[-1]["checkpoint"], str(checkpoint))
+                self.assertEqual(records[-1]["step"], 200)
+                self.assertIn("FileNotFoundError", records[-1]["error"])
+                self.assertIn(str(adapter), records[-1]["error"])
+            self.assertEqual(len(records), 2)
+            self.assertFalse((checkpoint / "export.log").exists())
+            self.assertFalse((checkpoint / "evaluation.log").exists())
+
+    def test_completion_uses_suite_size_and_success_requires_all_passing(self):
+        for trials, passed, status, exit_code in (
+            (3, 3, "completed", 0),
+            (3, 2, "completed", 1),
+            (2, 2, "partial", 1),
+            (10, 10, "partial", 1),
+        ):
+            with self.subTest(trials=trials, passed=passed), TemporaryDirectory(dir="/tmp/opencode") as temporary:
+                root = Path(temporary)
+                checkpoint = root / "checkpoint-200"
+                checkpoint.mkdir()
+                results = root / "results"
+                results.mkdir()
+                summary = {
+                    "trials": trials,
+                    "passed": passed,
+                    "success_rate": passed / trials,
+                    "first_text_seconds": {"median": None, "p95": None},
+                    "complete_code_seconds": {"median": None, "p95": None},
+                    "mean_calls": None,
+                    "statuses": {"passed": passed, "incorrect": trials - passed},
+                }
+                (results / "summary.json").write_text(json.dumps(summary))
+                process = MagicMock()
+                process.stdout = io.StringIO(f"Results: {results}\n")
+                process.wait.return_value = 0 if passed == trials else 1
+                history = root / "evaluations.jsonl"
+                arguments = ["--checkpoint", str(checkpoint), "--step", "200", "--history", str(history), "--serialization", "raw"]
+                with (
+                    patch("dataset.benchmark.src.checkpoint_eval.CASES", CASES[:3]),
+                    patch("dataset.benchmark.src.checkpoint_eval.subprocess.run"),
+                    patch("model.train.src.processes.subprocess.Popen", return_value=process),
+                ):
+                    self.assertEqual(main(arguments), exit_code)
+                record = json.loads(history.read_text())
+                self.assertEqual(record["status"], status)
+                self.assertEqual(record["cases"], trials)
+                self.assertEqual(record["passed"], passed)

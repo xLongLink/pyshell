@@ -17,7 +17,4 @@ def exclusive_cpu():
                 "Waiting for the other CPU experiment to release its slot.", flush=True
             )
             fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+        yield

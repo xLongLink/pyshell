@@ -6,46 +6,28 @@ from collections import Counter
 from contextlib import closing
 from pathlib import Path
 
-from dataset.benchmark.src.corpus import sha256
+from dataset.benchmark.src.corpus import sha256, write_jsonl
 from dataset.benchmark.src.execution import Worker
-from dataset.benchmark.src.reference import ReferenceSession
 from dataset.benchmark.src.task_types import FAMILIES
-from dataset.generation.src.transfer import make_contrast_pair
+from dataset.generation.src.transfer import (
+    TEMPLATE_PARTITIONS,
+    make_contrast_pair,
+    supervision,
+)
 
 REPO = Path(__file__).resolve().parents[3]
 
 
-def trajectory(record, workspace, *, retry=False):
-    session = ReferenceSession(record, workspace)
-    suffix = "retry" if retry else "direct"
-
-    def add(source, expect_error=False):
-        session.add(
-            source,
-            f"{record['id']}-{suffix}-s{len(session.turns)}",
-            expect_error=expect_error,
-        )
-
-    add(record["inspect"])
-    if retry:
-        reader = record["inspect"].removeprefix("help(").removesuffix(".read)")
-        add(f"values = {reader}.read()", expect_error=True)
-        add(record["recovery_code"])
-    else:
-        add(record["code"])
-    session.check(record["check"])
-    if record["followup"]:
-        session.followup(
-            record["followup"], f"{record['id']}-{suffix}-s{len(session.turns) + 1}"
-        )
-    return session.rows
-
-
 def training_tasks(pairs, seed):
+    slots = TEMPLATE_PARTITIONS["train"]
     for family_index, family in enumerate(FAMILIES):
         for pair in range(pairs):
             yield from make_contrast_pair(
-                family, pair, seed + family_index * 10000019, "train", pair % 6
+                family,
+                pair,
+                seed + family_index * 10000019,
+                "train",
+                slots[pair % len(slots)],
             )
 
 
@@ -56,9 +38,16 @@ def prepare(output, evaluation, pairs=8, seed=917341):
     records = []
     with closing(Worker()) as worker:
         for record in training_tasks(pairs, seed):
-            rows.extend(trajectory(record, worker))
-            if record["recovery_code"]:
-                rows.extend(trajectory(record, worker, retry=True))
+            for mode in ("direct", "retry") if record["recovery_code"] else ("direct",):
+                rows.extend(
+                    supervision(
+                        record,
+                        include_inspection=True,
+                        workspace=worker,
+                        retry=mode == "retry",
+                        id_prefix=f"{record['id']}-{mode}",
+                    )
+                )
             records.append(
                 {key: value for key, value in record.items() if key != "expected"}
             )
@@ -66,10 +55,8 @@ def prepare(output, evaluation, pairs=8, seed=917341):
     for split in ("dev", "test"):
         if template_ids & set(frozen["splits"][split]["template_ids"]):
             raise ValueError("Training templates overlap a held-out split")
-    (output / "train.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-    (output / "train-tasks.jsonl").write_text(
-        "".join(json.dumps(record) + "\n" for record in records)
-    )
+    write_jsonl(output / "train.jsonl", rows)
+    write_jsonl(output / "train-tasks.jsonl", records)
     (output / "validation.jsonl").write_bytes(
         (evaluation / "validation.jsonl").read_bytes()
     )

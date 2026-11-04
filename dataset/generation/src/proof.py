@@ -8,6 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from dataset.benchmark.src.corpus import sha256 as digest
+from dataset.benchmark.src.corpus import write_jsonl
 from dataset.benchmark.src.proof_policy import acceptance_metadata
 from dataset.benchmark.src.reference import ReferenceSession
 from dataset.benchmark.src.task_families import BUILDERS, FixtureSeed
@@ -16,15 +17,16 @@ from dataset.benchmark.src.task_types import CONTRACT, FAMILIES, TaskFixture, Ta
 ROOT = Path(__file__).resolve().parents[2] / "benchmark"
 
 
-def task(family, index, seed, split):
-    return asdict(build_task(family, index, seed, split).record)
+def task(family, index, seed, split, *, name=None):
+    return asdict(build_task(family, index, seed, split, name=name).record)
 
 
-def build_task(family, index, seed, split):
+def build_task(family, index, seed, split, *, name=None):
     builder = BUILDERS[family]
     rng = random.Random(seed + index * 104729)
     prefix = {"train": "source", "dev": "workspace", "test": "input"}[split]
-    name = f"{prefix}_{rng.randrange(100000, 999999)}"
+    default_name = f"{prefix}_{rng.randrange(100000, 999999)}"
+    name = default_name if name is None else name
     other = name + "_other"
     count = rng.randint(4, 10 if split == "train" else 14)
     values = rng.sample(range(-30, 81) if split == "train" else range(-300, 501), count)
@@ -88,12 +90,12 @@ def prepare(output):
             for index in range(per_family)
         ]
         path = output / f"{split}-tasks.jsonl"
-        path.write_text("".join(json.dumps(record) + "\n" for record in records))
+        write_jsonl(path, records)
         splits[split] = {"tasks": len(records), "sha256": digest(path)}
         if split in {"train", "dev"}:
             rows = [row for record in records for row in supervision(record)]
             name = "train.jsonl" if split == "train" else "validation.jsonl"
-            (output / name).write_text("".join(json.dumps(row) + "\n" for row in rows))
+            write_jsonl(output / name, rows)
     manifest = {
         "experiment": "cpu-execution-proof-v1",
         "base_model": "Qwen/Qwen3.5-0.8B",

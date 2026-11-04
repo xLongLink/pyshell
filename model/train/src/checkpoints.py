@@ -11,10 +11,7 @@ from dataset.benchmark.src.corpus import sha256
 
 
 def load_resume(adapter, data, accumulation, serialization):
-    state_file = adapter / "training.json"
-    if not state_file.is_file():
-        state_file = adapter.parent / "training.json"
-    state = json.loads(state_file.read_text())
+    state = json.loads((adapter / "training.json").read_text())
     if (
         state["train_sha256"] != sha256(data / "train.jsonl")
         or state["accumulation"] != accumulation
@@ -40,7 +37,10 @@ def save_checkpoint(model, tokenizer, optimizer, status, output, name):
         model.save_pretrained(staged)
         tokenizer.save_pretrained(staged)
         torch.save(optimizer.state_dict(), staged / "optimizer.pt")
-        (staged / "training.json").write_text(state)
+        metadata = staged / "training.json"
+        metadata.write_text(state)
+        if path == output:
+            metadata.chmod(metadata.stat().st_mode & 0o600)
         for file in staged.rglob("*"):
             if file.is_file():
                 with file.open("rb") as stream:
@@ -54,14 +54,17 @@ def save_checkpoint(model, tokenizer, optimizer, status, output, name):
                 if file.name != "training.json":
                     os.replace(file, output / file.name)
             sync_directory(output)
+            os.replace(metadata, output / "training.json")
         else:
             os.replace(staged, path)
             sync_directory(output)
-        with tempfile.NamedTemporaryFile(mode="w", dir=output, delete=False) as file:
-            file.write(state)
-            file.flush()
-            os.fsync(file.fileno())
-        os.replace(file.name, output / "training.json")
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=output, delete=False
+            ) as file:
+                file.write(state)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(file.name, output / "training.json")
         sync_directory(output)
 
 

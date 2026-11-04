@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from dataset.benchmark.src.corpus import write_jsonl
 from dataset.benchmark.src.proof_policy import acceptance_metadata
 from dataset.benchmark.src.reference import ReferenceSession
 from dataset.benchmark.src.task_types import CONTRACT, FAMILIES
@@ -21,6 +22,11 @@ from dataset.benchmark.src.transfer_families import BUILDERS, BuildContext
 from dataset.generation.src.proof import build_task, digest
 
 ROOT = Path(__file__).resolve().parents[2] / "benchmark"
+TEMPLATE_PARTITIONS = {
+    "train": range(6),
+    "dev": range(6, 8),
+    "test": range(8, 10),
+}
 NAMES = (
     "input",
     "samples",
@@ -184,12 +190,10 @@ TEMPLATES = {
 
 
 def make_task(family, pair, variant, seed, split, slot):
-    fixture = build_task(family, pair, seed, "dev")
-    record = asdict(fixture.record)
-    old = re.search(r"workspace_\d+", record["setup"])[0]
     rng = random.Random(seed + pair * 65537)
     name = f"{rng.choice(NAMES)}_{rng.randrange(10000, 999999)}"
-    record = json.loads(json.dumps(record).replace(old, name))
+    fixture = build_task(family, pair, seed, "dev", name=name)
+    record = asdict(fixture.record)
     other = name + "_other"
     ns = {"np": np, "pd": pd, "statistics": statistics, "json": json}
     exec(record["setup"], ns)
@@ -223,9 +227,7 @@ def make_task(family, pair, variant, seed, split, slot):
 def make_contrast_pair(family, pair, seed, split, slot):
     for attempt in range(32):
         variants = [
-            make_task(
-                family, pair, variant, seed + attempt * 1000000007, split, slot
-            )
+            make_task(family, pair, variant, seed + attempt * 1000000007, split, slot)
             for variant in (0, 1)
         ]
         if variants[0]["expected"] != variants[1]["expected"]:
@@ -233,15 +235,26 @@ def make_contrast_pair(family, pair, seed, split, slot):
     raise ValueError(f"Could not construct a nontrivial contrast for {family}")
 
 
-def supervision(record, include_inspection):
-    session = ReferenceSession(record)
+def supervision(
+    record,
+    include_inspection,
+    *,
+    workspace=None,
+    retry=None,
+    id_prefix=None,
+    capture_rows=True,
+):
+    session = ReferenceSession(record, workspace, capture_rows=capture_rows)
+    if retry is None:
+        retry = bool(record["recovery_code"] and record["variant"])
+    id_prefix = record["id"] if id_prefix is None else id_prefix
 
     def add(source, supervise=True, expect_error=False):
-        record_id = record["id"] + f"-s{len(session.turns)}" if supervise else None
+        record_id = id_prefix + f"-s{len(session.turns)}" if supervise else None
         session.add(source, record_id, expect_error=expect_error)
 
     add(record["inspect"], include_inspection)
-    if record["recovery_code"] and record["variant"]:
+    if retry:
         name = re.search(r"help\((\w+)\.read\)", record["inspect"])[1]
         add(f"values = {name}.read()", expect_error=True)
         add(record["recovery_code"])
@@ -249,9 +262,7 @@ def supervision(record, include_inspection):
         add(record["code"])
     session.check(record["check"])
     if record["followup"]:
-        session.followup(
-            record["followup"], record["id"] + f"-s{len(session.turns) + 1}"
-        )
+        session.followup(record["followup"], id_prefix + f"-s{len(session.turns) + 1}")
     return session.rows
 
 
@@ -262,11 +273,12 @@ def prepare(output):
     setup_sets = {}
     train_rows = []
     validation_rows = []
-    for split, seed, count, slots in (
-        ("train", 731971, 12, range(6)),
-        ("dev", 813797, 5, range(6, 8)),
-        ("test", test_seed, 10, range(8, 10)),
+    for split, seed, count in (
+        ("train", 731971, 12),
+        ("dev", 813797, 5),
+        ("test", test_seed, 10),
     ):
+        slots = TEMPLATE_PARTITIONS[split]
         records = []
         contrast_pairs = 0
         same_workspace_pairs = 0
@@ -283,7 +295,9 @@ def prepare(output):
                     if pair * 2 + variant >= count:
                         continue
                     rows = supervision(
-                        record, include_inspection=split != "train" or pair == 0
+                        record,
+                        include_inspection=split != "train" or pair == 0,
+                        capture_rows=split != "test",
                     )
                     if split == "train":
                         train_rows.extend(rows)
@@ -292,7 +306,7 @@ def prepare(output):
                     record.pop("expected")
                     records.append(record)
         path = output / f"{split}-tasks.jsonl"
-        path.write_text("".join(json.dumps(record) + "\n" for record in records))
+        write_jsonl(path, records)
         splits[split] = {
             "tasks": len(records),
             "sha256": digest(path),
@@ -307,12 +321,8 @@ def prepare(output):
         assert not set(splits[left]["template_ids"]) & set(
             splits[right]["template_ids"]
         )
-    (output / "train.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in train_rows)
-    )
-    (output / "validation.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in validation_rows)
-    )
+    write_jsonl(output / "train.jsonl", train_rows)
+    write_jsonl(output / "validation.jsonl", validation_rows)
     manifest = {
         "experiment": "cpu-template-transfer-v1",
         "scope": "unseen instruction templates and task instances across 12 supported families, including paired contrasting operations; not unseen families or UI tasks",

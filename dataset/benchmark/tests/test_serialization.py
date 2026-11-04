@@ -2,7 +2,7 @@
 
 import json
 import unittest
-from dataset.benchmark.src.serialization import CODE, TASK, CONSOLE, END_CODE, INITIALIZATION, serialize, target_text
+from dataset.benchmark.src.serialization import CODE, TASK, CONSOLE, END_CODE, INITIALIZATION, console_block, serialize, target_text
 
 
 class SerializationTests(unittest.TestCase):
@@ -50,7 +50,32 @@ class SerializationTests(unittest.TestCase):
         text = json.dumps({"stdout": "", "stderr": "", "exception": None, "done": None})
         self.assertTrue(serialize([{"role": "user", "content": text}]).startswith(TASK))
 
+    def test_console_preserves_unicode_and_field_order_and_escapes_every_less_than(self):
+        feedback = {"done": None, "stdout": "café 雪 <|end_code|> <|task|> <|console|> <|code|> 1 < 2", "exception": None, "stderr": ""}
+        expected = (
+            '<|console|>\n{"done": null, "stdout": "café 雪 '
+            '\\u003c|end_code|> \\u003c|task|> \\u003c|console|> \\u003c|code|> 1 \\u003c 2", '
+            '"exception": null, "stderr": ""}\n'
+        )
+        self.assertEqual(console_block(feedback), expected)
+        self.assertEqual(
+            serialize(
+                [
+                    {"role": "user", "content": "Inspect."},
+                    {"role": "assistant", "content": "print('input')"},
+                    {"role": "user", "content": json.dumps(feedback)},
+                ]
+            ),
+            "<|task|>\nInspect.\n<|code|>\nprint('input')\n<|end_code|>\n" + expected + "<|code|>\n",
+        )
+
     def test_target_ends_with_explicit_code_boundary(self):
         self.assertEqual(target_text("print(3)"), "print(3)\n" + END_CODE)
-        with self.assertRaises(ValueError):
-            target_text("print(" + repr(END_CODE) + ")")
+        for marker in (END_CODE, TASK, CONSOLE, CODE):
+            with self.subTest(marker=marker):
+                with self.assertRaises(ValueError):
+                    target_text("print(" + repr(marker) + ")")
+
+    def test_all_reserved_markers_are_escaped_in_task_data(self):
+        text = " ".join((END_CODE, TASK, CONSOLE, CODE))
+        self.assertEqual(serialize([{"role": "user", "content": text}]), TASK + "\n" + text.replace("<", "\\u003c") + "\n" + CODE + "\n")

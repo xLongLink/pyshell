@@ -42,6 +42,11 @@ def main(argv=None):
     tokenizer = AutoTokenizer.from_pretrained(TRAIN_ROOT / "artifacts/base", local_files_only=True)
     for record in records:
         record["token_ids"] = tokenizer.encode(record["prompt"], add_special_tokens=False)
+    positions = list(range(len(records)))
+    loss_inputs = [
+        (position, encode(records[position], tokenizer, 2048, "raw"))
+        for position in positions[: args.hf_samples] + positions[len(known) : len(known) + args.hf_samples]
+    ]
     checkpoints = {
         "best600": TRAIN_ROOT / "artifacts/adapter-raw5000/checkpoint-600",
         "stopped": TRAIN_ROOT / "artifacts/adapter-raw5000/interrupted",
@@ -50,15 +55,14 @@ def main(argv=None):
         checkpoints = {args.only: checkpoints[args.only]}
     for label, checkpoint in checkpoints.items():
         print(f"Auditing {label}: {checkpoint}", flush=True)
-        selected = json.loads(json.dumps(records))
+        selected = [record.copy() for record in records]
         base = AutoModelForImageTextToText.from_pretrained(
             TRAIN_ROOT / "artifacts/base", dtype=torch.float32, attn_implementation="sdpa", local_files_only=True
         )
         model = PeftModel.from_pretrained(base, checkpoint).eval()
-        loss_records = selected[: args.hf_samples] + selected[len(known) : len(known) + args.hf_samples]
-        for record in loss_records:
+        for position, item in loss_inputs:
             with torch.no_grad():
-                record["hf_target_loss"] = float(loss_for(model, encode(record, tokenizer, 2048, "raw")))
+                selected[position]["hf_target_loss"] = float(loss_for(model, item))
         for record in selected[: args.hf_samples]:
             inputs = tokenizer(record["prompt"], return_tensors="pt", add_special_tokens=False)
             started = time.monotonic()

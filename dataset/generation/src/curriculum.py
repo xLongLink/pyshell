@@ -1,12 +1,12 @@
 """Build a broader training-only curriculum without reading final-test tasks."""
 
 import argparse
-import hashlib
 import json
 import random
 from collections import Counter
 from pathlib import Path
 
+from dataset.benchmark.src.corpus import sha256, write_jsonl
 from dataset.benchmark.src.reference import ReferenceSession
 from dataset.benchmark.src.task_types import FAMILIES
 from dataset.generation.src.proof import task
@@ -44,19 +44,10 @@ def prepare(output, evaluation):
     failures = 0
     for family_index, family in enumerate(FAMILIES):
         for index in range(50 if family in FOCUS else 25):
-            record = task(family, index, 440713 + family_index * 10000019, "train")
-            old_name = (
-                record["setup"].split(" = ")[0]
-                if family != "recover_execution"
-                else None
-            )
-            if family == "recover_execution":
-                old_name = record["inspect"][5:-6]
-            elif family == "missing_input":
-                old_name = old_name.removesuffix("_other")
             name = f"{rng.choice(NAMES)}_{rng.randrange(1000, 99999)}"
-            encoded = json.dumps(record).replace(old_name, name)
-            record = json.loads(encoded)
+            record = task(
+                family, index, 440713 + family_index * 10000019, "train", name=name
+            )
             if family == "grouped_revenue":
                 record["code"] = record["code"].replace(
                     "result = " + name + ".loc[", "filtered = " + name + ".loc["
@@ -102,7 +93,7 @@ def prepare(output, evaluation):
             task_counts[family] += 1
     output.mkdir(parents=True, exist_ok=False)
     train = output / "train.jsonl"
-    train.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    write_jsonl(train, rows)
     validation = output / "validation.jsonl"
     validation.write_bytes((evaluation / "validation.jsonl").read_bytes())
     manifest = {
@@ -112,11 +103,9 @@ def prepare(output, evaluation):
         "verified_error_trajectories": failures,
         "variable_prefixes": NAMES,
         "evaluation_test_sha256": frozen["splits"]["test"]["sha256"],
-        "training_records_sha256": hashlib.sha256(train.read_bytes()).hexdigest(),
-        "validation_records_sha256": hashlib.sha256(
-            validation.read_bytes()
-        ).hexdigest(),
-        "generator_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "training_records_sha256": sha256(train),
+        "validation_records_sha256": sha256(validation),
+        "generator_sha256": sha256(Path(__file__)),
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2), flush=True)

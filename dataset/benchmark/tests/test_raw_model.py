@@ -6,7 +6,7 @@ import unittest
 from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 from dataset.benchmark.src.raw_model import RawCompletionModel
-from dataset.benchmark.src.serialization import CODE, END_CODE
+from dataset.benchmark.src.serialization import CODE, TASK, FORMAT, CONSOLE, END_CODE
 
 
 class RawModelTests(unittest.IsolatedAsyncioTestCase):
@@ -32,8 +32,12 @@ class RawModelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.text, "print(3)")
         self.assertEqual(response.finish_reason, "stop")
         self.assertEqual(response.usage.input_tokens, 12)
+        self.assertEqual(response.usage.output_tokens, 8)
+        self.assertEqual(response.provider_details, {"format": FORMAT, "end_marker_seen": True, "stopping_word": END_CODE})
+        self.assertEqual(self.payload["prompt"], TASK + "\nPrint 3\n" + CODE + "\n")
         self.assertNotIn("DO NOT SEND SYSTEM", self.payload["prompt"])
         self.assertNotIn("messages", self.payload)
+        self.assertEqual(self.payload["stop"], [END_CODE, TASK, CONSOLE, CODE])
         self.assertTrue(self.payload["prompt"].endswith(CODE + "\n"))
 
     async def test_eos_without_end_code_is_not_accepted(self):
@@ -43,3 +47,15 @@ class RawModelTests(unittest.IsolatedAsyncioTestCase):
     async def test_stream_without_terminal_event_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "without a final result"):
             await self.completion([{"content": "print(3)", "stop": False}])
+
+    async def test_boundary_metadata_and_finish_reasons_do_not_require_a_raw_prompt(self):
+        for marker, truncated in ((END_CODE, False), (END_CODE, True), (TASK, False), (CONSOLE, False), (CODE, False)):
+            with self.subTest(marker=marker, truncated=truncated):
+                response = await self.completion([
+                    {"content": "print(3)", "stop": True, "stopping_word": marker, "truncated": truncated}
+                ])
+                self.assertEqual(response.text, "print(3)")
+                self.assertEqual(response.finish_reason, "stop" if marker == END_CODE and not truncated else "length")
+                self.assertEqual(response.provider_details, {
+                    "format": FORMAT, "end_marker_seen": marker == END_CODE, "stopping_word": marker,
+                })

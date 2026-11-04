@@ -8,7 +8,7 @@ CONSOLE = "<|console|>"
 END_CODE = "<|end_code|>"
 FORMAT = "task-code-console-v1"
 INITIALIZATION = "Initialize the Python terminal, report the preloaded names, and display ui's docstring."
-MARKERS = (TASK, CODE, CONSOLE, END_CODE)
+MARKERS = (END_CODE, TASK, CONSOLE, CODE)
 
 
 def escape_text(text: str) -> str:
@@ -30,6 +30,11 @@ def feedback_and_task(text: str) -> tuple[dict | None, str]:
     return None, text
 
 
+def console_block(feedback: dict) -> str:
+    encoded = json.dumps(feedback, ensure_ascii=False).replace("<", "\\u003c")
+    return f"{CONSOLE}\n{encoded}\n"
+
+
 def serialize(messages: list[dict[str, str]]) -> str:
     """Render context without a system role or a pretrained chat template."""
     turns = [message for message in messages if message["role"] != "system"]
@@ -48,8 +53,7 @@ def serialize(messages: list[dict[str, str]]) -> str:
         elif turn["role"] == "user":
             feedback, task = feedback_and_task(content) if expects_console else (None, content)
             if feedback is not None:
-                encoded = json.dumps(feedback, ensure_ascii=False).replace("<", "\\u003c")
-                parts.append(f"{CONSOLE}\n{encoded}\n")
+                parts.append(console_block(feedback))
             if task.strip():
                 parts.append(f"{TASK}\n{escape_text(task)}\n")
             expects_console = False

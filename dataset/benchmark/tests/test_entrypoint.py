@@ -6,10 +6,21 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from dataset.benchmark.src.cli import run, parser
+from dataset.benchmark.src.runner import Limits
 from dataset.benchmark.src.backend import ContainerBackend
 
 
 class EntrypointTests(unittest.IsolatedAsyncioTestCase):
+    def test_default_limits_match_runner(self):
+        args = parser().parse_args(["run", "--model", "test"])
+        self.assertEqual(Limits(seconds=args.max_seconds, calls=args.max_calls, tokens=args.max_trial_tokens), Limits())
+
+    def test_explicit_limits_override_defaults(self):
+        args = parser().parse_args(
+            ["run", "--model", "test", "--max-seconds", "45", "--max-calls", "5", "--max-trial-tokens", "9000"]
+        )
+        self.assertEqual(Limits(seconds=args.max_seconds, calls=args.max_calls, tokens=args.max_trial_tokens), Limits(45, 5, 9000))
+
     async def test_default_env_file_is_loaded(self):
         with TemporaryDirectory(dir="/tmp/opencode") as temporary:
             root = Path(temporary)

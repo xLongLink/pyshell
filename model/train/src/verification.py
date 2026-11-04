@@ -1,10 +1,11 @@
 """Replay every frozen final-test prediction before accepting an experiment."""
 
 import argparse
-import hashlib
 import json
+from contextlib import closing
 from pathlib import Path
 
+from dataset.benchmark.src.corpus import read_jsonl, sha256
 from dataset.benchmark.src.execution import Worker
 from dataset.benchmark.src.proof_policy import (
     FINAL_TASKS,
@@ -56,7 +57,7 @@ def verify(experiment, data):
         raise ValueError("Development gate was not met")
     manifest = json.loads((data / "manifest.json").read_text())
     path = data / "test-tasks.jsonl"
-    task_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    task_digest = sha256(path)
     if (
         task_digest != manifest["splits"]["test"]["sha256"]
         or task_digest != summary["task_file_sha256"]
@@ -65,22 +66,18 @@ def verify(experiment, data):
     adapter = Path(summary["adapter"])
     if adapter.is_dir():
         adapter /= "adapter_model.safetensors"
-    adapter_digest = hashlib.sha256(adapter.read_bytes()).hexdigest()
+    adapter_digest = sha256(adapter)
     if adapter_digest != summary["adapter_sha256"]:
         raise ValueError("Adapter differs from the one evaluated")
-    tasks = [json.loads(line) for line in path.read_text().splitlines()]
-    predictions = [
-        json.loads(line)
-        for line in (experiment / "test/responses.jsonl").read_text().splitlines()
-    ]
+    tasks = read_jsonl(path)
+    predictions = read_jsonl(experiment / "test/responses.jsonl")
     if len(tasks) != FINAL_TASKS or [row["id"] for row in predictions] != [
         row["id"] for row in tasks
     ]:
         raise ValueError("Final predictions do not cover all 120 tasks exactly once")
-    worker = Worker()
     passed = 0
     mismatches = []
-    try:
+    with closing(Worker()) as worker:
         for task, prediction in zip(tasks, predictions, strict=True):
             status = replay(worker, task, prediction)
             passed += status == "passed"
@@ -92,8 +89,6 @@ def verify(experiment, data):
                         "replay": status,
                     }
                 )
-    finally:
-        worker.close()
     verified = (
         not mismatches
         and passed == summary["passed"]

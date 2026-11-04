@@ -12,7 +12,7 @@ from dataset.benchmark.src.cli import backend_lock
 from dataset.benchmark.src.syntax import check_source
 from dataset.benchmark.src.backend import ContainerBackend
 from dataset.benchmark.src.recording import write_json
-from dataset.benchmark.src.serialization import CODE, TASK, CONSOLE, END_CODE
+from dataset.benchmark.src.serialization import CODE, END_CODE, MARKERS, console_block
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -60,7 +60,7 @@ async def rollout(backend, client, record, max_rounds):
                         "stream": False,
                         "temperature": 0,
                         "n_predict": 512,
-                        "stop": [END_CODE, TASK, CONSOLE, CODE],
+                        "stop": list(MARKERS),
                         "cache_prompt": True,
                     },
                 )
@@ -91,8 +91,7 @@ async def rollout(backend, client, record, max_rounds):
                         first_step_passed=passed and index == 0,
                     )
                     break
-                prompt += source + "\n" + END_CODE + "\n" + CONSOLE + "\n"
-                prompt += json.dumps(step["feedback"], ensure_ascii=False).replace("<", "\\u003c") + "\n" + CODE + "\n"
+                prompt += source + "\n" + END_CODE + "\n" + console_block(step["feedback"]) + CODE + "\n"
             else:
                 row.update(status="round_limit", error=f"No completion within {max_rounds} model calls", first_step_passed=False)
     row["syntax_valid"] = all(step["syntax_valid"] for step in row["steps"])
@@ -102,8 +101,21 @@ async def rollout(backend, client, record, max_rounds):
 async def evaluate(args):
     args.output.mkdir(parents=True, exist_ok=False)
     records = [json.loads(line) for line in args.data.read_text().splitlines()]
+    if not records:
+        raise ValueError("Execution audit requires at least one record")
     backend = ContainerBackend(8020, args.output / "backend.log")
-    results = []
+    summary = {
+        "label": args.label,
+        "scope": f"up to {args.max_rounds} code/console turns from reference prior context, verified by execution",
+        "examples": 0,
+        "splits": {},
+        "hf_comparison": {
+            "examples": 0,
+            "hf_passed": 0,
+            "gguf_passed": 0,
+            "scope": "first-step completion correctness; HF gets one generation, not a rollout",
+        },
+    }
     async with httpx2.AsyncClient(
         base_url="http://127.0.0.1:8030", headers={"Authorization": "Bearer local-only"}, timeout=120, trust_env=False
     ) as client:
@@ -136,42 +148,45 @@ async def evaluate(args):
                             row["hf_execution"] = await execute_candidate(backend, record, hf["source"])
                         except TimeoutError:
                             row["hf_execution"] = {"status": "timeout", "error": "HF candidate execution exceeded 45 seconds"}
-                results.append(row)
                 with (args.output / "responses.jsonl").open("a") as file:
                     file.write(json.dumps(row) + "\n")
-                if index % 10 == 0:
-                    print(f"Execution audit {index}/{len(records)}: {sum(r['status'] == 'passed' for r in results)} passed", flush=True)
-                summary = {
-                    "label": args.label,
-                    "scope": f"up to {args.max_rounds} code/console turns from reference prior context, verified by execution",
-                    "examples": len(results),
-                    "splits": {},
-                }
-                for split in sorted({r["split"] for r in results}):
-                    group = [r for r in results if r["split"] == split]
-                    summary["splits"][split] = {
-                        "examples": len(group),
-                        "passed": sum(r["status"] == "passed" for r in group),
-                        "syntax_valid": sum(r["syntax_valid"] for r in group),
-                        "generated_scripts": sum(len(r["steps"]) for r in group),
-                        "valid_scripts": sum(step["syntax_valid"] for r in group for step in r["steps"]),
-                        "tokenization_matches_hf": sum(r["tokenization_matches_hf"] for r in group),
-                        "hf_target_losses": [r["hf_target_loss"] for r in group if "hf_target_loss" in r],
-                        "by_family": {
-                            family: {
-                                "examples": sum(r["family"] == family for r in group),
-                                "passed": sum(r["family"] == family and r["status"] == "passed" for r in group),
-                            }
-                            for family in sorted({r["family"] for r in group})
-                        },
+                summary["examples"] += 1
+                if row["split"] not in summary["splits"]:
+                    summary["splits"][row["split"]] = {
+                        "examples": 0,
+                        "passed": 0,
+                        "syntax_valid": 0,
+                        "generated_scripts": 0,
+                        "valid_scripts": 0,
+                        "tokenization_matches_hf": 0,
+                        "hf_target_losses": [],
+                        "by_family": {},
                     }
-                paired = [r for r in results if "hf_prediction" in r]
-                summary["hf_comparison"] = {
-                    "examples": len(paired),
-                    "hf_passed": sum(r.get("hf_execution", {}).get("status") == "passed" for r in paired),
-                    "gguf_passed": sum(r["first_step_passed"] for r in paired),
-                    "scope": "first-step completion correctness; HF gets one generation, not a rollout",
-                }
+                    summary["splits"] = dict(sorted(summary["splits"].items()))
+                split = summary["splits"][row["split"]]
+                passed = row["status"] == "passed"
+                split["examples"] += 1
+                split["passed"] += passed
+                split["syntax_valid"] += row["syntax_valid"]
+                split["generated_scripts"] += len(row["steps"])
+                split["valid_scripts"] += sum(step["syntax_valid"] for step in row["steps"])
+                split["tokenization_matches_hf"] += token_match
+                if "hf_target_loss" in row:
+                    split["hf_target_losses"].append(row["hf_target_loss"])
+                if row["family"] not in split["by_family"]:
+                    split["by_family"][row["family"]] = {"examples": 0, "passed": 0}
+                    split["by_family"] = dict(sorted(split["by_family"].items()))
+                family = split["by_family"][row["family"]]
+                family["examples"] += 1
+                family["passed"] += passed
+                if "hf_prediction" in row:
+                    comparison = summary["hf_comparison"]
+                    comparison["examples"] += 1
+                    comparison["hf_passed"] += row.get("hf_execution", {}).get("status") == "passed"
+                    comparison["gguf_passed"] += row["first_step_passed"]
+                if index % 10 == 0:
+                    passed_total = sum(split["passed"] for split in summary["splits"].values())
+                    print(f"Execution audit {index}/{len(records)}: {passed_total} passed", flush=True)
                 write_json(args.output / "summary.json", summary)
         finally:
             await backend.close()

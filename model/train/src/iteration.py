@@ -81,14 +81,14 @@ def run(args):
             best_development=best_summary,
         )
         state_path.write_text(json.dumps(state, indent=2) + "\n")
-        experiment(
+        result = experiment(
             SimpleNamespace(
                 data=args.data,
                 training_data=args.training_data,
                 output=output,
                 steps=budget,
                 threads=args.threads,
-                device=getattr(args, "device", "cpu"),
+                device=args.device,
                 learning_rate=args.learning_rate / 2**index,
                 initialize_adapter=best,
                 backend="hf",
@@ -96,7 +96,6 @@ def run(args):
                 final_if_ready=True,
             )
         )
-        result = json.loads((output / "experiment.json").read_text())
         summary = result["development"]
         paired = comparison(best_dev, output / "dev")
         record = {

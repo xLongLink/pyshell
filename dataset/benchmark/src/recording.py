@@ -59,8 +59,14 @@ class Measurements:
 
     calls: list[dict[str, Any]] = field(default_factory=list)
     executions: list[dict[str, Any]] = field(default_factory=list)
-    input_tokens: int = 0
-    output_tokens: int = 0
+
+    @property
+    def input_tokens(self) -> int:
+        return sum(call["usage"]["input_tokens"] for call in self.calls if call["usage"] is not None)
+
+    @property
+    def output_tokens(self) -> int:
+        return sum(call["usage"]["output_tokens"] for call in self.calls if call["usage"] is not None)
 
 
 class TimedStream:
@@ -126,8 +132,6 @@ class MeasuredModel(WrapperModel):
                     response = stream.get()
                     usage = asdict(response.usage)
                     call["usage"] = usage
-                    measurements.input_tokens += response.usage.input_tokens
-                    measurements.output_tokens += response.usage.output_tokens
                     self.budget.used += response.usage.input_tokens + response.usage.output_tokens
                     self.trace.write("model_response", messages=ModelMessagesTypeAdapter.dump_python([response], mode="json"))
         except BaseException as error:
@@ -161,7 +165,12 @@ class MeasuredShell(RemoteShell):
             execution = {
                 "phase": self.phase,
                 "seconds": monotonic() - started,
-                "result": result.model_dump() if result is not None else None,
+                "error": result is not None and result.exception is not None,
             }
             self.measurements.executions.append(execution)
-            self.trace.write("execution_result", **execution)
+            self.trace.write(
+                "execution_result",
+                phase=execution["phase"],
+                seconds=execution["seconds"],
+                result=result.model_dump() if result is not None else None,
+            )

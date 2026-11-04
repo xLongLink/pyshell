@@ -88,3 +88,11 @@ class SupervisionTests(unittest.TestCase):
         ):
             self.assertEqual(evaluate_loss(model, items), 5.0)
         self.assertTrue(model.training)
+
+    def test_empty_validation_does_not_change_model_mode_or_compute_loss(self):
+        for training in (True, False):
+            with self.subTest(training=training):
+                model = Model(4).train(training)
+                self.assertIsNone(evaluate_loss(model, []))
+                self.assertEqual(model.training, training)
+                self.assertIsNone(model.logits.grad)

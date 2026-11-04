@@ -15,7 +15,7 @@ REPO = ROOT.parents[1]
 
 
 def run(args):
-    device = getattr(args, "device", "cpu")
+    device = args.device
     if device != "cpu" and args.backend != "hf":
         raise ValueError("CUDA experiments require the HF evaluation backend")
     if args.baseline_before_training and (
@@ -42,7 +42,6 @@ def run(args):
     metadata = {
         "status": "training",
         "base": "Qwen/Qwen3.5-0.8B",
-        "fresh_adapter": args.initialize_adapter is None,
         "initialized_from": str(args.initialize_adapter)
         if args.initialize_adapter
         else None,
@@ -170,6 +169,7 @@ def run(args):
         metadata["status"] = "needs_development" if not ready else "ready_for_final"
     state.write_text(json.dumps(metadata, indent=2) + "\n")
     print(json.dumps(metadata, indent=2), flush=True)
+    return metadata
 
 
 def main(argv=None):

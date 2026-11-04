@@ -11,7 +11,7 @@ from dataset.benchmark.src.execution import Worker
 from dataset.benchmark.src.proof_trial import trial
 from dataset.benchmark.src.proof_policy import final_passed
 from dataset.benchmark.src.proof_report import execution_metrics
-from dataset.benchmark.src.serialization import CODE, TASK, CONSOLE, END_CODE
+from dataset.benchmark.src.serialization import END_CODE, MARKERS
 from dataset.benchmark.src.inference_server import inference_server
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +23,7 @@ def completion(prompt):
         "temperature": 0,
         "seed": 713,
         "n_predict": 384,
-        "stop": [END_CODE, TASK, CONSOLE, CODE],
+        "stop": list(MARKERS),
         "stream": False,
         "cache_prompt": True,
     }

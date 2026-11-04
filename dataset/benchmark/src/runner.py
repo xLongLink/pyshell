@@ -122,10 +122,7 @@ async def run_trial(
         output_tokens=measurements.output_tokens,
         calls=len(measurements.calls),
         call_timings=measurements.calls,
-        execution_errors=sum(
-            execution["phase"] == "worker" and execution["result"] is not None and execution["result"]["exception"] is not None
-            for execution in measurements.executions
-        ),
+        execution_errors=sum(execution["phase"] == "worker" and execution["error"] for execution in measurements.executions),
         worker_execution_seconds=sum(execution["seconds"] for execution in measurements.executions if execution["phase"] == "worker"),
     )
     trace.write("trial_result", **trial)

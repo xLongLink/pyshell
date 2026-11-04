@@ -38,6 +38,7 @@ def positive_int(value: str) -> int:
 
 
 def parser() -> argparse.ArgumentParser:
+    limits = Limits()
     cli = argparse.ArgumentParser(
         description="Evaluate the Python worker, without voice or UI grading. Run from the repository root.",
         epilog="Traces contain prompts, Python, and execution output. Use synthetic data. No API calls are retried automatically.",
@@ -59,9 +60,9 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--max-output-tokens", type=positive_int, default=2048)
     run.add_argument("--case", action="append", choices=[case.id for case in CASES], help="Select a case; repeat to select several")
     run.add_argument("--repeats", type=positive_int, default=1)
-    run.add_argument("--max-seconds", type=positive_int, default=120, help="Trial deadline, including initialization and verification")
-    run.add_argument("--max-calls", type=positive_int, default=12, help="Shared across all turns of one case")
-    run.add_argument("--max-trial-tokens", type=positive_int, default=30_000)
+    run.add_argument("--max-seconds", type=positive_int, default=limits.seconds, help="Trial deadline, including initialization and verification")
+    run.add_argument("--max-calls", type=positive_int, default=limits.calls, help="Shared across all turns of one case")
+    run.add_argument("--max-trial-tokens", type=positive_int, default=limits.tokens)
     run.add_argument(
         "--max-run-tokens", type=positive_int, default=300_000, help="Observed tokens; may overshoot by one in-flight response"
     )

@@ -1,15 +1,26 @@
-"""Read pinned execution tasks and verify corpus provenance."""
+"""Read and write execution records and verify corpus provenance."""
 
 import json
 import hashlib
+from pathlib import Path
+
+
+def default_training_data(serialization):
+    repo = Path(__file__).resolve().parents[3]
+    return repo / ("dataset/data" if serialization == "raw" else "model/train/data")
 
 
 def sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def read_jsonl(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def write_jsonl(path, records, *, ensure_ascii=True):
+    path.write_text("".join(json.dumps(record, ensure_ascii=ensure_ascii) + "\n" for record in records))
 
 
 def verify_training_data(directory, manifest):

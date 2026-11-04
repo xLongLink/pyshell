@@ -8,7 +8,8 @@ import argparse
 import urllib.request
 from pathlib import Path
 from collections import Counter
-from dataset.benchmark.src.serialization import CODE, TASK, CONSOLE, END_CODE
+from dataset.benchmark.src.corpus import default_training_data
+from dataset.benchmark.src.serialization import END_CODE, MARKERS
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,9 +35,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     output = args.output or ROOT / "logs" / f"syntax-{uuid.uuid4().hex[:8]}"
     output.mkdir(parents=True, exist_ok=False)
-    data_path = args.data or (
-        ROOT.parent / "data/validation.jsonl" if args.serialization == "raw" else ROOT.parents[1] / "model/train/data/validation.jsonl"
-    )
+    data_path = args.data or default_training_data(args.serialization) / "validation.jsonl"
     records = [json.loads(line) for line in data_path.read_text().splitlines()]
     results = []
     print(f"Syntax-only evaluation: {len(records)} held-out prompts, temperature={args.temperature}; results: {output}", flush=True)
@@ -57,7 +56,7 @@ def main(argv=None):
                 "temperature": args.temperature,
                 "top_p": 0.8,
                 "n_predict": 2048,
-                "stop": [END_CODE, TASK, CONSOLE, CODE],
+                "stop": list(MARKERS),
                 "stream": False,
                 "cache_prompt": True,
             }
@@ -67,17 +66,15 @@ def main(argv=None):
         started = time.monotonic()
         with urllib.request.urlopen(request, timeout=120) as response:
             completion = json.load(response)
-        choice = (
-            {
-                "message": {"content": completion.get("content", "")},
-                "finish_reason": "stop"
-                if completion.get("stopping_word") == END_CODE and not completion.get("truncated")
-                else "missing_end_marker",
-            }
-            if args.serialization == "raw"
-            else completion["choices"][0]
-        )
-        source = choice["message"].get("content") or ""
+        if args.serialization == "raw":
+            source = completion.get("content") or ""
+            finish_reason = (
+                "stop" if completion.get("stopping_word") == END_CODE and not completion.get("truncated") else "missing_end_marker"
+            )
+        else:
+            choice = completion["choices"][0]
+            source = choice["message"].get("content") or ""
+            finish_reason = choice["finish_reason"]
         error = check_source(source)
         item = {
             "id": record["id"],
@@ -85,8 +82,8 @@ def main(argv=None):
             "source": source,
             "compile_error": error,
             "compiles": error is None,
-            "finish_reason": choice["finish_reason"],
-            "passed": error is None and choice["finish_reason"] == "stop",
+            "finish_reason": finish_reason,
+            "passed": error is None and finish_reason == "stop",
             "seconds": time.monotonic() - started,
             "usage": completion.get("usage"),
         }
@@ -95,7 +92,7 @@ def main(argv=None):
             file.write(json.dumps(item) + "\n")
         if index % 10 == 0 or not item["passed"]:
             print(
-                f"{index}/{len(records)}: {sum(r['passed'] for r in results)} valid completed responses; latest: {error or choice['finish_reason']}",
+                f"{index}/{len(records)}: {sum(r['passed'] for r in results)} valid completed responses; latest: {error or finish_reason}",
                 flush=True,
             )
     summary = {

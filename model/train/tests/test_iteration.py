@@ -46,6 +46,7 @@ class IterationTests(unittest.TestCase):
             data=root / "data",
             training_data=root / "training",
             threads=1,
+            device="cpu",
             learning_rate=5e-5,
         )
 
@@ -60,9 +61,7 @@ class IterationTests(unittest.TestCase):
             def experiment(options):
                 initialized.append(options.initialize_adapter)
                 summary = self.results(options.output / "dev", next(scores))
-                (options.output / "experiment.json").write_text(
-                    json.dumps({"status": "needs_development", "development": summary})
-                )
+                return {"status": "needs_development", "development": summary}
 
             with (
                 patch("model.train.src.iteration.experiment", side_effect=experiment),
@@ -82,6 +81,16 @@ class IterationTests(unittest.TestCase):
             state = json.loads((args.output / "loop.json").read_text())
             self.assertEqual(state["status"], "needs_diagnosis")
             self.assertFalse(state["objective_met"])
+            self.assertEqual(
+                [record["passed"] for record in state["history"]], [40, 39, 45]
+            )
+            for record in state["history"]:
+                self.assertEqual(
+                    json.loads(
+                        (Path(record["output"]) / "comparison.json").read_text()
+                    ),
+                    record,
+                )
 
     def test_failed_final_is_reported_and_never_followed_by_more_training(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -89,9 +98,7 @@ class IterationTests(unittest.TestCase):
 
             def experiment(options):
                 summary = self.results(options.output / "dev", 56)
-                (options.output / "experiment.json").write_text(
-                    json.dumps({"status": "complete", "development": summary})
-                )
+                return {"status": "complete", "development": summary}
 
             def verify(output, data):
                 (output / "test").mkdir()

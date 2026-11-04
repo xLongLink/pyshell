@@ -1,10 +1,10 @@
 """Create role-free training files from the existing validated examples."""
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 
+from dataset.benchmark.src.corpus import sha256, write_jsonl
 from dataset.benchmark.src.serialization import FORMAT, serialize, target_text
 
 ROOT = Path(__file__).resolve().parents[3] / "model/train"
@@ -39,12 +39,10 @@ def main(argv=None):
             }
             for record in records
         ]
-        (output / f"{split}.jsonl").write_text(
-            "".join(json.dumps(record) + "\n" for record in converted)
-        )
+        write_jsonl(output / f"{split}.jsonl", converted)
         manifest["sources"][split] = {
             "count": len(records),
-            "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "sha256": sha256(source),
         }
         if split == "train":
             (output / "example.txt").write_text(

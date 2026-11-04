@@ -1,5 +1,6 @@
 """Keep the CPU experiment's grading independent of model-visible context."""
 
+import io
 import sys
 import json
 import hashlib
@@ -8,8 +9,10 @@ import unittest
 import subprocess
 from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import patch
 from model.train.src.resources import exclusive_cpu
-from dataset.benchmark.src.cpu_evaluate import trial, evaluate
+from dataset.benchmark.src.cpu_evaluate import trial, evaluate, completion
+from dataset.benchmark.src.serialization import CODE, TASK, CONSOLE, END_CODE
 
 
 class Worker:
@@ -28,6 +31,16 @@ class Worker:
 
 
 class CPUProofTests(unittest.TestCase):
+    def test_completion_preserves_stop_order_and_end_marker_requirement(self):
+        for stopping_word in (END_CODE, TASK, CONSOLE, CODE, ""):
+            with self.subTest(stopping_word=stopping_word):
+                response = io.StringIO(json.dumps({"content": "result = 11", "stopping_word": stopping_word}))
+                with patch("dataset.benchmark.src.cpu_evaluate.urllib.request.urlopen", return_value=response) as urlopen:
+                    self.assertEqual(completion("Sum values"), ("result = 11", stopping_word == END_CODE))
+                payload = json.loads(urlopen.call_args.args[0].data)
+                self.assertEqual(payload["stop"], [END_CODE, TASK, CONSOLE, CODE])
+                self.assertEqual(payload["prompt"], "Sum values")
+
     def record(self):
         return {
             "id": "test",

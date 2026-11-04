@@ -53,6 +53,8 @@ def loss_for(model, item):
 
 
 def evaluate_loss(model, items):
+    if not items:
+        return None
     model.eval()
     total, tokens = 0.0, 0
     with torch.no_grad():

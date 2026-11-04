@@ -16,7 +16,7 @@ from dataset.benchmark.src.cases import Case, Step
 from pydantic_ai.models.function import FunctionModel
 from dataset.benchmark.src.report import summarize, distribution
 from dataset.benchmark.src.runner import Limits, run_trial
-from dataset.benchmark.src.recording import TokenBudget
+from dataset.benchmark.src.recording import Trace, Measurements, MeasuredShell, TokenBudget
 
 
 class StoppedModel(WrapperModel):
@@ -145,6 +145,30 @@ class HarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "passed")
         self.assertEqual(result["execution_errors"], 1)
         self.assertEqual(result["calls"], 2)
+        executions = [event for event in self.trace if event["event"] == "execution_result" and event["phase"] == "worker"]
+        self.assertEqual(
+            executions[0]["result"],
+            {"type": "result", "stdout": "", "stderr": "", "exception": "ValueError: retry", "done": None, "more_input": False},
+        )
+        self.assertEqual(result["worker_execution_seconds"], sum(event["seconds"] for event in executions))
+
+    async def test_empty_exception_still_counts_as_an_execution_error(self):
+        class EmptyExceptionTransport(ExecutionTransport):
+            def __call__(self, request):
+                response = super().__call__(request)
+                if request.url.path == "/execute/stream":
+                    events = [json.loads(line) for line in response.text.splitlines()]
+                    if events[0]["exception"] is not None:
+                        events[0]["exception"] = ""
+                    return httpx2.Response(200, text="\n".join(json.dumps(event) for event in events))
+                return response
+
+        case = Case("empty_exception", "recovery", "", (Step("Compute result", "assert result == 6"),))
+        result = await self.trial(case, ["raise ValueError()", "result = 6\ndone('recovered')"], transport=EmptyExceptionTransport())
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["execution_errors"], 1)
+        executions = [event for event in self.trace if event["event"] == "execution_result" and event["phase"] == "worker"]
+        self.assertEqual(executions[0]["result"]["exception"], "")
 
     async def test_followups_share_state_but_not_verifier_feedback(self):
         case = Case(
@@ -198,6 +222,89 @@ class HarnessTests(unittest.IsolatedAsyncioTestCase):
         result = await self.trial(case, [], transport=transport)
         self.assertEqual(result["status"], "infrastructure_error")
         self.assertTrue(result["uncertain"])
+        self.assertEqual(result["execution_errors"], 0)
+        execution = next(event for event in self.trace if event["event"] == "execution_result")
+        self.assertEqual(set(execution), {"event", "phase", "seconds", "result"})
+        self.assertIsNone(execution["result"])
+
+
+class MeasuredShellTests(unittest.IsolatedAsyncioTestCase):
+    async def test_compact_measurements_preserve_full_result_traces(self):
+        for exception in (None, "", "ValueError: failed"):
+            with self.subTest(exception=exception), TemporaryDirectory(dir="/tmp/opencode") as temporary:
+                payload = {
+                    "type": "result",
+                    "stdout": "captured output\n" * 1000,
+                    "stderr": "captured error\n",
+                    "exception": exception,
+                    "done": "finished" if exception is None else None,
+                    "more_input": False,
+                }
+
+                def respond(request):
+                    return httpx2.Response(200, text=json.dumps(payload) + '\n{"type": "execution_finished"}')
+
+                measurements = Measurements()
+                trace = Trace(Path(temporary) / "trace.jsonl")
+                async with httpx2.AsyncClient(base_url="http://testserver", transport=httpx2.MockTransport(respond)) as client:
+                    shell = MeasuredShell(client, trace=trace, measurements=measurements)
+                    shell.phase = "worker"
+                    result = await shell.stream("print('output')")
+                self.assertEqual(result.model_dump(), payload)
+                self.assertEqual(len(measurements.executions), 1)
+                execution = measurements.executions[0]
+                self.assertEqual(execution, {"phase": "worker", "seconds": execution["seconds"], "error": exception is not None})
+                self.assertGreater(execution["seconds"], 0)
+                events = [json.loads(line) for line in trace.path.read_text().splitlines()]
+                self.assertEqual(
+                    events[-1], {"event": "execution_result", "phase": "worker", "seconds": execution["seconds"], "result": payload}
+                )
+
+    async def test_transport_failure_and_cancellation_are_timed_without_execution_errors(self):
+        for cancel in (False, True):
+            with self.subTest(cancel=cancel), TemporaryDirectory(dir="/tmp/opencode") as temporary:
+
+                async def respond(request):
+                    if cancel:
+                        await asyncio.Future()
+                    raise httpx2.ReadError("Disconnected", request=request)
+
+                measurements = Measurements()
+                trace = Trace(Path(temporary) / "trace.jsonl")
+                async with httpx2.AsyncClient(base_url="http://testserver", transport=httpx2.MockTransport(respond)) as client:
+                    shell = MeasuredShell(client, trace=trace, measurements=measurements)
+                    shell.phase = "worker"
+                    with self.assertRaises(TimeoutError if cancel else RuntimeError):
+                        async with asyncio.timeout(0.01):
+                            await shell.stream("pass")
+                self.assertTrue(shell.uncertain)
+                self.assertEqual(len(measurements.executions), 1)
+                execution = measurements.executions[0]
+                self.assertEqual(execution, {"phase": "worker", "seconds": execution["seconds"], "error": False})
+                self.assertGreater(execution["seconds"], 0)
+                if cancel:
+                    self.assertGreaterEqual(execution["seconds"], 0.01)
+                events = [json.loads(line) for line in trace.path.read_text().splitlines()]
+                self.assertEqual(
+                    events[-1], {"event": "execution_result", "phase": "worker", "seconds": execution["seconds"], "result": None}
+                )
+
+
+class MeasurementTests(unittest.TestCase):
+    def test_totals_follow_recorded_usage_including_failed_calls(self):
+        measurements = Measurements()
+        self.assertEqual((measurements.input_tokens, measurements.output_tokens), (0, 0))
+        pending = {"usage": None, "error": None}
+        measurements.calls.extend(
+            [
+                {"usage": {"input_tokens": 10, "output_tokens": 3}, "error": None},
+                {"usage": {"input_tokens": 7, "output_tokens": 2}, "error": "ReadError"},
+                pending,
+            ]
+        )
+        self.assertEqual((measurements.input_tokens, measurements.output_tokens), (17, 5))
+        pending["usage"] = {"input_tokens": 4, "output_tokens": 1}
+        self.assertEqual((measurements.input_tokens, measurements.output_tokens), (21, 6))
 
 
 class ReportTests(unittest.TestCase):

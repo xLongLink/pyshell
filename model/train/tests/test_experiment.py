@@ -11,11 +11,13 @@ from unittest.mock import patch
 
 from dataset.benchmark.src.corpus import sha256
 from dataset.benchmark.src.task_types import FAMILIES
-from model.train.src.experiment import run
+from model.train.src.experiment import main, run
 
 
 class ExperimentTests(unittest.TestCase):
-    def experiment(self, directory, backend, ready, device="cpu"):
+    def experiment(
+        self, directory, backend, ready, device="cpu", initialize_adapter="initial"
+    ):
         root = Path(directory)
         data = root / "data"
         data.mkdir()
@@ -40,9 +42,11 @@ class ExperimentTests(unittest.TestCase):
             device=device,
             learning_rate=1e-4,
             training_data=None,
-            initialize_adapter=root / "initial",
+            initialize_adapter=root / initialize_adapter
+            if initialize_adapter is not None
+            else None,
             backend=backend,
-            baseline_before_training=backend == "hf",
+            baseline_before_training=backend == "hf" and initialize_adapter is not None,
             final_if_ready=True,
         )
         calls = []
@@ -68,10 +72,40 @@ class ExperimentTests(unittest.TestCase):
 
         with (
             patch("model.train.src.experiment.subprocess.run", side_effect=execute),
-            redirect_stdout(io.StringIO()),
+            redirect_stdout(io.StringIO()) as stdout,
         ):
-            run(args)
+            metadata = run(args)
+        serialized = json.dumps(metadata, indent=2) + "\n"
+        self.assertEqual((args.output / "experiment.json").read_text(), serialized)
+        self.assertTrue(stdout.getvalue().endswith(serialized))
         return args.output, calls
+
+    def test_main_does_not_return_experiment_metadata(self):
+        with patch(
+            "model.train.src.experiment.run", return_value={"status": "complete"}
+        ) as experiment:
+            self.assertIsNone(main(["--output", "run"]))
+        self.assertEqual(experiment.call_args.args[0].output, Path("run"))
+
+    def test_initialized_from_is_the_only_freshness_metadata(self):
+        for adapter in (None, "initial"):
+            with (
+                self.subTest(adapter=adapter),
+                tempfile.TemporaryDirectory(dir="/tmp/opencode") as directory,
+            ):
+                output, calls = self.experiment(
+                    directory, "hf", False, initialize_adapter=adapter
+                )
+                metadata = json.loads((output / "experiment.json").read_text())
+                self.assertNotIn("fresh_adapter", metadata)
+                self.assertEqual(
+                    metadata["initialized_from"],
+                    str(Path(directory) / adapter) if adapter else None,
+                )
+                training = next(command for command in calls if "train" in command)
+                self.assertEqual(
+                    "--initialize-adapter" in training, adapter is not None
+                )
 
     def test_hf_skips_unused_export_and_leaves_final_unopened_when_dev_fails(self):
         with tempfile.TemporaryDirectory() as directory:
