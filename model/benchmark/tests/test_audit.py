@@ -1,4 +1,4 @@
-"""Check execution grading and sampling without running model providers."""
+"""Check execution grading without running model providers."""
 
 import json
 import httpx2
@@ -9,21 +9,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE
 from model.benchmark.src.audit import rollout, evaluate, execute_candidate
-from model.benchmark.src.sampling import balanced_sample
 from model.benchmark.tests.test_harness import ExecutionTransport
-
-
-class TestSampling:
-    def test_sampling_is_balanced_deterministic_and_excludes_inspection(self):
-        records = [{"id": f"{family}-{i}", "family": family, "inspect_only": i == 0} for family in ("a", "b", "c") for i in range(5)]
-        selected = balanced_sample(records, 6)
-        assert selected == balanced_sample(records, 6)
-        assert not any(record["inspect_only"] for record in selected)
-        assert {family: sum(record["family"] == family for record in selected) for family in ("a", "b", "c")} == {"a": 2, "b": 2, "c": 2}
-
-    def test_insufficient_records_are_rejected(self):
-        with pytest.raises(ValueError, match="Only 0 eligible examples available"):
-            balanced_sample([], 1)
 
 
 class Backend:

@@ -36,11 +36,11 @@ class TestCheckpoint:
             checkpoint = root / "checkpoint-4"
             checkpoint.mkdir()
             with pytest.raises(FileNotFoundError) as raised:
-                load_resume(checkpoint, root, 4, "raw")
+                load_resume(checkpoint, root, 4)
             assert raised.value.filename == str(checkpoint / "training.json")
             state["updates"] = 1
             (checkpoint / "training.json").write_text(json.dumps(state))
-            assert load_resume(checkpoint, root, 4, "raw") == state
+            assert load_resume(checkpoint, root, 4) == state
 
     def test_failed_save_never_publishes_a_checkpoint_or_advances_state(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -170,18 +170,29 @@ class TestCheckpoint:
                 Artifact(), Artifact(), optimizer, state, output, "checkpoint-4"
             )
             checkpoint = output / "checkpoint-4"
-            assert load_resume(checkpoint, root, 4, "raw") == state
+            assert load_resume(checkpoint, root, 4) == state
             assert json.loads((output / "training.json").read_text()) == state
             restored = torch.optim.AdamW([torch.nn.Parameter(torch.tensor(0.0))])
             restored.load_state_dict(
                 torch.load(checkpoint / "optimizer.pt", weights_only=True)
             )
             assert restored.state_dict()["state"][0]["step"].item() == 1
-            for accumulation, serialization in ((8, "raw"), (4, "chat")):
-                with pytest.raises(
-                    ValueError, match="gradient accumulation|different serialization"
-                ):
-                    load_resume(checkpoint, root, accumulation, serialization)
+            with pytest.raises(ValueError, match="gradient accumulation"):
+                load_resume(checkpoint, root, 8)
             (root / "train.jsonl").write_text('{"id":"changed"}\n')
             with pytest.raises(ValueError, match="dataset"):
-                load_resume(checkpoint, root, 4, "raw")
+                load_resume(checkpoint, root, 4)
+
+    @pytest.mark.parametrize("serialization", [None, "chat", "unknown"])
+    def test_resume_rejects_checkpoints_without_raw_protocol_metadata(
+        self, tmp_path, serialization
+    ):
+        (tmp_path / "train.jsonl").write_text('{"id":"first"}\n')
+        state = {"train_sha256": sha256(tmp_path / "train.jsonl"), "accumulation": 4}
+        if serialization is not None:
+            state["serialization"] = serialization
+        checkpoint = tmp_path / "checkpoint"
+        checkpoint.mkdir()
+        (checkpoint / "training.json").write_text(json.dumps(state))
+        with pytest.raises(ValueError, match="raw protocol serialization"):
+            load_resume(checkpoint, tmp_path, 4)

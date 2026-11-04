@@ -125,8 +125,6 @@ def run(args):
             device,
             "--learning-rate",
             str(args.learning_rate),
-            "--serialization",
-            "raw",
             "--eval-samples",
             "12",
             *(

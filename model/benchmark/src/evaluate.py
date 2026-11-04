@@ -7,7 +7,7 @@ import uuid
 import argparse
 import subprocess
 from pathlib import Path
-from model.benchmark.src.inference_server import inference_server
+from model.benchmark.src.inference_server import gguf_command, inference_server
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -90,28 +90,12 @@ def main(argv=None):
     if not args.adapter.is_file():
         raise FileNotFoundError(args.adapter)
     local = ROOT / "local"
-    command = [
-        str(local / "llama-b12038/llama-b12038/llama-server"),
-        "--model",
-        str(local / "Qwen3.5-0.8B-Q4_K_M.gguf"),
+    command = gguf_command(local, local / "Qwen3.5-0.8B-Q4_K_M.gguf", port=8030, context_size=8192, batch_threads=12)
+    command += [
         "--alias",
         args.label,
         "--lora",
         str(args.adapter.resolve()),
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8030",
-        "--ctx-size",
-        "8192",
-        "--parallel",
-        "1",
-        "--threads",
-        "8",
-        "--threads-batch",
-        "12",
-        "--n-gpu-layers",
-        "0",
         "--jinja",
         "--reasoning",
         "off",

@@ -43,6 +43,7 @@ class TestTrainingLog:
             self.checkpoints = []
             model = torch.nn.Linear(1, 1, bias=False)
             model.config = SimpleNamespace(use_cache=True)
+            model.peft_config = {"default": SimpleNamespace(r=8)}
             model.gradient_checkpointing_enable = Mock()
             model.print_trainable_parameters = Mock()
             self.loss = Mock(
@@ -108,7 +109,7 @@ class TestTrainingLog:
             completed_steps.append(len(completed_steps) + 1)
             return model.weight.square().mean()
 
-        def evaluate_checkpoint(checkpoint, step, evaluations, serialization):
+        def evaluate_checkpoint(checkpoint, step, evaluations):
             assert self.logged_steps() == list(range(1, step + 1))
             assert not self.handles[0].closed
             evaluated_steps.append(step)

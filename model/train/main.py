@@ -7,7 +7,6 @@ COMMANDS = {
     "generate": ("generation.cli", "Generate or convert training datasets"),
     "export": ("export", "Export a saved adapter to GGUF"),
     "checkpoint": ("checkpoint_eval", "Export and evaluate a saved checkpoint"),
-    "audit-pipeline": ("audit_pipeline", "Compare historical HF and GGUF checkpoints"),
     "iterate": (
         "iteration",
         "Run sequential CPU pilots with development selection and final replay",

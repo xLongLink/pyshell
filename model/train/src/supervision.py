@@ -5,27 +5,15 @@ import torch.nn.functional as F
 from pyshell.serialization import serialize, target_text
 
 
-def encode(record, tokenizer, max_length, serialization="chat"):
-    if serialization == "raw":
-        prefix = (
-            record["prompt"]
-            if "prompt" in record
-            else serialize(record["messages"][:-1])
-        )
-        target = (
-            record["completion"]
-            if "completion" in record
-            else record["messages"][-1]["content"]
-        )
-        target = target_text(target)
-    else:
-        prefix = tokenizer.apply_chat_template(
-            record["messages"][:-1],
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        )
-        target = record["messages"][-1]["content"] + tokenizer.eos_token
+def encode(record, tokenizer, max_length):
+    prefix = (
+        record["prompt"] if "prompt" in record else serialize(record["messages"][:-1])
+    )
+    target = target_text(
+        record["completion"]
+        if "completion" in record
+        else record["messages"][-1]["content"]
+    )
     prompt_ids = tokenizer.encode(prefix, add_special_tokens=False)
     target_ids = tokenizer.encode(target, add_special_tokens=False)
     ids = prompt_ids + target_ids

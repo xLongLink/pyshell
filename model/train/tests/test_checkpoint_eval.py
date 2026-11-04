@@ -75,8 +75,6 @@ class TestCheckpointEvaluation:
                 "200",
                 "--history",
                 str(history),
-                "--serialization",
-                "raw",
             ]
             with (
                 patch("sys.argv", arguments),
@@ -93,6 +91,7 @@ class TestCheckpointEvaluation:
             )
             assert command[-1] == str(checkpoint)
             command = worker.call_args.args[0]
+            assert command[command.index("--serialization") + 1] == "raw"
             assert command[command.index("--adapter") + 1] == str(
                 checkpoint / "adapter.gguf"
             )
@@ -149,8 +148,6 @@ class TestCheckpointEvaluation:
                                 "200",
                                 "--history",
                                 str(history),
-                                "--serialization",
-                                "raw",
                                 "--gguf",
                                 str(adapter),
                             ]
@@ -198,8 +195,6 @@ class TestCheckpointEvaluation:
                                 "200",
                                 "--history",
                                 str(history),
-                                "--serialization",
-                                "raw",
                                 "--gguf",
                                 str(adapter),
                             ]
@@ -259,8 +254,6 @@ class TestCheckpointEvaluation:
                     "200",
                     "--history",
                     str(history),
-                    "--serialization",
-                    "raw",
                 ]
                 with (
                     patch("model.train.src.checkpoint_eval.CASES", CASES[:3]),

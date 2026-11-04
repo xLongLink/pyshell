@@ -17,23 +17,22 @@ from model.train.src.training import parse_args
 
 
 class TestTrainingArguments:
-    def test_data_defaults_follow_serialization(self, subtests):
+    def test_data_defaults_to_raw_protocol(self):
         repo = Path(__file__).resolve().parents[2]
-        for serialization, directory in (
-            ("raw", "train/data/raw"),
-            ("chat", "train/data/chat"),
-        ):
-            with subtests.test(serialization=serialization):
-                args = parse_args(["--serialization", serialization])
-                assert args.data == repo / directory
+        assert parse_args([]).data == repo / "train/data/raw"
 
-    def test_explicit_data_remains_unresolved_in_both_modes(self, subtests):
+    def test_explicit_data_remains_unresolved(self):
+        assert parse_args(["--data", "custom/../data"]).data == Path("custom/../data")
+
+    def test_serialization_switch_is_no_longer_supported(self, subtests):
         for serialization in ("raw", "chat"):
-            with subtests.test(serialization=serialization):
-                args = parse_args(
-                    ["--serialization", serialization, "--data", "custom/../data"]
-                )
-                assert args.data == Path("custom/../data")
+            with (
+                subtests.test(serialization=serialization),
+                redirect_stderr(io.StringIO()),
+                pytest.raises(SystemExit) as raised,
+            ):
+                parse_args(["--serialization", serialization])
+            assert raised.value.code == 2
 
     def test_cpu_remains_default(self):
         assert parse_args([]).device == "cpu"
@@ -168,6 +167,8 @@ class TestTrainingProgress:
 
             def save_checkpoint(model, tokenizer, optimizer, status, output, name):
                 assert status["rank"] == 16
+                assert status["serialization"] == "raw"
+                assert status["serialization_format"] == "task-code-console-v1"
                 checkpoints.append((name, dict(status)))
 
             with (

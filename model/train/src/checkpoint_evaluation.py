@@ -9,7 +9,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 
 
-def evaluation_command(checkpoint, step, history, serialization, *, gguf=None):
+def evaluation_command(checkpoint, step, history, *, gguf=None):
     return [
         sys.executable,
         "-u",
@@ -22,15 +22,13 @@ def evaluation_command(checkpoint, step, history, serialization, *, gguf=None):
         str(step),
         "--history",
         str(history),
-        "--serialization",
-        serialization,
         *(["--gguf", str(gguf)] if gguf is not None else []),
     ]
 
 
-def evaluate_checkpoint(checkpoint, step, history, serialization):
+def evaluate_checkpoint(checkpoint, step, history):
     process = subprocess.Popen(
-        evaluation_command(checkpoint, step, history, serialization),
+        evaluation_command(checkpoint, step, history),
         cwd=REPO,
         start_new_session=True,
     )

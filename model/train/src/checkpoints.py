@@ -10,7 +10,7 @@ import torch
 from model.benchmark.src.corpus import sha256
 
 
-def load_resume(adapter, data, accumulation, serialization):
+def load_resume(adapter, data, accumulation):
     state = json.loads((adapter / "training.json").read_text())
     if (
         state["train_sha256"] != sha256(data / "train.jsonl")
@@ -19,10 +19,8 @@ def load_resume(adapter, data, accumulation, serialization):
         raise ValueError(
             "Resume dataset or gradient accumulation differs from the checkpoint"
         )
-    if state.get("serialization", "chat") != serialization:
-        raise ValueError(
-            "Cannot resume an adapter trained with a different serialization"
-        )
+    if state.get("serialization") != "raw":
+        raise ValueError("Cannot resume an adapter without raw protocol serialization")
     return state
 
 

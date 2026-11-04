@@ -20,13 +20,12 @@ def main(argv=None):
     initialization.add_argument("--resume", type=Path)
     parser.add_argument("--name", default="adapter-500")
     parser.add_argument("--steps", type=int, default=500)
-    parser.add_argument("--serialization", choices=("chat", "raw"), default="raw")
     parser.add_argument("--data", type=Path)
     initialization.add_argument("--initialize-adapter", type=Path)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--evaluate-every", type=int, default=0)
     args = parser.parse_args(argv)
-    data = (args.data or default_training_data(args.serialization)).resolve()
+    data = (args.data or default_training_data("raw")).resolve()
     logs = ROOT / "logs" / args.name
     logs.mkdir(parents=True, exist_ok=True)
     adapter = ROOT / "artifacts" / args.name
@@ -48,8 +47,6 @@ def main(argv=None):
                 str(args.threads),
                 "--steps",
                 str(args.steps),
-                "--serialization",
-                args.serialization,
                 "--data",
                 str(data),
                 "--learning-rate",
@@ -75,7 +72,7 @@ def main(argv=None):
                 "--adapter",
                 str(gguf),
                 "--serialization",
-                args.serialization,
+                "raw",
                 "--temperature",
                 "0",
                 "--syntax-only",
@@ -91,7 +88,6 @@ def main(argv=None):
                 adapter,
                 args.steps,
                 adapter / "evaluations.jsonl",
-                args.serialization,
                 gguf=gguf,
             ),
         ),

@@ -41,10 +41,9 @@ def parse_args(argv=None):
     initialization = parser.add_mutually_exclusive_group()
     initialization.add_argument("--resume", type=Path)
     initialization.add_argument("--initialize-adapter", type=Path)
-    parser.add_argument("--serialization", choices=("chat", "raw"), default="raw")
     parser.add_argument("--evaluate-every", type=int, default=0)
     args = parser.parse_args(argv)
-    args.data = args.data or default_training_data(args.serialization)
+    args.data = args.data or default_training_data("raw")
     if args.stop_after is not None and (
         not 0 < args.stop_after <= args.steps or args.stop_after % args.accumulation
     ):
@@ -71,11 +70,11 @@ def train(args):
     libc = ctypes.CDLL(None)
     tokenizer = AutoTokenizer.from_pretrained(args.base, local_files_only=True)
     train = [
-        encode(record, tokenizer, args.max_length, args.serialization)
+        encode(record, tokenizer, args.max_length)
         for record in read_jsonl(args.data / "train.jsonl")
     ]
     validation = [
-        encode(record, tokenizer, args.max_length, args.serialization)
+        encode(record, tokenizer, args.max_length)
         for record in read_jsonl(args.data / "validation.jsonl")
     ]
     validation = random.Random(713).sample(
@@ -93,9 +92,7 @@ def train(args):
     )
     model.config.use_cache = False
     resume_state = (
-        load_resume(args.resume, args.data, args.accumulation, args.serialization)
-        if args.resume
-        else None
+        load_resume(args.resume, args.data, args.accumulation) if args.resume else None
     )
     model = (
         PeftModel.from_pretrained(
@@ -180,10 +177,8 @@ def train(args):
         else None,
         "resumed_at_step": resume_step,
         "optimizer_restored": optimizer_restored,
-        "serialization": args.serialization,
-        "serialization_format": FORMAT
-        if args.serialization == "raw"
-        else "pretrained-chat-template",
+        "serialization": "raw",
+        "serialization_format": FORMAT,
         "evaluate_every": args.evaluate_every,
     }
 
@@ -276,7 +271,6 @@ def train(args):
                         (args.output / f"checkpoint-{step + 1}").resolve(),
                         step + 1,
                         (args.output / "evaluations.jsonl").resolve(),
-                        args.serialization,
                     )
                     print(
                         f"Resuming training; checkpoint evaluation exit code: {returncode}.",

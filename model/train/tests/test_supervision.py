@@ -36,7 +36,7 @@ class TestSupervision:
             "prompt": "<|task|>\nSum values.\n<|code|>\n",
             "completion": "result = sum(values)",
         }
-        item = encode(record, Tokenizer(), 1024, "raw")
+        item = encode(record, Tokenizer(), 1024)
         assert item["ids"][: item["prefix_length"]] == [
             ord(char) for char in record["prompt"]
         ]
@@ -63,8 +63,22 @@ class TestSupervision:
                 {"id": "too-long", "prompt": "abc", "completion": "def"},
                 Tokenizer(),
                 3,
-                "raw",
             )
+
+    def test_message_records_use_raw_framing_without_a_chat_template(self):
+        record = {
+            "id": "messages",
+            "messages": [
+                {"role": "user", "content": "Sum values."},
+                {"role": "assistant", "content": "result = sum(values)"},
+            ],
+        }
+        item = encode(record, Tokenizer(), 1024)
+        prefix = "<|task|>\nSum values.\n<|code|>\n"
+        assert item["prefix_length"] == len(prefix)
+        assert item["ids"] == [
+            ord(char) for char in prefix + "result = sum(values)\n" + END_CODE
+        ]
 
     @pytest.mark.skipif(not (torch.cuda.is_available()), reason="CUDA unavailable")
     def test_cuda_loss_and_backward_keep_tensors_on_model_device(self):

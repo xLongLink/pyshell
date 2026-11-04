@@ -18,7 +18,6 @@ def main(argv=None):
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--step", type=int, required=True)
     parser.add_argument("--history", type=Path, required=True)
-    parser.add_argument("--serialization", choices=("chat", "raw"), required=True)
     parser.add_argument("--gguf", type=Path)
     args = parser.parse_args(argv)
     checkpoint = args.checkpoint.resolve()
@@ -53,7 +52,7 @@ def main(argv=None):
             "--adapter",
             str(adapter),
             "--serialization",
-            args.serialization,
+            "raw",
             "--temperature",
             "0",
             "--label",

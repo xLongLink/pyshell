@@ -49,50 +49,46 @@ class TestPipelineData:
                 assert command[command.index(option) + 1] == expected
 
     def test_checkpoint_evaluation_exports_by_default(self):
-        command = pipeline.evaluation_command("checkpoint", 200, "history.jsonl", "raw")
+        command = pipeline.evaluation_command("checkpoint", 200, "history.jsonl")
         assert "--gguf" not in command
 
-    def test_default_and_explicit_data_paths_in_both_modes(self, subtests):
+    def test_default_and_explicit_raw_data_paths(self, subtests):
         repo = Path(__file__).resolve().parents[2]
-        for serialization, directory in (
-            ("raw", "train/data/raw"),
-            ("chat", "train/data/chat"),
-        ):
-            for override in (None, "custom/../data"):
+        for override in (None, "custom/../data"):
+            with (
+                subtests.test(override=override),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                argv = ["--data", override] if override is not None else []
+                expected = (
+                    Path(override) if override else repo / "train/data/raw"
+                ).resolve()
                 with (
-                    subtests.test(serialization=serialization, override=override),
-                    tempfile.TemporaryDirectory() as temporary,
+                    patch.object(pipeline, "ROOT", Path(temporary)),
+                    patch.object(pipeline, "CONVERTER", Path(__file__)),
+                    patch(
+                        "model.train.src.processes.subprocess.Popen",
+                        side_effect=lambda *args, **kwargs: SimpleNamespace(
+                            stdout=io.StringIO(), wait=lambda: 0
+                        ),
+                    ) as execute,
+                    redirect_stdout(io.StringIO()),
                 ):
-                    argv = ["--serialization", serialization]
-                    if override is not None:
-                        argv.extend(["--data", override])
-                    expected = (
-                        Path(override) if override else repo / directory
-                    ).resolve()
-                    with (
-                        patch.object(pipeline, "ROOT", Path(temporary)),
-                        patch.object(pipeline, "CONVERTER", Path(__file__)),
-                        patch(
-                            "model.train.src.processes.subprocess.Popen",
-                            side_effect=lambda *args, **kwargs: SimpleNamespace(
-                                stdout=io.StringIO(), wait=lambda: 0
-                            ),
-                        ) as execute,
-                        redirect_stdout(io.StringIO()),
-                    ):
-                        assert pipeline.main(argv) == 0
-                    training, export, syntax, benchmark = [
-                        call.args[0] for call in execute.call_args_list
-                    ]
-                    assert training[training.index("--data") + 1] == str(expected)
-                    assert syntax[syntax.index("--syntax-data") + 1] == str(
-                        expected / "validation.jsonl"
-                    )
-                    gguf = export[export.index("--outfile") + 1]
-                    assert syntax[syntax.index("--adapter") + 1] == gguf
-                    assert benchmark[benchmark.index("--gguf") + 1] == gguf
-                    assert "--syntax-only" in syntax
-                    assert "--syntax-only" not in benchmark
+                    assert pipeline.main(argv) == 0
+                training, export, syntax, benchmark = [
+                    call.args[0] for call in execute.call_args_list
+                ]
+                assert training[training.index("--data") + 1] == str(expected)
+                assert "--serialization" not in training
+                assert syntax[syntax.index("--serialization") + 1] == "raw"
+                assert syntax[syntax.index("--syntax-data") + 1] == str(
+                    expected / "validation.jsonl"
+                )
+                gguf = export[export.index("--outfile") + 1]
+                assert syntax[syntax.index("--adapter") + 1] == gguf
+                assert benchmark[benchmark.index("--gguf") + 1] == gguf
+                assert "--syntax-only" in syntax
+                assert "--syntax-only" not in benchmark
 
     def test_pipeline_converts_once_and_evaluates_exported_adapter(self):
         with tempfile.TemporaryDirectory(dir="/tmp/opencode") as temporary:
