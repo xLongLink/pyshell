@@ -1,6 +1,9 @@
 """Resume validation and checkpoint persistence, separate from optimization."""
 
 import json
+import os
+import tempfile
+from pathlib import Path
 
 import torch
 
@@ -28,10 +31,43 @@ def load_resume(adapter, data, accumulation, serialization):
 
 def save_checkpoint(model, tokenizer, optimizer, status, output, name):
     path = output if name == "final" else output / name
-    model.save_pretrained(path)
-    tokenizer.save_pretrained(path)
-    torch.save(optimizer.state_dict(), path / "optimizer.pt")
+    output.mkdir(parents=True, exist_ok=True)
+    if path != output and path.exists():
+        raise FileExistsError(f"Refusing to overwrite checkpoint: {path}")
     state = json.dumps(status, indent=2) + "\n"
-    (path / "training.json").write_text(state)
-    if path != output:
-        (output / "training.json").write_text(state)
+    with tempfile.TemporaryDirectory(dir=output, prefix=f".{name}-") as temporary:
+        staged = Path(temporary)
+        model.save_pretrained(staged)
+        tokenizer.save_pretrained(staged)
+        torch.save(optimizer.state_dict(), staged / "optimizer.pt")
+        (staged / "training.json").write_text(state)
+        for file in staged.rglob("*"):
+            if file.is_file():
+                with file.open("rb") as stream:
+                    os.fsync(stream.fileno())
+        if (output / "steps.jsonl").is_file():
+            with (output / "steps.jsonl").open("rb") as stream:
+                os.fsync(stream.fileno())
+        sync_directory(staged)
+        if path == output:
+            for file in staged.iterdir():
+                if file.name != "training.json":
+                    os.replace(file, output / file.name)
+            sync_directory(output)
+        else:
+            os.replace(staged, path)
+            sync_directory(output)
+        with tempfile.NamedTemporaryFile(mode="w", dir=output, delete=False) as file:
+            file.write(state)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(file.name, output / "training.json")
+        sync_directory(output)
+
+
+def sync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)

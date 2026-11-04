@@ -24,6 +24,8 @@ class Model(torch.nn.Module):
 
     def forward(self, *, input_ids, use_cache, logits_to_keep):
         assert not use_cache
+        assert input_ids.device == self.logits.device
+        assert logits_to_keep.device == self.logits.device
         return SimpleNamespace(logits=self.logits[:, logits_to_keep])
 
 
@@ -65,6 +67,14 @@ class SupervisionTests(unittest.TestCase):
                 3,
                 "raw",
             )
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA unavailable")
+    def test_cuda_loss_and_backward_keep_tensors_on_model_device(self):
+        model = Model(6).to("cuda")
+        loss = loss_for(model, {"ids": [5, 8, 13, 21, 34, 55], "prefix_length": 3})
+        self.assertEqual(loss.device.type, "cuda")
+        loss.backward()
+        self.assertTrue(torch.isfinite(model.logits.grad).all())
 
     def test_validation_loss_is_weighted_by_target_length(self):
         items = [

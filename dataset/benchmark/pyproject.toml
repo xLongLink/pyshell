@@ -15,13 +15,25 @@ local = [
     "transformers>=5.3,<6",
     "peft>=0.18,<1",
 ]
+cuda = ["torch>=2.10,<3", "transformers>=5.3,<6", "peft>=0.18,<1"]
+
+[tool.uv]
+conflicts = [[{ extra = "local" }, { extra = "cuda" }]]
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
+torch = [
+    { index = "pytorch-cpu", extra = "local" },
+    { index = "pytorch-cuda", extra = "cuda" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.ruff]

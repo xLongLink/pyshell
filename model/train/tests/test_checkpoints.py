@@ -1,9 +1,11 @@
 """Verify resume provenance and persistence without loading model weights."""
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import torch
 
@@ -17,6 +19,52 @@ class Artifact:
 
 
 class CheckpointTests(unittest.TestCase):
+    def test_failed_save_never_publishes_a_checkpoint_or_advances_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            previous = '{"updates": 1}\n'
+            (output / "training.json").write_text(previous)
+            optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.tensor(2.0))])
+            with patch(
+                "model.train.src.checkpoints.torch.save",
+                side_effect=OSError("disk failure"),
+            ):
+                with self.assertRaisesRegex(OSError, "disk failure"):
+                    save_checkpoint(
+                        Artifact(),
+                        Artifact(),
+                        optimizer,
+                        {"updates": 2},
+                        output,
+                        "checkpoint-8",
+                    )
+            self.assertFalse((output / "checkpoint-8").exists())
+            self.assertEqual((output / "training.json").read_text(), previous)
+            self.assertEqual(
+                sorted(p.name for p in output.iterdir()), ["training.json"]
+            )
+
+    def test_final_save_flushes_files_and_publishes_state_last(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.tensor(2.0))])
+            state = {"updates": 1}
+            with (
+                patch("model.train.src.checkpoints.os.fsync", wraps=os.fsync) as flush,
+                patch(
+                    "model.train.src.checkpoints.os.replace", wraps=os.replace
+                ) as replace,
+            ):
+                save_checkpoint(
+                    Artifact(), Artifact(), optimizer, state, output, "final"
+                )
+            self.assertGreaterEqual(flush.call_count, 5)
+            self.assertEqual(
+                replace.call_args_list[-1].args[1], output / "training.json"
+            )
+            self.assertTrue((output / "optimizer.pt").is_file())
+            self.assertEqual(json.loads((output / "training.json").read_text()), state)
+
     def test_saved_checkpoint_restores_provenance_and_optimizer_state(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

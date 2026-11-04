@@ -40,7 +40,7 @@ def generator(args):
     if args.backend == "hf":
         from model.train.src.inference import HFCompletion
 
-        yield HFCompletion(args.adapter, args.threads)
+        yield HFCompletion(args.adapter, args.threads, args.device)
         return
     command = [
         str(ROOT / "local/llama-b12038/llama-b12038/llama-server"),
@@ -69,6 +69,8 @@ def generator(args):
 
 def evaluate(args):
     manifest, digest, records = load_tasks(args.data, args.split, final=args.final, limit=args.limit)
+    if args.backend != "hf" and args.device != "cpu":
+        raise ValueError("--device cuda requires --backend hf")
     adapter_file = None
     if args.adapter:
         adapter_file = args.adapter / "adapter_model.safetensors" if args.adapter.is_dir() else args.adapter
@@ -91,6 +93,9 @@ def evaluate(args):
                 "adapter": str(args.adapter) if args.adapter else None,
                 "adapter_sha256": adapter_digest,
                 "backend": args.backend,
+                "device": args.device,
+                "dtype": "float32" if args.backend == "hf" else None,
+                "runtime": getattr(generate, "runtime", None),
                 "gguf_base": str(args.gguf_base) if args.backend == "gguf" else None,
                 "scope": manifest["scope"],
                 "isolation": "network-disabled container; fresh PythonShell per task; no reference prior context",
@@ -117,5 +122,6 @@ def main(argv=None):
     parser.add_argument("--limit", type=int)
     parser.add_argument("--backend", choices=("gguf", "hf"), default="gguf")
     parser.add_argument("--threads", type=int, default=16)
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--gguf-base", type=Path, default=ROOT / "local/Qwen3.5-0.8B-Q4_K_M.gguf")
     evaluate(parser.parse_args(argv))

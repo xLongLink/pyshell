@@ -15,7 +15,7 @@ from model.train.src.experiment import run
 
 
 class ExperimentTests(unittest.TestCase):
-    def experiment(self, directory, backend, ready):
+    def experiment(self, directory, backend, ready, device="cpu"):
         root = Path(directory)
         data = root / "data"
         data.mkdir()
@@ -37,6 +37,7 @@ class ExperimentTests(unittest.TestCase):
             output=root / "run",
             steps=4,
             threads=1,
+            device=device,
             learning_rate=1e-4,
             training_data=None,
             initialize_adapter=root / "initial",
@@ -124,3 +125,15 @@ class ExperimentTests(unittest.TestCase):
                 str((output / "adapter").resolve()),
             )
             self.assertEqual(development[development.index("--label") + 1], "run")
+
+    def test_cuda_reaches_training_and_every_hf_evaluation_phase(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, calls = self.experiment(directory, "hf", True, "cuda")
+            self.assertEqual(len(calls), 4)
+            for command in calls:
+                self.assertEqual(command[command.index("--device") + 1], "cuda")
+
+    def test_cuda_does_not_silently_use_cpu_gguf_evaluation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "HF"):
+                self.experiment(directory, "gguf", True, "cuda")

@@ -1,4 +1,4 @@
-"""CPU LoRA pilot with loss restricted to the final executable response."""
+"""LoRA pilot with loss restricted to the final executable response."""
 
 import argparse
 import ctypes
@@ -30,9 +30,11 @@ def parse_args(argv=None):
     parser.add_argument("--data", type=Path)
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/adapter")
     parser.add_argument("--steps", type=int, default=500)
+    parser.add_argument("--stop-after", type=int)
     parser.add_argument("--accumulation", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--threads", type=int, default=8)
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--eval-samples", type=int, default=60)
     parser.add_argument("--resume", type=Path)
@@ -47,6 +49,12 @@ def parse_args(argv=None):
     )
     if args.resume and args.initialize_adapter:
         parser.error("--resume and --initialize-adapter are mutually exclusive")
+    if args.stop_after is not None and (
+        not 0 < args.stop_after <= args.steps or args.stop_after % args.accumulation
+    ):
+        parser.error(
+            "--stop-after must be within --steps and on an accumulation boundary"
+        )
     if args.evaluate_every < 0 or args.evaluate_every % args.accumulation:
         parser.error(
             "--evaluate-every must be zero or a positive multiple of gradient accumulation"
@@ -55,6 +63,10 @@ def parse_args(argv=None):
 
 
 def train(args):
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA requested but unavailable")
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
     if args.output.exists():
         raise FileExistsError(
             f"Refusing to overwrite existing training artifacts: {args.output}"
@@ -110,6 +122,7 @@ def train(args):
             ),
         )
     )
+    model.to(args.device)
     model.gradient_checkpointing_enable(
         gradient_checkpointing_kwargs={"use_reentrant": False}
     )
@@ -131,7 +144,9 @@ def train(args):
     optimizer_restored = False
     if args.resume and (args.resume / "optimizer.pt").is_file():
         optimizer.load_state_dict(
-            torch.load(args.resume / "optimizer.pt", weights_only=True)
+            torch.load(
+                args.resume / "optimizer.pt", weights_only=True, map_location="cpu"
+            )
         )
         optimizer_restored = True
     indices = list(range(len(train)))
@@ -145,15 +160,23 @@ def train(args):
         else 0
     )
     prior_seconds = resume_state.get("training_seconds", 0) if resume_state else 0
+    stop_step = args.stop_after or args.steps
+    if stop_step <= resume_step:
+        raise ValueError("Stopping step must follow the resumed checkpoint")
     status = {
         "status": "running",
         "base_model": "Qwen/Qwen3.5-0.8B",
         "base_revision": "2fc06364715b967f1860aea9cf38778875588b17",
-        "device": "cpu",
+        "device": args.device,
         "dtype": "float32",
+        "torch_version": torch.__version__,
+        "cuda_version": torch.version.cuda,
+        "gpu": torch.cuda.get_device_name() if args.device == "cuda" else None,
+        "tf32": False,
         "rank": 8,
         "learning_rate": args.learning_rate,
         "steps": args.steps,
+        "stop_after": args.stop_after,
         "accumulation": args.accumulation,
         "validation_loss_before": baseline,
         "train_sha256": sha256(args.data / "train.jsonl"),
@@ -177,7 +200,7 @@ def train(args):
             f"Training with {torch.get_num_threads()} threads, starting at example {resume_step + 1}; optimizer restored: {optimizer_restored}",
             flush=True,
         )
-        for step in range(resume_step, args.steps):
+        for step in range(resume_step, stop_step):
             item = train[indices[step % len(indices)]]
             step_started = time.monotonic()
             group_start = (step // args.accumulation) * args.accumulation
@@ -220,6 +243,8 @@ def train(args):
                 "seconds": time.monotonic() - step_started,
                 "rss_gib": psutil.Process().memory_info().rss / 2**30,
             }
+            if args.device == "cuda":
+                row["peak_cuda_gib"] = torch.cuda.max_memory_allocated() / 2**30
             completed_steps = step + 1
             with (args.output / "steps.jsonl").open("a") as file:
                 file.write(json.dumps(row) + "\n")
@@ -273,8 +298,8 @@ def train(args):
                     json.dumps(status, indent=2) + "\n"
                 )
         status.update(
-            status="completed",
-            completed_steps=args.steps,
+            status="completed" if stop_step == args.steps else "paused",
+            completed_steps=stop_step,
             training_seconds=prior_seconds + time.monotonic() - started,
             validation_loss_after=evaluate_loss(model, validation)
             if validation

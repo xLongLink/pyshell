@@ -88,6 +88,7 @@ def run(args):
                 output=output,
                 steps=budget,
                 threads=args.threads,
+                device=getattr(args, "device", "cpu"),
                 learning_rate=args.learning_rate / 2**index,
                 initialize_adapter=best,
                 backend="hf",
@@ -159,6 +160,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--budgets", type=int, nargs="+", default=[800, 1200, 1600])
     parser.add_argument("--threads", type=int, default=16)
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--learning-rate", type=float, default=5e-5)
     parser.add_argument("--wait-for-pid", type=int)
     args = parser.parse_args(argv)

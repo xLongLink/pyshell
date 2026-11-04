@@ -15,6 +15,9 @@ REPO = ROOT.parents[1]
 
 
 def run(args):
+    device = getattr(args, "device", "cpu")
+    if device != "cpu" and args.backend != "hf":
+        raise ValueError("CUDA experiments require the HF evaluation backend")
     if args.baseline_before_training and (
         not args.initialize_adapter or args.backend != "hf"
     ):
@@ -45,6 +48,8 @@ def run(args):
         else None,
         "training_manifest": training_manifest,
         "evaluation_backend": args.backend,
+        "device": device,
+        "dtype": "float32",
         "steps": args.steps,
         "learning_rate": args.learning_rate,
         "threads": args.threads,
@@ -75,6 +80,8 @@ def run(args):
         args.backend,
         "--threads",
         str(args.threads),
+        "--device",
+        device,
     ]
     if args.baseline_before_training:
         baseline = args.output / "baseline-dev"
@@ -111,6 +118,8 @@ def run(args):
             str(args.steps),
             "--threads",
             str(args.threads),
+            "--device",
+            device,
             "--learning-rate",
             str(args.learning_rate),
             "--serialization",
@@ -172,6 +181,7 @@ def main(argv=None):
     parser.add_argument("--steps", type=int, default=750)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--threads", type=int, default=8)
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--training-data", type=Path)
     parser.add_argument("--initialize-adapter", type=Path)
     parser.add_argument("--backend", choices=("gguf", "hf"), default="gguf")

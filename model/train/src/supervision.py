@@ -42,9 +42,10 @@ def encode(record, tokenizer, max_length, serialization="chat"):
 
 
 def loss_for(model, item):
-    ids = torch.tensor([item["ids"]], dtype=torch.long)
+    device = next(model.parameters()).device
+    ids = torch.tensor([item["ids"]], dtype=torch.long, device=device)
     start = item["prefix_length"]
-    positions = torch.arange(start - 1, ids.shape[1] - 1)
+    positions = torch.arange(start - 1, ids.shape[1] - 1, device=device)
     output = model(input_ids=ids, use_cache=False, logits_to_keep=positions)
     return F.cross_entropy(
         output.logits.reshape(-1, output.logits.shape[-1]), ids[:, start:].reshape(-1)
