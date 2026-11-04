@@ -1,7 +1,7 @@
 """Opt-in execution-backend integration without paid model requests."""
 
 import os
-import unittest
+import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from dataset.benchmark.src.cases import CASES
@@ -13,18 +13,19 @@ from dataset.benchmark.tests.test_cases import SOLUTIONS
 from dataset.benchmark.tests.test_harness import StoppedModel
 
 
-@unittest.skipUnless(
-    os.environ.get("BENCHMARK_CONTAINER_TESTS") == "1", "Set BENCHMARK_CONTAINER_TESTS=1 after building the benchmark image"
+@pytest.mark.skipif(
+    not (os.environ.get("BENCHMARK_CONTAINER_TESTS") == "1"), reason="Set BENCHMARK_CONTAINER_TESTS=1 after building the benchmark image"
 )
-class ContainerTests(unittest.IsolatedAsyncioTestCase):
-    async def test_all_cases_through_real_execution_backend(self):
+class TestContainer:
+    @pytest.mark.anyio
+    async def test_all_cases_through_real_execution_backend(self, subtests):
         with TemporaryDirectory(dir="/tmp/opencode") as temporary:
             directory = Path(temporary)
             backend = ContainerBackend(8020, directory / "backend.log")
             budget = TokenBudget(1_000_000)
             try:
                 for case in CASES:
-                    with self.subTest(case=case.id):
+                    with subtests.test(case=case.id):
                         await backend.fresh()
                         solutions = iter(SOLUTIONS[case.id])
 
@@ -41,7 +42,7 @@ class ContainerTests(unittest.IsolatedAsyncioTestCase):
                             limits=Limits(),
                             budget=budget,
                         )
-                        self.assertEqual(result["status"], "passed", result["error"])
-                        self.assertEqual(result["calls"], len(case.steps))
+                        assert result["status"] == "passed", result["error"]
+                        assert result["calls"] == len(case.steps)
             finally:
                 await backend.close()

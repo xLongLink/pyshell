@@ -1,16 +1,16 @@
 """Check shared runtime policy without CUDA or model loading."""
 
-import unittest
 from unittest.mock import call, patch
 
+import pytest
 from model.train.src import runtime
 
 
-class RuntimeTests(unittest.TestCase):
-    def test_device_policy(self):
+class TestRuntime:
+    def test_device_policy(self, subtests):
         for device, available in (("cpu", False), ("cpu", True), ("cuda", True)):
             with (
-                self.subTest(device=device, available=available),
+                subtests.test(device=device, available=available),
                 patch.object(runtime, "torch") as torch,
             ):
                 torch.cuda.is_available.return_value = available
@@ -19,8 +19,8 @@ class RuntimeTests(unittest.TestCase):
 
                 runtime.configure_device(device)
 
-                self.assertFalse(torch.backends.cuda.matmul.allow_tf32)
-                self.assertFalse(torch.backends.cudnn.allow_tf32)
+                assert not torch.backends.cuda.matmul.allow_tf32
+                assert not torch.backends.cudnn.allow_tf32
                 if device == "cuda":
                     torch.cuda.is_available.assert_called_once_with()
                 else:
@@ -34,11 +34,11 @@ class RuntimeTests(unittest.TestCase):
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
 
-            with self.assertRaisesRegex(RuntimeError, "CUDA requested but unavailable"):
+            with pytest.raises(RuntimeError, match="CUDA requested but unavailable"):
                 runtime.configure_device("cuda")
 
-            self.assertTrue(torch.backends.cuda.matmul.allow_tf32)
-            self.assertTrue(torch.backends.cudnn.allow_tf32)
+            assert torch.backends.cuda.matmul.allow_tf32
+            assert torch.backends.cudnn.allow_tf32
             torch.set_num_threads.assert_not_called()
             torch.set_num_interop_threads.assert_not_called()
 
@@ -48,16 +48,13 @@ class RuntimeTests(unittest.TestCase):
             torch.set_num_interop_threads.side_effect = [None, error]
             runtime.configure_threads(3)
 
-            with self.assertRaises(RuntimeError) as raised:
+            with pytest.raises(RuntimeError) as raised:
                 runtime.configure_threads(7)
 
-            self.assertIs(raised.exception, error)
-            self.assertEqual(
-                torch.mock_calls,
-                [
-                    call.set_num_threads(3),
-                    call.set_num_interop_threads(1),
-                    call.set_num_threads(7),
-                    call.set_num_interop_threads(1),
-                ],
-            )
+            assert raised.value is error
+            assert torch.mock_calls == [
+                call.set_num_threads(3),
+                call.set_num_interop_threads(1),
+                call.set_num_threads(7),
+                call.set_num_interop_threads(1),
+            ]

@@ -2,18 +2,18 @@
 
 import fcntl
 import tempfile
-import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from model.train.src import resources
 
 
-class ResourceTests(unittest.TestCase):
-    def test_context_releases_the_lock_on_normal_and_exceptional_exit(self):
+class TestResource:
+    def test_context_releases_the_lock_on_normal_and_exceptional_exit(self, subtests):
         for error in (None, RuntimeError, KeyboardInterrupt):
             with (
-                self.subTest(error=error),
+                subtests.test(error=error),
                 tempfile.TemporaryDirectory() as directory,
                 patch.object(
                     resources, "__file__", str(Path(directory) / "src/resources.py")
@@ -25,7 +25,7 @@ class ResourceTests(unittest.TestCase):
                     with resources.exclusive_cpu():
                         with (
                             path.open("a+") as contender,
-                            self.assertRaises(BlockingIOError),
+                            pytest.raises(BlockingIOError),
                         ):
                             fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
                         if error is not None:
@@ -34,7 +34,7 @@ class ResourceTests(unittest.TestCase):
                 if error is None:
                     workload(path, error)
                 else:
-                    with self.assertRaisesRegex(error, "interrupted"):
+                    with pytest.raises(error, match="interrupted"):
                         workload(path, error)
                 with path.open("a+") as contender:
                     fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)

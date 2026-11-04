@@ -4,77 +4,81 @@ import io
 import json
 import os
 import tempfile
-import unittest
-from contextlib import redirect_stdout
+from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
 import torch
-
 from model.train.src import training
 
 
-class TrainingLogTests(unittest.TestCase):
-    def setUp(self):
-        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        data = root / "data"
-        data.mkdir()
-        (data / "train.jsonl").write_text('{"id": "example"}\n')
-        (data / "validation.jsonl").write_text("")
-        self.args = training.parse_args(
-            [
-                "--data",
-                str(data),
-                "--output",
-                str(root / "adapter"),
-                "--steps",
-                "4",
-                "--accumulation",
-                "1",
-                "--threads",
-                "1",
-            ]
-        )
-        self.log_path = self.args.output / "steps.jsonl"
-        self.handles = []
-        self.checkpoints = []
-        model = torch.nn.Linear(1, 1, bias=False)
-        model.config = SimpleNamespace(use_cache=True)
-        model.gradient_checkpointing_enable = Mock()
-        model.print_trainable_parameters = Mock()
-        self.loss = Mock(side_effect=lambda model, item: model.weight.square().mean())
-        self.evaluation = Mock(return_value=0)
-        self.enterContext(
-            patch.multiple(
-                training,
-                AutoTokenizer=Mock(),
-                AutoModelForImageTextToText=Mock(
-                    from_pretrained=Mock(return_value=model)
-                ),
-                get_peft_model=Mock(return_value=model),
-                encode=Mock(return_value={"id": "example", "ids": [1, 2]}),
-                loss_for=self.loss,
-                evaluate_loss=Mock(return_value=None),
-                evaluate_checkpoint=self.evaluation,
-                save_checkpoint=Mock(side_effect=self.check_checkpoint),
+class TestTrainingLog:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        with ExitStack() as stack:
+            root = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+            data = root / "data"
+            data.mkdir()
+            (data / "train.jsonl").write_text('{"id": "example"}\n')
+            (data / "validation.jsonl").write_text("")
+            self.args = training.parse_args(
+                [
+                    "--data",
+                    str(data),
+                    "--output",
+                    str(root / "adapter"),
+                    "--steps",
+                    "4",
+                    "--accumulation",
+                    "1",
+                    "--threads",
+                    "1",
+                ]
             )
-        )
-        self.enterContext(patch.object(training.torch, "set_num_interop_threads"))
-        self.enterContext(
-            patch.object(training.ctypes, "CDLL", return_value=SimpleNamespace())
-        )
-        self.enterContext(patch.object(training.gc, "collect"))
-        self.enterContext(redirect_stdout(io.StringIO()))
-        original_open = Path.open
+            self.log_path = self.args.output / "steps.jsonl"
+            self.handles = []
+            self.checkpoints = []
+            model = torch.nn.Linear(1, 1, bias=False)
+            model.config = SimpleNamespace(use_cache=True)
+            model.gradient_checkpointing_enable = Mock()
+            model.print_trainable_parameters = Mock()
+            self.loss = Mock(
+                side_effect=lambda model, item: model.weight.square().mean()
+            )
+            self.evaluation = Mock(return_value=0)
+            stack.enter_context(
+                patch.multiple(
+                    training,
+                    AutoTokenizer=Mock(),
+                    AutoModelForImageTextToText=Mock(
+                        from_pretrained=Mock(return_value=model)
+                    ),
+                    get_peft_model=Mock(return_value=model),
+                    encode=Mock(return_value={"id": "example", "ids": [1, 2]}),
+                    loss_for=self.loss,
+                    evaluate_loss=Mock(return_value=None),
+                    evaluate_checkpoint=self.evaluation,
+                    save_checkpoint=Mock(side_effect=self.check_checkpoint),
+                )
+            )
+            stack.enter_context(patch.object(training.torch, "set_num_interop_threads"))
+            stack.enter_context(
+                patch.object(training.ctypes, "CDLL", return_value=SimpleNamespace())
+            )
+            stack.enter_context(patch.object(training.gc, "collect"))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            original_open = Path.open
 
-        def open_path(path, mode="r", *args, **kwargs):
-            handle = original_open(path, mode, *args, **kwargs)
-            if path == self.log_path and mode == "a":
-                self.handles.append(handle)
-            return handle
+            def open_path(path, mode="r", *args, **kwargs):
+                handle = original_open(path, mode, *args, **kwargs)
+                if path == self.log_path and mode == "a":
+                    self.handles.append(handle)
+                return handle
 
-        self.enterContext(patch.object(Path, "open", open_path))
+            stack.enter_context(patch.object(Path, "open", open_path))
+            yield
 
     def logged_steps(self):
         with self.log_path.open("rb") as file:
@@ -82,18 +86,16 @@ class TrainingLogTests(unittest.TestCase):
             return [json.loads(line)["step"] for line in file]
 
     def check_checkpoint(self, model, tokenizer, optimizer, status, output, name):
-        self.assertEqual(len(self.handles), 1)
-        self.assertEqual(self.handles[0].closed, name in ("final", "interrupted"))
-        self.assertEqual(
-            self.logged_steps(), list(range(1, status["completed_steps"] + 1))
-        )
+        assert len(self.handles) == 1
+        assert self.handles[0].closed == (name in ("final", "interrupted"))
+        assert self.logged_steps() == list(range(1, status["completed_steps"] + 1))
         self.checkpoints.append(name)
 
     def test_periodic_checkpoint_sees_rows_and_final_checkpoint_sees_closed_log(self):
         self.args.steps = 100
         training.train(self.args)
-        self.assertEqual(self.checkpoints, ["checkpoint-100", "final"])
-        self.assertTrue(self.handles[0].closed)
+        assert self.checkpoints == ["checkpoint-100", "final"]
+        assert self.handles[0].closed
 
     def test_each_row_is_visible_before_the_next_step_and_evaluation(self):
         self.args.evaluate_every = 2
@@ -101,31 +103,31 @@ class TrainingLogTests(unittest.TestCase):
         evaluated_steps = []
 
         def loss_for(model, item):
-            self.assertEqual(self.logged_steps(), completed_steps)
+            assert self.logged_steps() == completed_steps
             completed_steps.append(len(completed_steps) + 1)
             return model.weight.square().mean()
 
         def evaluate_checkpoint(checkpoint, step, evaluations, serialization):
-            self.assertEqual(self.logged_steps(), list(range(1, step + 1)))
-            self.assertFalse(self.handles[0].closed)
+            assert self.logged_steps() == list(range(1, step + 1))
+            assert not self.handles[0].closed
             evaluated_steps.append(step)
             return 0
 
         self.loss.side_effect = loss_for
         self.evaluation.side_effect = evaluate_checkpoint
         training.train(self.args)
-        self.assertEqual(self.checkpoints, ["checkpoint-2", "final"])
-        self.assertEqual(evaluated_steps, [2])
-        self.assertEqual(self.logged_steps(), [1, 2, 3, 4])
+        assert self.checkpoints == ["checkpoint-2", "final"]
+        assert evaluated_steps == [2]
+        assert self.logged_steps() == [1, 2, 3, 4]
 
     def assert_loss_failure(self, error):
         self.loss.side_effect = [torch.tensor(1.0, requires_grad=True), error]
-        with self.assertRaises(type(error)) as raised:
+        with pytest.raises(type(error)) as raised:
             training.train(self.args)
-        self.assertIs(raised.exception, error)
-        self.assertEqual(self.checkpoints, ["interrupted"])
-        self.assertTrue(self.handles[0].closed)
-        self.assertEqual(self.logged_steps(), [1])
+        assert raised.value is error
+        assert self.checkpoints == ["interrupted"]
+        assert self.handles[0].closed
+        assert self.logged_steps() == [1]
 
     def test_training_failure_closes_log_and_propagates_original_exception(self):
         self.assert_loss_failure(RuntimeError("loss failed"))
@@ -137,11 +139,11 @@ class TrainingLogTests(unittest.TestCase):
         self.args.evaluate_every = 2
         error = RuntimeError("evaluation failed")
         self.evaluation.side_effect = error
-        with self.assertRaises(RuntimeError) as raised:
+        with pytest.raises(RuntimeError) as raised:
             training.train(self.args)
-        self.assertIs(raised.exception, error)
-        self.assertEqual(self.checkpoints, ["checkpoint-2", "interrupted"])
-        self.assertTrue(self.handles[0].closed)
+        assert raised.value is error
+        assert self.checkpoints == ["checkpoint-2", "interrupted"]
+        assert self.handles[0].closed
 
     def test_checkpoint_failure_closes_log_and_propagates_original_exception(self):
         self.args.evaluate_every = 2
@@ -153,8 +155,8 @@ class TrainingLogTests(unittest.TestCase):
                 raise error
 
         training.save_checkpoint.side_effect = save_checkpoint
-        with self.assertRaises(OSError) as raised:
+        with pytest.raises(OSError, match="checkpoint failed") as raised:
             training.train(self.args)
-        self.assertIs(raised.exception, error)
-        self.assertEqual(self.checkpoints, ["checkpoint-2", "interrupted"])
-        self.assertTrue(self.handles[0].closed)
+        assert raised.value is error
+        assert self.checkpoints == ["checkpoint-2", "interrupted"]
+        assert self.handles[0].closed

@@ -2,7 +2,6 @@
 
 import io
 import json
-import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
@@ -10,7 +9,7 @@ from dataset.benchmark.src.cases import CASES
 from dataset.benchmark.src.checkpoint_eval import main
 
 
-class CheckpointEvaluationTests(unittest.TestCase):
+class TestCheckpointEvaluation:
     def test_metrics_include_invalid_raw_responses(self):
         with TemporaryDirectory(dir="/tmp/opencode") as temporary:
             root = Path(temporary)
@@ -76,24 +75,24 @@ class CheckpointEvaluationTests(unittest.TestCase):
                 patch("dataset.benchmark.src.checkpoint_eval.subprocess.run") as export,
                 patch("model.train.src.processes.subprocess.Popen", return_value=process) as worker,
             ):
-                self.assertEqual(main(), 1)
+                assert main() == 1
             export.assert_called_once()
             command = export.call_args.args[0]
-            self.assertEqual(command[command.index("--outfile") + 1], str(checkpoint / "adapter.gguf"))
-            self.assertEqual(command[-1], str(checkpoint))
+            assert command[command.index("--outfile") + 1] == str(checkpoint / "adapter.gguf")
+            assert command[-1] == str(checkpoint)
             command = worker.call_args.args[0]
-            self.assertEqual(command[command.index("--adapter") + 1], str(checkpoint / "adapter.gguf"))
+            assert command[command.index("--adapter") + 1] == str(checkpoint / "adapter.gguf")
             record = json.loads(history.read_text())
-            self.assertEqual(record["passed"], 2)
-            self.assertEqual(record["generated_responses"], 4)
-            self.assertEqual(record["valid_python"], 2)
-            self.assertEqual(record["raw_python_rate"], 0.5)
-            self.assertEqual(record["end_markers"], 2)
-            self.assertEqual(record["status"], "completed")
+            assert record["passed"] == 2
+            assert record["generated_responses"] == 4
+            assert record["valid_python"] == 2
+            assert record["raw_python_rate"] == 0.5
+            assert record["end_markers"] == 2
+            assert record["status"] == "completed"
 
-    def test_explicit_gguf_reuses_export_and_preserves_reporting(self):
+    def test_explicit_gguf_reuses_export_and_preserves_reporting(self, subtests):
         for filename in ("checkpoint-200/adapter.gguf", "exported.gguf"):
-            with self.subTest(filename=filename), TemporaryDirectory(dir="/tmp/opencode") as temporary:
+            with subtests.test(filename=filename), TemporaryDirectory(dir="/tmp/opencode") as temporary:
                 root = Path(temporary)
                 checkpoint = root / "checkpoint-200"
                 checkpoint.mkdir()
@@ -121,7 +120,7 @@ class CheckpointEvaluationTests(unittest.TestCase):
                     patch("model.train.src.processes.subprocess.Popen", return_value=process) as worker,
                     patch("builtins.print") as output,
                 ):
-                    self.assertEqual(
+                    assert (
                         main(
                             [
                                 "--checkpoint",
@@ -135,27 +134,27 @@ class CheckpointEvaluationTests(unittest.TestCase):
                                 "--gguf",
                                 str(adapter),
                             ]
-                        ),
-                        0,
+                        )
+                        == 0
                     )
                 export.assert_not_called()
                 command = worker.call_args.args[0]
-                self.assertEqual(command[command.index("--adapter") + 1], str(adapter))
-                self.assertNotIn("--syntax-only", command)
-                self.assertEqual(adapter.read_text(), "exported adapter")
-                self.assertEqual((checkpoint / "export.log").read_text(), "previous export log")
-                self.assertEqual((checkpoint / "evaluation.log").read_text(), f"Results: {results}\n")
+                assert command[command.index("--adapter") + 1] == str(adapter)
+                assert "--syntax-only" not in command
+                assert adapter.read_text() == "exported adapter"
+                assert (checkpoint / "export.log").read_text() == "previous export log"
+                assert (checkpoint / "evaluation.log").read_text() == f"Results: {results}\n"
                 output.assert_any_call(f"Results: {results}\n", end="", flush=True)
                 record = json.loads(history.read_text())
-                self.assertEqual(record["status"], "completed")
-                self.assertEqual(record["results"], str(results))
-                self.assertEqual(record["passed"], len(CASES))
-                self.assertEqual(record["generated_responses"], 0)
-                self.assertEqual(record["valid_python"], 0)
-                self.assertEqual(record["end_markers"], 0)
-                self.assertIsNone(record["raw_python_rate"])
+                assert record["status"] == "completed"
+                assert record["results"] == str(results)
+                assert record["passed"] == len(CASES)
+                assert record["generated_responses"] == 0
+                assert record["valid_python"] == 0
+                assert record["end_markers"] == 0
+                assert record["raw_python_rate"] is None
 
-    def test_explicit_gguf_must_be_a_file(self):
+    def test_explicit_gguf_must_be_a_file(self, subtests):
         with TemporaryDirectory(dir="/tmp/opencode") as temporary:
             root = Path(temporary)
             checkpoint = root / "checkpoint-200"
@@ -164,11 +163,11 @@ class CheckpointEvaluationTests(unittest.TestCase):
             history = root / "history/evaluations.jsonl"
             for adapter in (root / "missing.gguf", checkpoint):
                 with (
-                    self.subTest(adapter=adapter),
+                    subtests.test(adapter=adapter),
                     patch("dataset.benchmark.src.checkpoint_eval.subprocess.run") as export,
                     patch("model.train.src.processes.subprocess.Popen") as worker,
                 ):
-                    self.assertEqual(
+                    assert (
                         main(
                             [
                                 "--checkpoint",
@@ -182,29 +181,29 @@ class CheckpointEvaluationTests(unittest.TestCase):
                                 "--gguf",
                                 str(adapter),
                             ]
-                        ),
-                        2,
+                        )
+                        == 2
                     )
                     export.assert_not_called()
                     worker.assert_not_called()
                 records = [json.loads(line) for line in history.read_text().splitlines()]
-                self.assertEqual(records[-1]["status"], "evaluation_error")
-                self.assertEqual(records[-1]["checkpoint"], str(checkpoint))
-                self.assertEqual(records[-1]["step"], 200)
-                self.assertIn("FileNotFoundError", records[-1]["error"])
-                self.assertIn(str(adapter), records[-1]["error"])
-            self.assertEqual(len(records), 2)
-            self.assertFalse((checkpoint / "export.log").exists())
-            self.assertFalse((checkpoint / "evaluation.log").exists())
+                assert records[-1]["status"] == "evaluation_error"
+                assert records[-1]["checkpoint"] == str(checkpoint)
+                assert records[-1]["step"] == 200
+                assert "FileNotFoundError" in records[-1]["error"]
+                assert str(adapter) in records[-1]["error"]
+            assert len(records) == 2
+            assert not (checkpoint / "export.log").exists()
+            assert not (checkpoint / "evaluation.log").exists()
 
-    def test_completion_uses_suite_size_and_success_requires_all_passing(self):
+    def test_completion_uses_suite_size_and_success_requires_all_passing(self, subtests):
         for trials, passed, status, exit_code in (
             (3, 3, "completed", 0),
             (3, 2, "completed", 1),
             (2, 2, "partial", 1),
             (10, 10, "partial", 1),
         ):
-            with self.subTest(trials=trials, passed=passed), TemporaryDirectory(dir="/tmp/opencode") as temporary:
+            with subtests.test(trials=trials, passed=passed), TemporaryDirectory(dir="/tmp/opencode") as temporary:
                 root = Path(temporary)
                 checkpoint = root / "checkpoint-200"
                 checkpoint.mkdir()
@@ -230,8 +229,8 @@ class CheckpointEvaluationTests(unittest.TestCase):
                     patch("dataset.benchmark.src.checkpoint_eval.subprocess.run"),
                     patch("model.train.src.processes.subprocess.Popen", return_value=process),
                 ):
-                    self.assertEqual(main(arguments), exit_code)
+                    assert main(arguments) == exit_code
                 record = json.loads(history.read_text())
-                self.assertEqual(record["status"], status)
-                self.assertEqual(record["cases"], trials)
-                self.assertEqual(record["passed"], passed)
+                assert record["status"] == status
+                assert record["cases"] == trials
+                assert record["passed"] == passed

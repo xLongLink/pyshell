@@ -3,18 +3,18 @@
 import io
 import json
 import tempfile
-import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from dataset.benchmark.src.proof_report import execution_metrics
 from dataset.benchmark.src.task_types import FAMILIES
 from model.train.src.iteration import run
 
 
-class IterationTests(unittest.TestCase):
+class TestIteration:
     def results(self, directory, passed):
         directory.mkdir(parents=True)
         rows = [
@@ -69,27 +69,20 @@ class IterationTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()),
             ):
                 run(args)
-            self.assertEqual(
-                initialized,
-                [
-                    args.initialize_adapter,
-                    args.output / "iteration-1-4/adapter",
-                    args.output / "iteration-1-4/adapter",
-                ],
-            )
+            assert initialized == [
+                args.initialize_adapter,
+                args.output / "iteration-1-4/adapter",
+                args.output / "iteration-1-4/adapter",
+            ]
             verify.assert_not_called()
             state = json.loads((args.output / "loop.json").read_text())
-            self.assertEqual(state["status"], "needs_diagnosis")
-            self.assertFalse(state["objective_met"])
-            self.assertEqual(
-                [record["passed"] for record in state["history"]], [40, 39, 45]
-            )
+            assert state["status"] == "needs_diagnosis"
+            assert not state["objective_met"]
+            assert [record["passed"] for record in state["history"]] == [40, 39, 45]
             for record in state["history"]:
-                self.assertEqual(
-                    json.loads(
-                        (Path(record["output"]) / "comparison.json").read_text()
-                    ),
-                    record,
+                assert (
+                    json.loads((Path(record["output"]) / "comparison.json").read_text())
+                    == record
                 )
 
     def test_failed_final_is_reported_and_never_followed_by_more_training(self):
@@ -114,9 +107,9 @@ class IterationTests(unittest.TestCase):
                 patch("model.train.src.iteration.verify", side_effect=verify),
                 redirect_stdout(io.StringIO()),
             ):
-                with self.assertRaisesRegex(RuntimeError, "Final target"):
+                with pytest.raises(RuntimeError, match="Final target"):
                     run(args)
-            self.assertEqual(train.call_count, 1)
+            assert train.call_count == 1
             state = json.loads((args.output / "loop.json").read_text())
-            self.assertEqual(state["status"], "final_failed")
-            self.assertFalse(state["objective_met"])
+            assert state["status"] == "final_failed"
+            assert not state["objective_met"]

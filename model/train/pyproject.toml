@@ -12,6 +12,14 @@ dependencies = [
 cpu = ["torch>=2.10,<3"]
 cuda = ["torch>=2.10,<3"]
 
+[dependency-groups]
+dev = ["pytest>=9,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../.."]
+addopts = "--import-mode=importlib"
+
 [tool.uv]
 conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
 

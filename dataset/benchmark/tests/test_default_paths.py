@@ -3,24 +3,22 @@
 import io
 import json
 import tempfile
-import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
+from contextlib import redirect_stdout
 from unittest.mock import patch
-
 from dataset.benchmark.src import syntax
 from dataset.benchmark.src.corpus import default_training_data
 from dataset.benchmark.src.serialization import CODE, TASK, CONSOLE, END_CODE
 
 
-class DefaultTrainingDataTests(unittest.TestCase):
-    def test_defaults_are_repository_relative_in_both_modes(self):
+class TestDefaultTrainingData:
+    def test_defaults_are_repository_relative_in_both_modes(self, subtests):
         repo = Path(__file__).resolve().parents[3]
         for serialization, directory in (("raw", "dataset/data"), ("chat", "model/train/data")):
-            with self.subTest(serialization=serialization):
-                self.assertEqual(default_training_data(serialization), repo / directory)
+            with subtests.test(serialization=serialization):
+                assert default_training_data(serialization) == repo / directory
 
-    def test_syntax_reads_default_validation_or_explicit_file_without_resolving(self):
+    def test_syntax_reads_default_validation_or_explicit_file_without_resolving(self, subtests):
         repo = Path(__file__).resolve().parents[3]
         record = {
             "id": "example",
@@ -35,7 +33,7 @@ class DefaultTrainingDataTests(unittest.TestCase):
         }
         for serialization, directory in (("raw", "dataset/data"), ("chat", "model/train/data")):
             for override in (None, "custom/../validation.jsonl"):
-                with self.subTest(serialization=serialization, override=override), tempfile.TemporaryDirectory() as temporary:
+                with subtests.test(serialization=serialization, override=override), tempfile.TemporaryDirectory() as temporary:
                     output = Path(temporary) / "syntax"
                     argv = ["--model", "fixture", "--serialization", serialization, "--output", str(output)]
                     expected = Path(override) if override else repo / directory / "validation.jsonl"
@@ -46,16 +44,16 @@ class DefaultTrainingDataTests(unittest.TestCase):
                         patch.object(syntax.urllib.request, "urlopen", return_value=io.StringIO(json.dumps(completion))) as urlopen,
                         redirect_stdout(io.StringIO()),
                     ):
-                        self.assertEqual(syntax.main(argv), 0)
+                        assert syntax.main(argv) == 0
                     read.assert_called_once_with(expected)
                     payload = json.loads(urlopen.call_args.args[0].data)
                     if serialization == "raw":
-                        self.assertEqual(payload["stop"], [END_CODE, TASK, CONSOLE, CODE])
+                        assert payload["stop"] == [END_CODE, TASK, CONSOLE, CODE]
                     else:
-                        self.assertNotIn("stop", payload)
-                    self.assertEqual(json.loads((output / "summary.json").read_text())["passed"], 1)
+                        assert "stop" not in payload
+                    assert json.loads((output / "summary.json").read_text())["passed"] == 1
 
-    def test_syntax_preserves_completion_boundaries_and_unmodified_source(self):
+    def test_syntax_preserves_completion_boundaries_and_unmodified_source(self, subtests):
         cases = (
             ("raw", {"content": "x = 1", "stopping_word": END_CODE}, "stop", True, True),
             ("raw", {"content": "x = 1", "stopping_word": END_CODE, "truncated": True}, "missing_end_marker", True, False),
@@ -74,7 +72,7 @@ class DefaultTrainingDataTests(unittest.TestCase):
         }
         for serialization, completion, finish_reason, compiles, passed in cases:
             with (
-                self.subTest(serialization=serialization, completion=completion),
+                subtests.test(serialization=serialization, completion=completion),
                 tempfile.TemporaryDirectory(dir="/tmp/opencode") as temporary,
             ):
                 root = Path(temporary)
@@ -89,9 +87,9 @@ class DefaultTrainingDataTests(unittest.TestCase):
                         ["--model", "fixture", "--serialization", serialization, "--data", str(data), "--output", str(output)]
                     )
                 response = json.loads((output / "responses.jsonl").read_text())
-                self.assertEqual(response["finish_reason"], finish_reason)
-                self.assertEqual(response["compiles"], compiles)
-                self.assertEqual(response["passed"], passed)
+                assert response["finish_reason"] == finish_reason
+                assert response["compiles"] == compiles
+                assert response["passed"] == passed
                 source = completion.get("content") if serialization == "raw" else completion["choices"][0]["message"].get("content")
-                self.assertEqual(response["source"], source or "")
-                self.assertEqual(result, 0 if passed else 1)
+                assert response["source"] == (source or "")
+                assert result == (0 if passed else 1)

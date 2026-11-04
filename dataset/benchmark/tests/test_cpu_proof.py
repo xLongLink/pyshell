@@ -3,9 +3,9 @@
 import io
 import sys
 import json
+import pytest
 import hashlib
 import tempfile
-import unittest
 import subprocess
 from types import SimpleNamespace
 from pathlib import Path
@@ -30,16 +30,16 @@ class Worker:
         }
 
 
-class CPUProofTests(unittest.TestCase):
-    def test_completion_preserves_stop_order_and_end_marker_requirement(self):
+class TestCPUProof:
+    def test_completion_preserves_stop_order_and_end_marker_requirement(self, subtests):
         for stopping_word in (END_CODE, TASK, CONSOLE, CODE, ""):
-            with self.subTest(stopping_word=stopping_word):
+            with subtests.test(stopping_word=stopping_word):
                 response = io.StringIO(json.dumps({"content": "result = 11", "stopping_word": stopping_word}))
                 with patch("dataset.benchmark.src.cpu_evaluate.urllib.request.urlopen", return_value=response) as urlopen:
-                    self.assertEqual(completion("Sum values"), ("result = 11", stopping_word == END_CODE))
+                    assert completion("Sum values") == ("result = 11", stopping_word == END_CODE)
                 payload = json.loads(urlopen.call_args.args[0].data)
-                self.assertEqual(payload["stop"], [END_CODE, TASK, CONSOLE, CODE])
-                self.assertEqual(payload["prompt"], "Sum values")
+                assert payload["stop"] == [END_CODE, TASK, CONSOLE, CODE]
+                assert payload["prompt"] == "Sum values"
 
     def record(self):
         return {
@@ -64,23 +64,23 @@ class CPUProofTests(unittest.TestCase):
 
         record = self.record()
         result = trial(worker, record, complete)
-        self.assertEqual(result["status"], "passed")
+        assert result["status"] == "passed"
         for prompt in prompts:
             for hidden in (record["setup"], record["check"], record["code"], record["inspect"]):
-                self.assertNotIn(hidden, prompt)
-        self.assertIn("[4, 7]", prompts[1])
-        self.assertEqual(worker.sources[0], (record["setup"], "reset"))
-        self.assertEqual(worker.sources[-1][0], record["check"])
+                assert hidden not in prompt
+        assert "[4, 7]" in prompts[1]
+        assert worker.sources[0] == (record["setup"], "reset")
+        assert worker.sources[-1][0] == record["check"]
 
     def test_done_claim_does_not_bypass_oracle(self):
         result = trial(Worker(fail_check=True), self.record(), lambda prompt: ("result = 999\ndone('success')", True))
-        self.assertEqual(result["status"], "incorrect")
+        assert result["status"] == "incorrect"
 
     def test_missing_end_marker_is_not_executed(self):
         worker = Worker()
         result = trial(worker, self.record(), lambda prompt: ("result = 11", False))
-        self.assertEqual(result["status"], "boundary_error")
-        self.assertEqual(len(worker.sources), 1)
+        assert result["status"] == "boundary_error"
+        assert len(worker.sources) == 1
 
     def test_followup_is_a_new_task_in_the_same_workspace(self):
         record = self.record()
@@ -93,10 +93,10 @@ class CPUProofTests(unittest.TestCase):
 
         worker = Worker()
         result = trial(worker, record, complete)
-        self.assertEqual(result["status"], "passed")
-        self.assertEqual(sum(action == "reset" for _, action in worker.sources), 1)
-        self.assertIn("Append 9 in place.", prompts[1])
-        self.assertNotIn("assert result[-1]", prompts[1])
+        assert result["status"] == "passed"
+        assert sum((action == "reset" for _, action in worker.sources)) == 1
+        assert "Append 9 in place." in prompts[1]
+        assert "assert result[-1]" not in prompts[1]
 
     def final_request(self, directory, *, final=False, limit=None):
         root = Path(directory)
@@ -109,20 +109,20 @@ class CPUProofTests(unittest.TestCase):
     def test_final_requires_explicit_authorization_before_loading_a_model(self):
         with tempfile.TemporaryDirectory() as directory:
             args = self.final_request(directory)
-            with self.assertRaisesRegex(ValueError, "requires --final"):
+            with pytest.raises(ValueError, match="requires --final"):
                 evaluate(args)
 
     def test_final_cannot_be_reduced_to_a_selected_subset(self):
         with tempfile.TemporaryDirectory() as directory:
             args = self.final_request(directory, final=True, limit=10)
-            with self.assertRaisesRegex(ValueError, "cannot be reduced"):
+            with pytest.raises(ValueError, match="cannot be reduced"):
                 evaluate(args)
 
     def test_changed_frozen_tasks_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             args = self.final_request(directory, final=True)
             (args.data / "test-tasks.jsonl").write_text('{"modified":true}\n')
-            with self.assertRaisesRegex(ValueError, "tasks have changed"):
+            with pytest.raises(ValueError, match="tasks have changed"):
                 evaluate(args)
 
     def test_cpu_experiments_wait_for_each_other_without_polling(self):
@@ -130,12 +130,12 @@ class CPUProofTests(unittest.TestCase):
         with exclusive_cpu():
             child = subprocess.Popen([sys.executable, "-c", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
-                self.assertIn("Waiting for", child.stdout.readline())
-                self.assertIsNone(child.poll())
+                assert "Waiting for" in child.stdout.readline()
+                assert child.poll() is None
             except BaseException:
                 child.kill()
                 child.communicate()
                 raise
         output, error = child.communicate(timeout=10)
-        self.assertEqual(child.returncode, 0, error)
-        self.assertIn("acquired", output)
+        assert child.returncode == 0, error
+        assert "acquired" in output

@@ -3,78 +3,77 @@
 import io
 import json
 import tempfile
-import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
 import torch
-
 from model.train.src import runtime, training
 from model.train.src.training import parse_args
 
 
-class TrainingArgumentsTests(unittest.TestCase):
-    def test_data_defaults_follow_serialization(self):
+class TestTrainingArguments:
+    def test_data_defaults_follow_serialization(self, subtests):
         repo = Path(__file__).resolve().parents[3]
         for serialization, directory in (
             ("raw", "dataset/data"),
             ("chat", "model/train/data"),
         ):
-            with self.subTest(serialization=serialization):
+            with subtests.test(serialization=serialization):
                 args = parse_args(["--serialization", serialization])
-                self.assertEqual(args.data, repo / directory)
+                assert args.data == repo / directory
 
-    def test_explicit_data_remains_unresolved_in_both_modes(self):
+    def test_explicit_data_remains_unresolved_in_both_modes(self, subtests):
         for serialization in ("raw", "chat"):
-            with self.subTest(serialization=serialization):
+            with subtests.test(serialization=serialization):
                 args = parse_args(
                     ["--serialization", serialization, "--data", "custom/../data"]
                 )
-                self.assertEqual(args.data, Path("custom/../data"))
+                assert args.data == Path("custom/../data")
 
     def test_cpu_remains_default(self):
-        self.assertEqual(parse_args([]).device, "cpu")
+        assert parse_args([]).device == "cpu"
 
-    def test_resume_and_initialization_are_individually_accepted(self):
+    def test_resume_and_initialization_are_individually_accepted(self, subtests):
         for option, attribute in (
             ("--resume", "resume"),
             ("--initialize-adapter", "initialize_adapter"),
         ):
-            with self.subTest(option=option):
+            with subtests.test(option=option):
                 args = parse_args([option, "prior"])
-                self.assertEqual(getattr(args, attribute), Path("prior"))
+                assert getattr(args, attribute) == Path("prior")
 
     def test_resume_and_initialization_cannot_be_combined(self):
-        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+        with redirect_stderr(io.StringIO()), pytest.raises(SystemExit) as raised:
             parse_args(["--resume", "prior", "--initialize-adapter", "initial"])
-        self.assertEqual(raised.exception.code, 2)
+        assert raised.value.code == 2
 
     def test_smoke_stop_preserves_original_schedule(self):
         args = parse_args(
             ["--device", "cuda", "--steps", "1200", "--stop-after", "804"]
         )
-        self.assertEqual(args.device, "cuda")
-        self.assertEqual(args.steps, 1200)
-        self.assertEqual(args.stop_after, 804)
+        assert args.device == "cuda"
+        assert args.steps == 1200
+        assert args.stop_after == 804
 
-    def test_stop_requires_an_optimizer_boundary_within_the_budget(self):
+    def test_stop_requires_an_optimizer_boundary_within_the_budget(self, subtests):
         for stop in ("0", "803", "1204"):
             with (
-                self.subTest(stop=stop),
+                subtests.test(stop=stop),
                 redirect_stderr(io.StringIO()),
-                self.assertRaises(SystemExit),
+                pytest.raises(SystemExit),
             ):
                 parse_args(["--steps", "1200", "--stop-after", stop])
 
 
-class TrainingRuntimeTests(unittest.TestCase):
+class TestTrainingRuntime:
     def test_unavailable_cuda_is_checked_before_the_output_guard(self):
         output = Mock()
         with patch.object(runtime, "torch") as torch:
             torch.cuda.is_available.return_value = False
-            with self.assertRaisesRegex(RuntimeError, "CUDA requested but unavailable"):
+            with pytest.raises(RuntimeError, match="CUDA requested but unavailable"):
                 training.train(SimpleNamespace(device="cuda", output=output))
             output.exists.assert_not_called()
             output.mkdir.assert_not_called()
@@ -87,12 +86,12 @@ class TrainingRuntimeTests(unittest.TestCase):
             torch.backends.cudnn.allow_tf32 = True
 
             def exists():
-                self.assertFalse(torch.backends.cuda.matmul.allow_tf32)
-                self.assertFalse(torch.backends.cudnn.allow_tf32)
+                assert not torch.backends.cuda.matmul.allow_tf32
+                assert not torch.backends.cudnn.allow_tf32
                 return True
 
             output = Mock(exists=Mock(side_effect=exists))
-            with self.assertRaisesRegex(FileExistsError, "Refusing to overwrite"):
+            with pytest.raises(FileExistsError, match="Refusing to overwrite"):
                 training.train(SimpleNamespace(device="cpu", output=output))
             output.mkdir.assert_not_called()
             torch.set_num_threads.assert_not_called()
@@ -108,19 +107,19 @@ class TrainingRuntimeTests(unittest.TestCase):
             output = Path(directory) / "adapter"
 
             def set_num_threads(threads):
-                self.assertTrue(output.is_dir())
+                assert output.is_dir()
 
             torch.set_num_threads.side_effect = set_num_threads
             torch.set_num_interop_threads.side_effect = error
-            with self.assertRaises(RuntimeError) as raised:
+            with pytest.raises(RuntimeError) as raised:
                 training.train(SimpleNamespace(device="cpu", output=output, threads=3))
-            self.assertIs(raised.exception, error)
+            assert raised.value is error
             torch.set_num_threads.assert_called_once_with(3)
             torch.set_num_interop_threads.assert_called_once_with(1)
             tokenizer.assert_not_called()
 
 
-class TrainingProgressTests(unittest.TestCase):
+class TestTrainingProgress:
     def run_training(self, steps, stop_after=None, fail_at=None, resume_updates=0):
         with tempfile.TemporaryDirectory(dir="/tmp/opencode") as directory:
             root = Path(directory)
@@ -196,11 +195,11 @@ class TrainingProgressTests(unittest.TestCase):
                 if fail_at is None:
                     training.train(args)
                 else:
-                    with self.assertRaises(KeyboardInterrupt):
+                    with pytest.raises(KeyboardInterrupt):
                         training.train(args)
             return checkpoints, rates
 
-    def test_checkpoints_keep_the_last_completed_step(self):
+    def test_checkpoints_keep_the_last_completed_step(self, subtests):
         cases = (
             (
                 100,
@@ -224,7 +223,7 @@ class TrainingProgressTests(unittest.TestCase):
             (8, None, 1, 1, [("interrupted", "interrupted", 4)]),
         )
         for steps, stop_after, fail_at, resume_updates, expected in cases:
-            with self.subTest(
+            with subtests.test(
                 steps=steps,
                 stop_after=stop_after,
                 fail_at=fail_at,
@@ -233,31 +232,28 @@ class TrainingProgressTests(unittest.TestCase):
                 checkpoints, _ = self.run_training(
                     steps, stop_after, fail_at, resume_updates
                 )
-                self.assertEqual(
-                    [
-                        (name, status["status"], status["completed_steps"])
-                        for name, status in checkpoints
-                    ],
-                    expected,
-                )
+                assert [
+                    (name, status["status"], status["completed_steps"])
+                    for name, status in checkpoints
+                ] == expected
                 for _, status in checkpoints:
-                    self.assertIsNone(status["validation_loss_before"])
+                    assert status["validation_loss_before"] is None
                 if fail_at is None:
-                    self.assertIsNone(checkpoints[-1][1]["validation_loss_after"])
+                    assert checkpoints[-1][1]["validation_loss_after"] is None
 
-    def test_warmup_and_decay_follow_the_original_budget(self):
+    def test_warmup_and_decay_follow_the_original_budget(self, subtests):
         for steps, stop_after, resume_updates, updates, first, last in (
             (4, None, 0, 1, 1.0, 1.0),
             (100, None, 0, 25, 0.5, 0.1),
             (100, 4, 0, 1, 0.5, 0.5),
             (100, None, 1, 24, 1.0, 0.1),
         ):
-            with self.subTest(
+            with subtests.test(
                 steps=steps, stop_after=stop_after, resume_updates=resume_updates
             ):
                 _, rates = self.run_training(
                     steps, stop_after, resume_updates=resume_updates
                 )
-                self.assertEqual(len(rates), updates)
-                self.assertAlmostEqual(rates[0], first)
-                self.assertAlmostEqual(rates[-1], last)
+                assert len(rates) == updates
+                assert rates[0] == pytest.approx(first, rel=0, abs=5e-08)
+                assert rates[-1] == pytest.approx(last, rel=0, abs=5e-08)

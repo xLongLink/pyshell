@@ -2,29 +2,27 @@
 
 import json
 import httpx2
-import unittest
+import pytest
 from pathlib import Path
 from argparse import Namespace
 from tempfile import TemporaryDirectory
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 from dataset.benchmark.src.audit import rollout, evaluate, execute_candidate
 from dataset.benchmark.src.sampling import balanced_sample
 from dataset.benchmark.src.serialization import CODE, TASK, CONSOLE, END_CODE
 from dataset.benchmark.tests.test_harness import ExecutionTransport
 
 
-class SamplingTests(unittest.TestCase):
+class TestSampling:
     def test_sampling_is_balanced_deterministic_and_excludes_inspection(self):
         records = [{"id": f"{family}-{i}", "family": family, "inspect_only": i == 0} for family in ("a", "b", "c") for i in range(5)]
         selected = balanced_sample(records, 6)
-        self.assertEqual(selected, balanced_sample(records, 6))
-        self.assertFalse(any(record["inspect_only"] for record in selected))
-        self.assertEqual(
-            {family: sum(record["family"] == family for record in selected) for family in ("a", "b", "c")}, {"a": 2, "b": 2, "c": 2}
-        )
+        assert selected == balanced_sample(records, 6)
+        assert not any(record["inspect_only"] for record in selected)
+        assert {family: sum(record["family"] == family for record in selected) for family in ("a", "b", "c")} == {"a": 2, "b": 2, "c": 2}
 
     def test_insufficient_records_are_rejected(self):
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError, match="Only 0 eligible examples available"):
             balanced_sample([], 1)
 
 
@@ -35,7 +33,8 @@ class Backend:
         pass
 
 
-class EvaluationTests(unittest.IsolatedAsyncioTestCase):
+class TestEvaluation:
+    @pytest.mark.anyio
     async def test_empty_input_is_rejected_without_starting_backend_or_client(self):
         with TemporaryDirectory(dir="/tmp/opencode") as temporary:
             root = Path(temporary)
@@ -44,13 +43,14 @@ class EvaluationTests(unittest.IsolatedAsyncioTestCase):
             with (
                 patch("dataset.benchmark.src.audit.ContainerBackend") as backend,
                 patch("dataset.benchmark.src.audit.httpx2.AsyncClient") as client,
-                self.assertRaisesRegex(ValueError, "^Execution audit requires at least one record$"),
+                pytest.raises(ValueError, match="^Execution audit requires at least one record$"),
             ):
                 await evaluate(args)
             backend.assert_not_called()
             client.assert_not_called()
-            self.assertFalse((args.output / "summary.json").exists())
+            assert not (args.output / "summary.json").exists()
 
+    @pytest.mark.anyio
     async def test_mixed_results_preserve_summary_and_response_contracts(self):
         invalid_hf = {"source": "result = (", "end_marker_seen": True}
         valid_hf = {"source": "done('ok')", "end_marker_seen": True}
@@ -122,7 +122,7 @@ class EvaluationTests(unittest.IsolatedAsyncioTestCase):
             original_client = httpx2.AsyncClient
 
             def tokenize(request):
-                self.assertEqual(request.url.path, "/tokenize")
+                assert request.url.path == "/tokenize"
                 prompt = json.loads(request.content)["content"]
                 return httpx2.Response(200, json={"tokens": [2] if prompt in ("two", "five") else [1]})
 
@@ -130,16 +130,16 @@ class EvaluationTests(unittest.IsolatedAsyncioTestCase):
                 return original_client(**kwargs, transport=httpx2.MockTransport(tokenize))
 
             async def run_rollout(_backend, _client, record, max_rounds):
-                self.assertEqual(max_rounds, 4)
+                assert max_rounds == 4
                 index = records.index(record)
                 if index:
                     previous = json.loads((args.output / "summary.json").read_text())
-                    self.assertEqual(previous["examples"], index)
-                    self.assertEqual(list(previous["splits"]), sorted(previous["splits"]))
+                    assert previous["examples"] == index
+                    assert list(previous["splits"]) == sorted(previous["splits"])
                     for split in previous["splits"].values():
-                        self.assertEqual(list(split["by_family"]), sorted(split["by_family"]))
+                        assert list(split["by_family"]) == sorted(split["by_family"])
                     responses = [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()]
-                    self.assertEqual([row["id"] for row in responses], [r["id"] for r in records[:index]])
+                    assert [row["id"] for row in responses] == [r["id"] for r in records[:index]]
                 if record["id"] == "two":
                     raise TimeoutError
                 return dict(rows[index])
@@ -155,11 +155,11 @@ class EvaluationTests(unittest.IsolatedAsyncioTestCase):
                 ) as execute,
                 patch("builtins.print") as output,
             ):
-                self.assertEqual(await evaluate(args), 0)
-            self.assertEqual(json.loads((args.output / "summary.json").read_text()), expected)
-            self.assertEqual(json.loads(output.call_args.args[0]), expected)
+                assert await evaluate(args) == 0
+            assert json.loads((args.output / "summary.json").read_text()) == expected
+            assert json.loads(output.call_args.args[0]) == expected
             backend.close.assert_awaited_once()
-            self.assertEqual([call.args[1]["id"] for call in execute.await_args_list], ["two", "three"])
+            assert [call.args[1]["id"] for call in execute.await_args_list] == ["two", "three"]
             expected_rows = []
             for record, row in zip(records, rows):
                 response = dict(row, tokenization_matches_hf=record["id"] not in ("two", "five"))
@@ -171,8 +171,9 @@ class EvaluationTests(unittest.IsolatedAsyncioTestCase):
             expected_rows[1]["hf_execution"] = {"status": "timeout", "error": "HF candidate execution exceeded 45 seconds"}
             expected_rows[2]["hf_execution"] = {"status": "passed", "error": None, "done": "ok"}
             responses = [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()]
-            self.assertEqual(responses, expected_rows)
+            assert responses == expected_rows
 
+    @pytest.mark.anyio
     async def test_multistep_rollouts_write_each_summary_and_log_progress(self):
         transport = ExecutionTransport()
         original_client = httpx2.AsyncClient
@@ -230,11 +231,11 @@ class EvaluationTests(unittest.IsolatedAsyncioTestCase):
                 if request.url.path == "/tokenize":
                     if tokenizations:
                         summary = json.loads((args.output / "summary.json").read_text())
-                        self.assertEqual(summary, expected_summary(tokenizations))
-                        self.assertEqual(len((args.output / "responses.jsonl").read_text().splitlines()), tokenizations)
+                        assert summary == expected_summary(tokenizations)
+                        assert len((args.output / "responses.jsonl").read_text().splitlines()) == tokenizations
                     tokenizations += 1
                     return httpx2.Response(200, json={"tokens": [1]})
-                self.assertEqual(request.url.path, "/completion")
+                assert request.url.path == "/completion"
                 return httpx2.Response(200, json={"content": next(scripts), "stopping_word": END_CODE})
 
             def client(**kwargs):
@@ -246,17 +247,17 @@ class EvaluationTests(unittest.IsolatedAsyncioTestCase):
                 patch("dataset.benchmark.src.audit.httpx2.AsyncClient", side_effect=client),
                 patch("builtins.print") as output,
             ):
-                self.assertEqual(await evaluate(args), 0)
-            self.assertEqual(json.loads((args.output / "summary.json").read_text()), expected_summary(10))
+                assert await evaluate(args) == 0
+            assert json.loads((args.output / "summary.json").read_text()) == expected_summary(10)
             output.assert_any_call("Execution audit 10/10: 10 passed", flush=True)
-            self.assertEqual(json.loads(output.call_args.args[0]), expected_summary(10))
+            assert json.loads(output.call_args.args[0]) == expected_summary(10)
             responses = [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()]
-            self.assertTrue(all(row["status"] == "passed" and not row["first_step_passed"] for row in responses))
-            self.assertTrue(all(len(row["steps"]) == 2 for row in responses))
+            assert all(row["status"] == "passed" and (not row["first_step_passed"]) for row in responses)
+            assert all(len(row["steps"]) == 2 for row in responses)
             backend.close.assert_awaited_once()
 
 
-class ExecutionAuditTests(unittest.IsolatedAsyncioTestCase):
+class TestExecutionAudit:
     async def grade(self, code, previous=None):
         transport = ExecutionTransport()
         original_client = httpx2.AsyncClient
@@ -268,22 +269,26 @@ class ExecutionAuditTests(unittest.IsolatedAsyncioTestCase):
         with patch("dataset.benchmark.src.audit.httpx2.AsyncClient", side_effect=client):
             return await execute_candidate(Backend(), record, code)
 
+    @pytest.mark.anyio
     async def test_success_is_verified_by_state(self):
-        self.assertEqual((await self.grade("result = sum(values)\ndone('ok')"))["status"], "passed")
-        self.assertEqual((await self.grade("result = 999\ndone('success')"))["status"], "incorrect")
+        assert (await self.grade("result = sum(values)\ndone('ok')"))["status"] == "passed"
+        assert (await self.grade("result = 999\ndone('success')"))["status"] == "incorrect"
 
+    @pytest.mark.anyio
     async def test_completion_is_required(self):
-        self.assertEqual((await self.grade("result = sum(values)"))["status"], "not_completed")
+        assert (await self.grade("result = sum(values)"))["status"] == "not_completed"
 
+    @pytest.mark.anyio
     async def test_previous_partial_updates_survive_errors(self):
         previous = ["values.append(4)\nraise ValueError('after successful append')"]
-        self.assertEqual((await self.grade("result = sum(values)\ndone('ok')", previous))["status"], "passed")
+        assert (await self.grade("result = sum(values)\ndone('ok')", previous))["status"] == "passed"
 
-    async def test_fixture_failures_stop_execution_after_setup(self):
+    @pytest.mark.anyio
+    async def test_fixture_failures_stop_execution_after_setup(self, subtests):
         original_client = httpx2.AsyncClient
         for operation in ("candidate", "rollout"):
             for bootstrap_fails, setup_fails in ((True, False), (False, True), (True, True)):
-                with self.subTest(operation=operation, bootstrap_fails=bootstrap_fails, setup_fails=setup_fails):
+                with subtests.test(operation=operation, bootstrap_fails=bootstrap_fails, setup_fails=setup_fails):
                     transport = ExecutionTransport()
                     generator = AsyncMock()
                     bootstrap = "stage = 'bootstrap'"
@@ -306,19 +311,23 @@ class ExecutionAuditTests(unittest.IsolatedAsyncioTestCase):
                         return original_client(**kwargs, transport=httpx2.MockTransport(transport))
 
                     error = "bootstrap failed" if bootstrap_fails else "setup failed"
+                    candidate = execute_candidate if operation == "candidate" else rollout
+                    arguments = (
+                        (Backend(), record, "stage = 'candidate'\ndone('ok')")
+                        if operation == "candidate"
+                        else (Backend(), generator, record, 4)
+                    )
                     with (
                         patch("dataset.benchmark.src.audit.httpx2.AsyncClient", side_effect=client),
                         patch("dataset.benchmark.src.audit.STARTUP_LINES", [bootstrap]),
-                        self.assertRaisesRegex(RuntimeError, f"^Fixture failed: ValueError: {error}$"),
+                        pytest.raises(RuntimeError, match=f"^Fixture failed: ValueError: {error}$"),
                     ):
-                        if operation == "candidate":
-                            await execute_candidate(Backend(), record, "stage = 'candidate'\ndone('ok')")
-                        else:
-                            await rollout(Backend(), generator, record, 4)
-                    self.assertEqual(transport.submitted, [bootstrap, setup])
-                    self.assertEqual(transport.namespace["stage"], "setup")
+                        await candidate(*arguments)
+                    assert transport.submitted == [bootstrap, setup]
+                    assert transport.namespace["stage"] == "setup"
                     generator.post.assert_not_awaited()
 
+    @pytest.mark.anyio
     async def test_rollout_allows_inspection_without_leaking_oracle(self):
         transport = ExecutionTransport()
         original_client = httpx2.AsyncClient
@@ -349,17 +358,16 @@ class ExecutionAuditTests(unittest.IsolatedAsyncioTestCase):
         }
         with patch("dataset.benchmark.src.audit.httpx2.AsyncClient", side_effect=client):
             result = await rollout(Backend(), Generator(), record, 4)
-        self.assertEqual(result["status"], "passed")
-        self.assertEqual(len(result["steps"]), 2)
+        assert result["status"] == "passed"
+        assert len(result["steps"]) == 2
         for payload in payloads:
-            self.assertEqual(payload["stop"], [END_CODE, TASK, CONSOLE, CODE])
-        self.assertFalse(result["first_step_passed"])
-        self.assertEqual(payloads[0]["prompt"], record["prompt"])
-        self.assertEqual(
-            payloads[1]["prompt"],
-            record["prompt"] + inspection + "\n<|end_code|>\n<|console|>\n"
-            '{"stdout": "[1, 2, 3]\\ncafé 雪 \\u003c|end_code|> \\u003c|task|> '
-            '\\u003c|console|> \\u003c|code|> 1 \\u003c 2\\n", "stderr": "", "exception": null, '
-            '"done": null, "more_input": false}\n<|code|>\n',
+            assert payload["stop"] == [END_CODE, TASK, CONSOLE, CODE]
+        assert not result["first_step_passed"]
+        assert payloads[0]["prompt"] == record["prompt"]
+        assert (
+            payloads[1]["prompt"]
+            == record["prompt"]
+            + inspection
+            + '\n<|end_code|>\n<|console|>\n{"stdout": "[1, 2, 3]\\ncafé 雪 \\u003c|end_code|> \\u003c|task|> \\u003c|console|> \\u003c|code|> 1 \\u003c 2\\n", "stderr": "", "exception": null, "done": null, "more_input": false}\n<|code|>\n'
         )
-        self.assertNotIn(record["check"], payloads[1]["prompt"])
+        assert record["check"] not in payloads[1]["prompt"]

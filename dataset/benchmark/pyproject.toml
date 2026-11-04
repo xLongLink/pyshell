@@ -17,6 +17,14 @@ local = [
 ]
 cuda = ["torch>=2.10,<3", "transformers>=5.3,<6", "peft>=0.18,<1"]
 
+[dependency-groups]
+dev = ["anyio>=4,<5", "pytest>=9,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../.."]
+addopts = "--import-mode=importlib"
+
 [tool.uv]
 conflicts = [[{ extra = "local" }, { extra = "cuda" }]]
 
@@ -57,7 +65,7 @@ ignore = ["D100", "D104", "D202", "D203", "D213"]
 ban-relative-imports = "all"
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["ANN", "ARG", "D", "N803", "S", "PT009", "PT027"]
+"tests/**" = ["ANN", "ARG", "D", "N803", "S"]
 
 [tool.ruff.lint.isort]
 no-sections = true

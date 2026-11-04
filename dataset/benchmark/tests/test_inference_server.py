@@ -2,13 +2,13 @@
 
 import os
 import sys
+import pytest
 import tempfile
-import unittest
 from pathlib import Path
 from dataset.benchmark.src.inference_server import inference_server
 
 
-class InferenceServerTests(unittest.TestCase):
+class TestInferenceServer:
     def command(self, ready):
         source = "import os,time; print(os.getpid(), flush=True); "
         if ready:
@@ -17,13 +17,13 @@ class InferenceServerTests(unittest.TestCase):
 
     def assert_stopped(self, log):
         pid = int(log.read_text().splitlines()[0])
-        with self.assertRaises(ProcessLookupError):
+        with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)
 
     def test_server_is_stopped_when_the_consumer_raises(self):
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "server.log"
-            with self.assertRaisesRegex(ValueError, "consumer failed"):
+            with pytest.raises(ValueError, match="consumer failed"):
                 with inference_server(self.command(True), log, port=9999):
                     raise ValueError("consumer failed")
             self.assert_stopped(log)
@@ -31,13 +31,13 @@ class InferenceServerTests(unittest.TestCase):
     def test_timeout_stops_the_server(self):
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "server.log"
-            with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+            with pytest.raises(RuntimeError, match="did not become ready"):
                 with inference_server(self.command(False), log, port=9999, timeout=0.5):
-                    self.fail("An unready server was accepted")
+                    pytest.fail("An unready server was accepted")
             self.assert_stopped(log)
 
     def test_startup_exit_is_not_mistaken_for_readiness(self):
         with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaisesRegex(RuntimeError, "did not become ready"):
+            with pytest.raises(RuntimeError, match="did not become ready"):
                 with inference_server([sys.executable, "-c", "raise SystemExit(3)"], Path(directory) / "server.log", port=9999):
-                    self.fail("An exited server was accepted")
+                    pytest.fail("An exited server was accepted")

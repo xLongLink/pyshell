@@ -1,6 +1,6 @@
 """Check fixture setup and grading independently of any model provider."""
 
-import unittest
+import pytest
 from importlib.util import find_spec
 from dataset.benchmark.src.cases import CASES
 
@@ -28,34 +28,38 @@ SOLUTIONS = {
 }
 
 
-class CaseTests(unittest.TestCase):
-    def test_unique_case_ids_and_syntax(self):
-        self.assertEqual(len({case.id for case in CASES}), len(CASES))
+class TestCase:
+    def test_unique_case_ids_and_syntax(self, subtests):
+        assert len({case.id for case in CASES}) == len(CASES)
         for case in CASES:
-            with self.subTest(case=case.id):
+            with subtests.test(case=case.id):
                 compile(case.setup, case.id, "exec")
-                self.assertTrue(case.steps)
-                self.assertEqual(len(SOLUTIONS[case.id]), len(case.steps))
+                assert case.steps
+                assert len(SOLUTIONS[case.id]) == len(case.steps)
                 for step in case.steps:
                     compile(step.verify, case.id, "exec")
 
-    @unittest.skipUnless(find_spec("pandas") and find_spec("numpy"), "Run with the API environment to validate numerical fixtures")
-    def test_reference_solutions_pass_every_oracle(self):
+    @pytest.mark.skipif(
+        not (find_spec("pandas") and find_spec("numpy")), reason="Run with the API environment to validate numerical fixtures"
+    )
+    def test_reference_solutions_pass_every_oracle(self, subtests):
         for case in CASES:
-            with self.subTest(case=case.id):
+            with subtests.test(case=case.id):
                 namespace = {}
                 exec(case.setup, namespace)
                 for solution, step in zip(SOLUTIONS[case.id], case.steps, strict=True):
                     exec(solution, namespace)
                     exec(step.verify, namespace)
 
-    @unittest.skipUnless(find_spec("pandas") and find_spec("numpy"), "Run with the API environment to validate numerical fixtures")
-    def test_wrong_results_are_rejected(self):
+    @pytest.mark.skipif(
+        not (find_spec("pandas") and find_spec("numpy")), reason="Run with the API environment to validate numerical fixtures"
+    )
+    def test_wrong_results_are_rejected(self, subtests):
         for case in CASES:
-            with self.subTest(case=case.id):
+            with subtests.test(case=case.id):
                 namespace = {}
                 exec(case.setup, namespace)
                 exec(SOLUTIONS[case.id][0], namespace)
                 namespace["result"] = "fabricated"
-                with self.assertRaises((AssertionError, TypeError)):
+                with pytest.raises((AssertionError, TypeError)):
                     exec(case.steps[0].verify, namespace)

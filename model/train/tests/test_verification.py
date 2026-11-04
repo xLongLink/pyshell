@@ -4,11 +4,11 @@ import hashlib
 import io
 import json
 import tempfile
-import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from model.train.src.verification import verify
 
 
@@ -31,7 +31,7 @@ class ReplayWorkspace:
         self.closed = True
 
 
-class VerificationTests(unittest.TestCase):
+class TestVerification:
     def artifacts(self, root, directory_adapter=True):
         experiment, data = root / "experiment", root / "data"
         (experiment / "test").mkdir(parents=True)
@@ -102,10 +102,10 @@ class VerificationTests(unittest.TestCase):
         )
         return experiment, data, weights
 
-    def test_valid_artifacts_replay_with_file_and_directory_adapters(self):
+    def test_valid_artifacts_replay_with_file_and_directory_adapters(self, subtests):
         for directory_adapter in (False, True):
             with (
-                self.subTest(directory_adapter=directory_adapter),
+                subtests.test(directory_adapter=directory_adapter),
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 experiment, data, _ = self.artifacts(Path(temporary), directory_adapter)
@@ -116,15 +116,15 @@ class VerificationTests(unittest.TestCase):
                 ):
                     verify(experiment, data)
                 report = json.loads((experiment / "test/verification.json").read_text())
-                self.assertTrue(report["objective_verified"])
-                self.assertEqual(report["replayed_passed"], 120)
-                self.assertEqual(report["status_mismatches"], [])
-                self.assertTrue(worker.closed)
+                assert report["objective_verified"]
+                assert report["replayed_passed"] == 120
+                assert report["status_mismatches"] == []
+                assert worker.closed
 
-    def test_worker_closes_and_preserves_replay_exceptions(self):
+    def test_worker_closes_and_preserves_replay_exceptions(self, subtests):
         for error in (TimeoutError("worker unavailable"), KeyboardInterrupt()):
             with (
-                self.subTest(error=type(error).__name__),
+                subtests.test(error=type(error).__name__),
                 tempfile.TemporaryDirectory(dir="/tmp/opencode") as temporary,
             ):
                 experiment, data, _ = self.artifacts(Path(temporary))
@@ -132,17 +132,17 @@ class VerificationTests(unittest.TestCase):
                 with (
                     patch("model.train.src.verification.Worker", return_value=worker),
                     patch.object(worker, "execute", side_effect=error),
-                    self.assertRaises(type(error)) as raised,
+                    pytest.raises(type(error)) as raised,
                 ):
                     verify(experiment, data)
-                self.assertIs(raised.exception, error)
-                self.assertTrue(worker.closed)
-                self.assertFalse((experiment / "test/verification.json").exists())
+                assert raised.value is error
+                assert worker.closed
+                assert not (experiment / "test/verification.json").exists()
 
-    def test_changed_tasks_or_weights_are_rejected_before_execution(self):
+    def test_changed_tasks_or_weights_are_rejected_before_execution(self, subtests):
         for changed in ("tasks", "weights"):
             with (
-                self.subTest(changed=changed),
+                subtests.test(changed=changed),
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 experiment, data, weights = self.artifacts(Path(temporary))
@@ -152,15 +152,15 @@ class VerificationTests(unittest.TestCase):
                     "model.train.src.verification.Worker",
                     side_effect=AssertionError("must not execute"),
                 ):
-                    with self.assertRaisesRegex(
-                        ValueError, "Adapter differs|Final tasks differ"
+                    with pytest.raises(
+                        ValueError, match="Adapter differs|Final tasks differ"
                     ):
                         verify(experiment, data)
 
-    def test_predictions_must_cover_tasks_once_and_in_order(self):
+    def test_predictions_must_cover_tasks_once_and_in_order(self, subtests):
         for invalid in ("missing", "duplicate", "reordered"):
             with (
-                self.subTest(invalid=invalid),
+                subtests.test(invalid=invalid),
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 experiment, data, _ = self.artifacts(Path(temporary))
@@ -177,7 +177,7 @@ class VerificationTests(unittest.TestCase):
                     "model.train.src.verification.Worker",
                     side_effect=AssertionError("must not execute"),
                 ):
-                    with self.assertRaisesRegex(ValueError, "exactly once"):
+                    with pytest.raises(ValueError, match="exactly once"):
                         verify(experiment, data)
 
     def test_blank_jsonl_records_are_not_silently_ignored(self):
@@ -189,7 +189,7 @@ class VerificationTests(unittest.TestCase):
                 "model.train.src.verification.Worker",
                 side_effect=AssertionError("must not execute"),
             ):
-                with self.assertRaises(json.JSONDecodeError):
+                with pytest.raises(json.JSONDecodeError):
                     verify(experiment, data)
 
     def test_failed_replay_publishes_mismatch_report_before_raising(self):
@@ -206,13 +206,12 @@ class VerificationTests(unittest.TestCase):
                 patch("model.train.src.verification.Worker", return_value=worker),
                 redirect_stdout(io.StringIO()),
             ):
-                with self.assertRaisesRegex(RuntimeError, "independent replay"):
+                with pytest.raises(RuntimeError, match="independent replay"):
                     verify(experiment, data)
             report = json.loads((experiment / "test/verification.json").read_text())
-            self.assertFalse(report["objective_verified"])
-            self.assertEqual(report["replayed_passed"], 119)
-            self.assertEqual(
-                report["status_mismatches"],
-                [{"id": "task-0", "original": "passed", "replay": "incorrect"}],
-            )
-            self.assertTrue(worker.closed)
+            assert not report["objective_verified"]
+            assert report["replayed_passed"] == 119
+            assert report["status_mismatches"] == [
+                {"id": "task-0", "original": "passed", "replay": "incorrect"}
+            ]
+            assert worker.closed

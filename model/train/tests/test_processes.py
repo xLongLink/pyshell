@@ -3,22 +3,18 @@
 import io
 import subprocess
 import sys
-import tempfile
-import unittest
 from contextlib import redirect_stdout
-from pathlib import Path
 from unittest.mock import MagicMock, Mock, call, patch
 
+import pytest
 from model.train.src import processes
 
 
-class ProcessTests(unittest.TestCase):
-    def setUp(self):
-        self.root = Path(
-            self.enterContext(tempfile.TemporaryDirectory(dir="/tmp/opencode"))
-        )
+class TestProcess:
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path):
+        self.root = tmp_path
         self.log_path = self.root / "process.log"
-        self.console = self.enterContext(redirect_stdout(io.StringIO()))
 
     def test_real_subprocess_merges_streams_and_flushes_before_observing_each_line(
         self,
@@ -33,14 +29,18 @@ class ProcessTests(unittest.TestCase):
             "sys.stdout.write('unterminated'); sys.stdout.flush(); sys.exit(7)",
         ]
         observed = []
+        console = io.StringIO()
 
         def on_line(line):
             observed.append(line)
-            self.assertEqual(self.log_path.read_text(), "".join(observed))
-            self.assertEqual(self.console.getvalue(), "".join(observed))
-            self.assertEqual(flush.call_count, len(observed))
+            assert self.log_path.read_text() == "".join(observed)
+            assert console.getvalue() == "".join(observed)
+            assert flush.call_count == len(observed)
 
-        with patch.object(self.console, "flush", wraps=self.console.flush) as flush:
+        with (
+            redirect_stdout(console),
+            patch.object(console, "flush", wraps=console.flush) as flush,
+        ):
             returncode = processes.run_logged(
                 command, self.log_path, cwd=self.root, on_line=on_line
             )
@@ -51,27 +51,30 @@ class ProcessTests(unittest.TestCase):
             "standard error\n",
             "unterminated",
         ]
-        self.assertEqual(returncode, 7)
-        self.assertEqual(observed, expected)
-        self.assertEqual(self.log_path.read_text(), "".join(expected))
-        self.assertEqual(self.console.getvalue(), "".join(expected))
+        assert returncode == 7
+        assert observed == expected
+        assert self.log_path.read_text() == "".join(expected)
+        assert console.getvalue() == "".join(expected)
 
     def test_real_subprocess_succeeds_without_an_observer_and_replaces_old_log(self):
         self.log_path.write_text("old output\n")
 
-        returncode = processes.run_logged(
-            [sys.executable, "-c", "print('fresh output')"],
-            self.log_path,
-            cwd=self.root,
-        )
+        with redirect_stdout(io.StringIO()) as console:
+            returncode = processes.run_logged(
+                [sys.executable, "-c", "print('fresh output')"],
+                self.log_path,
+                cwd=self.root,
+            )
 
-        self.assertEqual(returncode, 0)
-        self.assertEqual(self.log_path.read_text(), "fresh output\n")
-        self.assertEqual(self.console.getvalue(), "fresh output\n")
+        assert returncode == 0
+        assert self.log_path.read_text() == "fresh output\n"
+        assert console.getvalue() == "fresh output\n"
 
-    def test_stream_failures_terminate_and_wait_before_reraising_original_error(self):
+    def test_stream_failures_terminate_and_wait_before_reraising_original_error(
+        self, subtests
+    ):
         for error in (KeyboardInterrupt(), SystemExit(3), OSError("stream failed")):
-            with self.subTest(error=type(error).__name__):
+            with subtests.test(error=type(error).__name__):
 
                 def lines():
                     yield "partial output\n"
@@ -82,16 +85,14 @@ class ProcessTests(unittest.TestCase):
                 process = Mock(stdout=stdout)
                 with (
                     patch.object(processes.subprocess, "Popen", return_value=process),
-                    self.assertRaises(type(error)) as raised,
+                    pytest.raises(type(error)) as raised,
                 ):
                     processes.run_logged(["worker"], self.log_path, cwd=self.root)
 
-                self.assertIs(raised.exception, error)
-                self.assertEqual(
-                    process.mock_calls, [call.terminate(), call.wait(timeout=30)]
-                )
+                assert raised.value is error
+                assert process.mock_calls == [call.terminate(), call.wait(timeout=30)]
                 stdout.close.assert_called_once_with()
-                self.assertEqual(self.log_path.read_text(), "partial output\n")
+                assert self.log_path.read_text() == "partial output\n"
 
     def test_wait_interruption_terminates_and_reaps_before_reraising(self):
         error = KeyboardInterrupt()
@@ -100,16 +101,17 @@ class ProcessTests(unittest.TestCase):
 
         with (
             patch.object(processes.subprocess, "Popen", return_value=process),
-            self.assertRaises(KeyboardInterrupt) as raised,
+            pytest.raises(KeyboardInterrupt) as raised,
         ):
             processes.run_logged(["worker"], self.log_path, cwd=self.root)
 
-        self.assertIs(raised.exception, error)
-        self.assertTrue(process.stdout.closed)
-        self.assertEqual(
-            process.mock_calls,
-            [call.wait(), call.terminate(), call.wait(timeout=30)],
-        )
+        assert raised.value is error
+        assert process.stdout.closed
+        assert process.mock_calls == [
+            call.wait(),
+            call.terminate(),
+            call.wait(timeout=30),
+        ]
 
     def test_cleanup_timeout_kills_and_reaps_without_replacing_original_error(self):
         error = KeyboardInterrupt()
@@ -120,16 +122,18 @@ class ProcessTests(unittest.TestCase):
 
         with (
             patch.object(processes.subprocess, "Popen", return_value=process),
-            self.assertRaises(KeyboardInterrupt) as raised,
+            pytest.raises(KeyboardInterrupt) as raised,
         ):
             processes.run_logged(["worker"], self.log_path, cwd=self.root)
 
-        self.assertIs(raised.exception, error)
+        assert raised.value is error
         stdout.close.assert_called_once_with()
-        self.assertEqual(
-            process.mock_calls,
-            [call.terminate(), call.wait(timeout=30), call.kill(), call.wait()],
-        )
+        assert process.mock_calls == [
+            call.terminate(),
+            call.wait(timeout=30),
+            call.kill(),
+            call.wait(),
+        ]
 
     def test_observer_failure_preserves_teed_line_and_stops_further_output(self):
         error = RuntimeError("observer failed")
@@ -137,19 +141,20 @@ class ProcessTests(unittest.TestCase):
         process = Mock(stdout=io.StringIO("first line\nmust not be read\n"))
 
         with (
+            redirect_stdout(io.StringIO()) as console,
             patch.object(processes.subprocess, "Popen", return_value=process),
-            self.assertRaises(RuntimeError) as raised,
+            pytest.raises(RuntimeError) as raised,
         ):
             processes.run_logged(
                 ["worker"], self.log_path, cwd=self.root, on_line=observer
             )
 
-        self.assertIs(raised.exception, error)
-        self.assertTrue(process.stdout.closed)
+        assert raised.value is error
+        assert process.stdout.closed
         observer.assert_called_once_with("first line\n")
-        self.assertEqual(self.log_path.read_text(), "first line\n")
-        self.assertEqual(self.console.getvalue(), "first line\n")
-        self.assertEqual(process.mock_calls, [call.terminate(), call.wait(timeout=30)])
+        assert self.log_path.read_text() == "first line\n"
+        assert console.getvalue() == "first line\n"
+        assert process.mock_calls == [call.terminate(), call.wait(timeout=30)]
 
     def test_success_closes_the_pipe_and_preserves_the_wait_return_code(self):
         process = Mock(stdout=io.StringIO("output\n"))
@@ -160,9 +165,9 @@ class ProcessTests(unittest.TestCase):
                 ["worker", "argument"], self.log_path, cwd=self.root
             )
 
-        self.assertEqual(returncode, -15)
-        self.assertTrue(process.stdout.closed)
-        self.assertEqual(process.mock_calls, [call.wait()])
+        assert returncode == -15
+        assert process.stdout.closed
+        assert process.mock_calls == [call.wait()]
         popen.assert_called_once_with(
             ["worker", "argument"],
             cwd=self.root,

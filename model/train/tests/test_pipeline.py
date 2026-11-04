@@ -3,31 +3,31 @@
 import io
 import json
 import tempfile
-import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from dataset.benchmark.src import checkpoint_eval
 from model.train.src import pipeline
 
 
-class PipelineDataTests(unittest.TestCase):
+class TestPipelineData:
     def test_resume_and_initialization_cannot_be_combined(self):
         with (
             patch("model.train.src.processes.subprocess.Popen") as execute,
             redirect_stderr(io.StringIO()),
-            self.assertRaises(SystemExit) as raised,
+            pytest.raises(SystemExit) as raised,
         ):
             pipeline.main(["--resume", "prior", "--initialize-adapter", "initial"])
-        self.assertEqual(raised.exception.code, 2)
+        assert raised.value.code == 2
         execute.assert_not_called()
 
-    def test_resume_and_initialization_are_forwarded_individually(self):
+    def test_resume_and_initialization_are_forwarded_individually(self, subtests):
         for option in ("--resume", "--initialize-adapter"):
             with (
-                self.subTest(option=option),
+                subtests.test(option=option),
                 tempfile.TemporaryDirectory(dir="/tmp/opencode") as temporary,
                 patch.object(pipeline, "ROOT", Path(temporary)),
                 patch.object(pipeline, "CONVERTER", Path(__file__)),
@@ -39,20 +39,20 @@ class PipelineDataTests(unittest.TestCase):
                 ) as execute,
                 redirect_stdout(io.StringIO()),
             ):
-                self.assertEqual(pipeline.main([option, "prior"]), 0)
+                assert pipeline.main([option, "prior"]) == 0
                 command = execute.call_args_list[0].args[0]
                 expected = (
                     str(Path("prior").resolve())
                     if option == "--initialize-adapter"
                     else "prior"
                 )
-                self.assertEqual(command[command.index(option) + 1], expected)
+                assert command[command.index(option) + 1] == expected
 
     def test_checkpoint_evaluation_exports_by_default(self):
         command = pipeline.evaluation_command("checkpoint", 200, "history.jsonl", "raw")
-        self.assertNotIn("--gguf", command)
+        assert "--gguf" not in command
 
-    def test_default_and_explicit_data_paths_in_both_modes(self):
+    def test_default_and_explicit_data_paths_in_both_modes(self, subtests):
         repo = Path(__file__).resolve().parents[3]
         for serialization, directory in (
             ("raw", "dataset/data"),
@@ -60,7 +60,7 @@ class PipelineDataTests(unittest.TestCase):
         ):
             for override in (None, "custom/../data"):
                 with (
-                    self.subTest(serialization=serialization, override=override),
+                    subtests.test(serialization=serialization, override=override),
                     tempfile.TemporaryDirectory() as temporary,
                 ):
                     argv = ["--serialization", serialization]
@@ -80,22 +80,19 @@ class PipelineDataTests(unittest.TestCase):
                         ) as execute,
                         redirect_stdout(io.StringIO()),
                     ):
-                        self.assertEqual(pipeline.main(argv), 0)
+                        assert pipeline.main(argv) == 0
                     training, export, syntax, benchmark = [
                         call.args[0] for call in execute.call_args_list
                     ]
-                    self.assertEqual(
-                        training[training.index("--data") + 1], str(expected)
-                    )
-                    self.assertEqual(
-                        syntax[syntax.index("--syntax-data") + 1],
-                        str(expected / "validation.jsonl"),
+                    assert training[training.index("--data") + 1] == str(expected)
+                    assert syntax[syntax.index("--syntax-data") + 1] == str(
+                        expected / "validation.jsonl"
                     )
                     gguf = export[export.index("--outfile") + 1]
-                    self.assertEqual(syntax[syntax.index("--adapter") + 1], gguf)
-                    self.assertEqual(benchmark[benchmark.index("--gguf") + 1], gguf)
-                    self.assertIn("--syntax-only", syntax)
-                    self.assertNotIn("--syntax-only", benchmark)
+                    assert syntax[syntax.index("--adapter") + 1] == gguf
+                    assert benchmark[benchmark.index("--gguf") + 1] == gguf
+                    assert "--syntax-only" in syntax
+                    assert "--syntax-only" not in benchmark
 
     def test_pipeline_converts_once_and_evaluates_exported_adapter(self):
         with tempfile.TemporaryDirectory(dir="/tmp/opencode") as temporary:
@@ -144,30 +141,28 @@ class PipelineDataTests(unittest.TestCase):
                 patch.object(checkpoint_eval.subprocess, "run") as unexpected_export,
                 redirect_stdout(io.StringIO()),
             ):
-                self.assertEqual(pipeline.main(["--name", "pilot"]), 0)
+                assert pipeline.main(["--name", "pilot"]) == 0
             unexpected_export.assert_not_called()
             commands = [call.args[0] for call in processes.call_args_list]
-            self.assertEqual(
-                sum(command[1] == str(converter) for command in commands), 1
-            )
+            assert sum((command[1] == str(converter) for command in commands)) == 1
             syntax, worker = [command for command in commands if "evaluate" in command]
             gguf = str(root / "artifacts/pilot.gguf")
-            self.assertIn("--syntax-only", syntax)
-            self.assertNotIn("--syntax-only", worker)
+            assert "--syntax-only" in syntax
+            assert "--syntax-only" not in worker
             for command in (syntax, worker):
-                self.assertEqual(command[command.index("--adapter") + 1], gguf)
+                assert command[command.index("--adapter") + 1] == gguf
             logs = root / "logs/pilot"
-            self.assertEqual(
-                json.loads((logs / "pipeline.json").read_text()),
-                {"status": "completed", "benchmark_returncode": 0},
-            )
+            assert json.loads((logs / "pipeline.json").read_text()) == {
+                "status": "completed",
+                "benchmark_returncode": 0,
+            }
             for phase in ("training", "export", "syntax", "benchmark"):
-                self.assertTrue((logs / f"{phase}.log").is_file())
+                assert (logs / f"{phase}.log").is_file()
             checkpoint = root / "artifacts/pilot"
-            self.assertEqual(
-                json.loads((checkpoint / "evaluations.jsonl").read_text())["status"],
-                "completed",
+            assert (
+                json.loads((checkpoint / "evaluations.jsonl").read_text())["status"]
+                == "completed"
             )
-            self.assertEqual(
-                (checkpoint / "evaluation.log").read_text(), f"Results: {results}\n"
-            )
+            assert (
+                checkpoint / "evaluation.log"
+            ).read_text() == f"Results: {results}\n"
