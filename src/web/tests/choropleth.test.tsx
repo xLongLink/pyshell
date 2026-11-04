@@ -8,6 +8,7 @@ import {
     waitFor,
 } from "@testing-library/react";
 import { Figure } from "../components/plot/figure";
+import Choropleth from "../components/plot/choropleth";
 import { figureProps } from "../lib/a2ui";
 import * as geographyLoader from "../components/plot/geography";
 
@@ -88,52 +89,110 @@ test("provider maps render the same boundary for either ring winding without mut
     expect(reversed).toEqual(original);
 });
 
-test("changing geography replaces the pending map and ignores its old load", async () => {
-    let resolve!: (value: geographyLoader.Geography) => void;
-    const pending = new Promise<geographyLoader.Geography>((yes) => {
-        resolve = yes;
-    });
-    const regions: geographyLoader.Geography = {
-        ...boundaries,
-        geography: "FRA",
-        name: "France",
-        level: "region",
-        features: [
-            {
-                ...boundaries.features[0],
-                id: "FR-IDF",
-                properties: { name: "Paris" },
-            },
-        ],
-    };
+test.each(["Figure", "Choropleth"])(
+    "%s geography changes replace the pending map and ignore its old load",
+    async (component) => {
+        const map = (input: typeof props) =>
+            component === "Figure" ? (
+                <Figure {...input} />
+            ) : input.data[0].type === "choropleth" ? (
+                <Choropleth trace={input.data[0]} showlegend />
+            ) : null;
+        let resolve!: (value: geographyLoader.Geography) => void;
+        const pending = new Promise<geographyLoader.Geography>((yes) => {
+            resolve = yes;
+        });
+        const regions: geographyLoader.Geography = {
+            ...boundaries,
+            geography: "FRA",
+            name: "France",
+            level: "region",
+            features: [
+                {
+                    ...boundaries.features[0],
+                    id: "FR-IDF",
+                    properties: { name: "Paris" },
+                },
+            ],
+        };
+        const load = vi
+            .spyOn(geographyLoader, "loadGeography")
+            .mockReturnValueOnce(pending)
+            .mockResolvedValue(regions);
+        const { rerender } = render(map(props));
+        await waitFor(() => expect(load).toHaveBeenCalledWith("world"));
+        rerender(
+            map(
+                figureProps.parse({
+                    data: [
+                        {
+                            type: "choropleth",
+                            geography: "FRA",
+                            locations: ["FR-IDF"],
+                            values: [7],
+                        },
+                    ],
+                }),
+            ),
+        );
+        await screen.findByRole("img", { name: "Paris: 7" });
+        await act(async () => {
+            resolve(boundaries);
+            await pending;
+        });
+        expect(screen.getByRole("img", { name: "Paris: 7" })).toBeTruthy();
+        expect(screen.queryByRole("alert")).toBeNull();
+        expect(load).toHaveBeenCalledTimes(2);
+    },
+);
+
+test("compact maps hide legends while preserving captions and loaded boundaries", async () => {
     const load = vi
         .spyOn(geographyLoader, "loadGeography")
-        .mockReturnValueOnce(pending)
-        .mockResolvedValue(regions);
-    const { rerender } = render(<Figure {...props} />);
-    await waitFor(() => expect(load).toHaveBeenCalledWith("world"));
-    rerender(
-        <Figure
-            {...figureProps.parse({
-                data: [
-                    {
-                        type: "choropleth",
-                        geography: "FRA",
-                        locations: ["FR-IDF"],
-                        values: [7],
-                    },
-                ],
-            })}
-        />,
-    );
-    await screen.findByRole("img", { name: "Paris: 7" });
-    await act(async () => {
-        resolve(boundaries);
-        await pending;
+        .mockResolvedValue(boundaries);
+    const { rerender } = render(<Figure {...props} compact />);
+    const france = await screen.findByRole("img", { name: "France: 42" });
+    expect(screen.getByText("Plot", { selector: "figcaption" })).toBeTruthy();
+    expect(screen.queryByLabelText("Map legend")).toBeNull();
+    rerender(<Figure {...props} />);
+    expect(screen.getByLabelText("Map legend")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "France: 42" })).toBe(france);
+    expect(load).toHaveBeenCalledTimes(1);
+});
+
+test("direct Choropleth geography changes replace already loaded boundaries", async () => {
+    const load = vi
+        .spyOn(geographyLoader, "loadGeography")
+        .mockResolvedValueOnce(boundaries)
+        .mockResolvedValueOnce({
+            ...boundaries,
+            geography: "FRA",
+            name: "France",
+            level: "region",
+            features: [
+                {
+                    ...boundaries.features[0],
+                    id: "FR-IDF",
+                    properties: { name: "Paris" },
+                },
+            ],
+        });
+    const trace = (geography: string, location: string) => ({
+        type: "choropleth" as const,
+        name: "",
+        geography,
+        locations: [location],
+        values: [42],
     });
-    expect(screen.getByRole("img", { name: "Paris: 7" })).toBeTruthy();
+    const { rerender } = render(
+        <Choropleth trace={trace("world", "FRA")} showlegend />,
+    );
+    await screen.findByRole("img", { name: "France: 42" });
+    rerender(<Choropleth trace={trace("FRA", "FR-IDF")} showlegend />);
+    await screen.findByRole("img", { name: "Paris: 42" });
+    expect(screen.queryByRole("img", { name: "France: 42" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(load).toHaveBeenCalledTimes(2);
+    expect(load.mock.calls).toEqual([["world"], ["FRA"]]);
 });
 
 test("hover, focus and live values preserve paths while updating map details", async () => {

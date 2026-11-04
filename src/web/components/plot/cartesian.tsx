@@ -16,7 +16,7 @@ import {
     ChartLegendContent,
     ChartTooltipContent,
 } from "@/components/ui/chart";
-import { traceColor, type FigureProps, type Trace } from "./common";
+import { traceColor, type Trace } from "./common";
 
 type CartesianTrace = Extract<Trace, { type: "bar" | "scatter" | "area" }>;
 
@@ -39,10 +39,12 @@ function SizedBar({
 
 export function Cartesian({
     data,
-    layout,
+    xAxisTitle,
+    showlegend,
 }: {
     data: CartesianTrace[];
-    layout: FigureProps["layout"];
+    xAxisTitle: string;
+    showlegend: boolean;
 }) {
     const gradientId = useId().replace(/:/g, "");
     const numeric = typeof data[0].x[0] === "number";
@@ -125,7 +127,7 @@ export function Cartesian({
                 margin={{
                     top: 8,
                     right: 12,
-                    bottom: layout.xaxis.title.text ? 24 : 0,
+                    bottom: xAxisTitle ? 24 : 0,
                     left: 0,
                 }}
             >
@@ -174,7 +176,7 @@ export function Cartesian({
                     minTickGap={24}
                     label={{
                         className: "plot-xaxis-title",
-                        value: layout.xaxis.title.text,
+                        value: xAxisTitle,
                         position: "bottom",
                     }}
                 />
@@ -207,71 +209,67 @@ export function Cartesian({
                         />
                     }
                 />
-                {layout.showlegend && (
-                    <Legend content={<ChartLegendContent />} />
-                )}
+                {showlegend && <Legend content={<ChartLegendContent />} />}
                 {data.map((trace, index) => {
                     const key = `trace_${index}`;
                     const name = trace.name || `Series ${index + 1}`;
                     const color = traceColor(index);
+                    if (trace.type === "bar") {
+                        return (
+                            <SizedBar
+                                key={key}
+                                xAxisId="traces"
+                                spacing={
+                                    spacing /
+                                    (xs[xs.length - 1] - xs[0] + 2 * padding)
+                                }
+                                count={barCount}
+                                dataKey={key}
+                                name={name}
+                                fill={color}
+                                radius={4}
+                                isAnimationActive={false}
+                            />
+                        );
+                    }
+                    const pointProps = {
+                        xAxisId: "traces",
+                        data: trace.x.map((x, point) => ({
+                            x: coordinate(x),
+                            tooltipX: coordinate(x),
+                            [key]: trace.y[point],
+                        })),
+                        dataKey: key,
+                        name,
+                        stroke: color,
+                        activeDot: {
+                            r: 6,
+                            fill: color,
+                            stroke: "var(--card)",
+                            strokeWidth: 2,
+                        },
+                        connectNulls: false,
+                        isAnimationActive: false,
+                    };
                     if (trace.type === "area") {
                         return (
                             <Area
                                 key={key}
-                                xAxisId="traces"
-                                data={trace.x.map((x, point) => ({
-                                    x: coordinate(x),
-                                    tooltipX: coordinate(x),
-                                    [key]: trace.y[point],
-                                }))}
-                                dataKey={key}
-                                name={name}
+                                {...pointProps}
                                 type={trace.curve}
-                                stroke={color}
                                 strokeWidth={2}
                                 fill={`url(#${gradientId}-area-${index})`}
                                 fillOpacity={1}
                                 baseValue={0}
                                 dot={false}
-                                activeDot={{
-                                    r: 6,
-                                    fill: color,
-                                    stroke: "var(--card)",
-                                    strokeWidth: 2,
-                                }}
-                                connectNulls={false}
-                                isAnimationActive={false}
                             />
                         );
                     }
-                    return trace.type === "bar" ? (
-                        <SizedBar
-                            key={key}
-                            xAxisId="traces"
-                            spacing={
-                                spacing /
-                                (xs[xs.length - 1] - xs[0] + 2 * padding)
-                            }
-                            count={barCount}
-                            dataKey={key}
-                            name={name}
-                            fill={color}
-                            radius={4}
-                            isAnimationActive={false}
-                        />
-                    ) : (
+                    return (
                         <Line
                             key={key}
-                            xAxisId="traces"
-                            data={trace.x.map((x, point) => ({
-                                x: coordinate(x),
-                                tooltipX: coordinate(x),
-                                [key]: trace.y[point],
-                            }))}
-                            dataKey={key}
-                            name={name}
+                            {...pointProps}
                             type="linear"
-                            stroke={color}
                             strokeWidth={trace.mode === "markers" ? 0 : 2}
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -280,14 +278,6 @@ export function Cartesian({
                                     ? false
                                     : { r: 4, fill: color, stroke: color }
                             }
-                            activeDot={{
-                                r: 6,
-                                fill: color,
-                                stroke: "var(--card)",
-                                strokeWidth: 2,
-                            }}
-                            connectNulls={false}
-                            isAnimationActive={false}
                         />
                     );
                 })}

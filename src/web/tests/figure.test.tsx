@@ -540,6 +540,76 @@ test("compact figures remove legend and axis-title space without changing the fu
     expect(container.querySelector(".recharts-legend-wrapper")).not.toBeNull();
 });
 
+test("compact pies hide legends without losing their caption or slices", async () => {
+    const props = figureProps.parse({
+        data: [{ type: "pie", labels: ["Apples", "Pears"], values: [2, 3] }],
+        layout: { title: { text: "Fruit" }, showlegend: true },
+    });
+    const { container, rerender } = render(<Figure {...props} compact />);
+    await waitFor(() =>
+        expect(container.querySelectorAll(".recharts-pie-sector")).toHaveLength(
+            2,
+        ),
+    );
+    expect(screen.getByText("Fruit", { selector: "figcaption" })).toBeTruthy();
+    expect(container.querySelector(".recharts-legend-wrapper")).toBeNull();
+    rerender(<Figure {...props} />);
+    expect(await screen.findByText("Apples")).toBeTruthy();
+    expect(screen.getByText("Pears")).toBeTruthy();
+    expect(container.querySelectorAll(".recharts-pie-sector")).toHaveLength(2);
+});
+
+test("mixed area and scatter preserve point order, null gaps, and shared tooltips", async () => {
+    const props = figureProps.parse({
+        data: [
+            {
+                type: "area",
+                name: "Range",
+                x: [10, 0, 10, 5, 7, 9],
+                y: [3, 1, 4, null, 5, 2],
+            },
+            {
+                type: "scatter",
+                name: "Observed",
+                mode: "lines+markers",
+                x: [10, 0, 10, 5, 7, 9],
+                y: [6, 2, 8, null, 10, 4],
+            },
+        ],
+    });
+    const { container } = render(<Figure {...props} />);
+    await waitFor(() =>
+        expect(container.querySelectorAll(".recharts-line-dot")).toHaveLength(
+            5,
+        ),
+    );
+    const line = container.querySelector(".recharts-line-curve")!;
+    const area = container.querySelector(".recharts-area-curve")!;
+    expect(line.getAttribute("d")?.match(/M/g)).toHaveLength(2);
+    expect(area.getAttribute("d")?.match(/M/g)).toHaveLength(2);
+    const xs = [...container.querySelectorAll(".recharts-line-dot")].map(
+        (dot) => Number(dot.getAttribute("cx")),
+    );
+    expect(xs[0]).toBe(xs[2]);
+    expect(xs[0]).toBeGreaterThan(xs[1]);
+    expect((xs[3] - xs[1]) / (xs[0] - xs[1])).toBeCloseTo(0.7);
+    const areaXs = area
+        .getAttribute("d")!
+        .match(/-?\d+(?:\.\d+)?/g)!
+        .map(Number)
+        .filter((_, index) => index % 2 === 0);
+    expect(areaXs).toEqual(xs);
+    const application = screen.getByRole("application");
+    const tooltip = () =>
+        container.querySelector(".recharts-tooltip-wrapper")?.textContent;
+    fireEvent.focus(application);
+    await waitFor(() => expect(tooltip()).toBe("0Range1Observed2"));
+    fireEvent.keyDown(application, { key: "ArrowRight" });
+    await waitFor(() => expect(tooltip()).toBe(""));
+    fireEvent.keyDown(application, { key: "ArrowRight" });
+    await waitFor(() => expect(tooltip()).toBe("7Range5Observed10"));
+});
+
 test("categorical coordinates keep first-seen order and repeated positions across traces", async () => {
     const props = figureProps.parse({
         data: [

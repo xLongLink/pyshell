@@ -68,19 +68,14 @@ async def reset_workspace(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=409, detail="The workspace is busy. Wait for work to finish, then reload.")
     if workspace.agent.shell.uncertain:
         raise HTTPException(status_code=409, detail="Execution state is uncertain. Restart the execution container and web server.")
-    workspace.resetting = True
-    try:
-        for subscription in tuple(workspace.listeners):
-            subscription.close()
+
+    async def stop_voices() -> None:
         await asyncio.gather(*(voice.stop() for voice in tuple(request.app.state.voices)))
-        await workspace.agent.reset()
-        workspace.recent_tasks.clear()
-        workspace.task = None
-        workspace.phase = "idle"
+
+    try:
+        await workspace.reset(stop_voices)
     except Exception as error:
         raise HTTPException(status_code=502, detail="Workspace reset failed. Restart the execution container and web server.") from error
-    finally:
-        workspace.resetting = False
     return {"status": "reset"}
 
 
