@@ -109,7 +109,7 @@ def evaluate(args):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=Path, default=ROOT / "artifacts/cpu-proof-v1")
-    parser.add_argument("--split", choices=("dev", "test"), default="dev")
+    parser.add_argument("--split", choices=("train", "dev", "test"), default="dev")
     parser.add_argument("--adapter", type=Path)
     parser.add_argument("--label", required=True)
     parser.add_argument("--output", type=Path, required=True)

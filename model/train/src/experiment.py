@@ -79,6 +79,8 @@ def run(args):
                 str(args.initialize_adapter.resolve()),
                 "--backend",
                 "hf",
+                "--threads",
+                str(args.threads),
                 "--label",
                 args.output.name + "-baseline",
                 "--output",
@@ -135,6 +137,8 @@ def run(args):
         str(adapter.resolve()) if args.backend == "hf" else str(gguf.resolve()),
         "--backend",
         args.backend,
+        "--threads",
+        str(args.threads),
         "--label",
         args.output.name,
     ]

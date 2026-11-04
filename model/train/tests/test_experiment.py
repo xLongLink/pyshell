@@ -76,6 +76,8 @@ class ExperimentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output, calls = self.experiment(directory, "hf", False)
             self.assertEqual(len(calls), 3)
+            for command in calls:
+                self.assertEqual(command[command.index("--threads") + 1], "1")
             self.assertTrue(
                 all(
                     "convert_lora_to_gguf.py" not in " ".join(command)

@@ -4,6 +4,10 @@ import argparse
 from importlib import import_module
 
 COMMANDS = {
+    "executed": (
+        "executed",
+        "Build balanced training trajectories using real container feedback",
+    ),
     "proof": ("proof", "Build independent CPU execution tasks"),
     "transfer": ("transfer", "Build template-held-out contrastive tasks"),
     "curriculum": ("curriculum", "Build a training-only recovery curriculum"),

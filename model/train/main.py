@@ -4,6 +4,10 @@ import argparse
 from importlib import import_module
 
 COMMANDS = {
+    "iterate": (
+        "iteration",
+        "Run sequential CPU pilots with development selection and final replay",
+    ),
     "train": ("training", "Train or resume a CPU LoRA adapter"),
     "experiment": ("experiment", "Run a development-gated execution-proof experiment"),
     "pipeline": ("pipeline", "Train and evaluate through the GGUF worker benchmark"),
