@@ -9,7 +9,9 @@ import tempfile
 import subprocess
 from types import SimpleNamespace
 from pathlib import Path
+from contextlib import nullcontext
 from unittest.mock import patch
+from model.benchmark.src import cpu_evaluate
 from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE
 from model.benchmark.src.resources import exclusive_cpu
 from model.benchmark.src.cpu_evaluate import trial, evaluate, generator, completion
@@ -31,6 +33,55 @@ class Worker:
 
 
 class TestCPUProof:
+    def test_evaluation_persists_full_trajectories_and_incremental_metrics(self, tmp_path, capsys):
+        records = [{"id": str(index), "family": family} for index, family in enumerate(("join", "recovery", "join"))]
+        tasks = tmp_path / "dev-tasks.jsonl"
+        tasks.write_text("".join(json.dumps(record) + "\n" for record in records))
+        digest = hashlib.sha256(tasks.read_bytes()).hexdigest()
+        (tmp_path / "manifest.json").write_text(json.dumps({"scope": "fixture", "splits": {"dev": {"sha256": digest}}}))
+        args = SimpleNamespace(
+            data=tmp_path,
+            split="dev",
+            final=False,
+            limit=None,
+            backend="gguf",
+            device="cpu",
+            adapter=None,
+            output=tmp_path / "output",
+            label="fixture",
+            gguf_base=tmp_path / "base.gguf",
+        )
+        rows = [
+            {**record, "status": status, "steps": [{"source": "print('payload')", "feedback": {"stdout": "payload"}}]}
+            for record, status in zip(records, ("passed", "call_limit", "incorrect"))
+        ]
+        summaries = []
+
+        def run_trial(worker, record, generate):
+            if record["id"] != "0":
+                summaries.append(json.loads((args.output / "summary.json").read_text()))
+            return rows[int(record["id"])]
+
+        with (
+            patch.object(cpu_evaluate, "exclusive_cpu", return_value=nullcontext()),
+            patch.object(cpu_evaluate, "generator", return_value=nullcontext(None)),
+            patch.object(cpu_evaluate, "Worker"),
+            patch.object(cpu_evaluate, "trial", side_effect=run_trial),
+        ):
+            evaluate(args)
+        summaries.append(json.loads((args.output / "summary.json").read_text()))
+        assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows
+        assert [summary["tasks"] for summary in summaries] == [1, 2, 3]
+        assert [summary["passed"] for summary in summaries] == [1, 1, 1]
+        assert [summary["complete"] for summary in summaries] == [False, False, True]
+        assert all(not summary["acceptance_met"] for summary in summaries)
+        summary = summaries[-1]
+        assert summary["task_file_sha256"] == digest
+        assert summary["success_rate"] == 1 / 3
+        assert summary["by_family"] == {"join": {"tasks": 2, "passed": 1}, "recovery": {"tasks": 1, "passed": 0}}
+        assert summary["statuses"] == {"passed": 1, "call_limit": 1, "incorrect": 1}
+        assert "fixture dev 3/3: 1 passed; join=incorrect" in capsys.readouterr().out
+
     def test_hf_generator_passes_the_explicit_base_model(self, tmp_path):
         args = SimpleNamespace(backend="hf", adapter=tmp_path / "adapter", threads=3, device="cpu", base_model=tmp_path / "base")
         with patch("model.benchmark.src.inference.HFCompletion") as model:

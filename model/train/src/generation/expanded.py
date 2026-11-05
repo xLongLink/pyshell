@@ -13,21 +13,23 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pyshell.serialization import serialize
+from pyshell.serialization import FORMAT, serialize
 
-from model.benchmark.src.corpus import sha256, write_jsonl
+from model.benchmark.src.corpus import read_jsonl, sha256, write_jsonl
 from model.train.src.generation.legacy import worker_context
 
 REPO = Path(__file__).resolve().parents[4]
 
 
 def execute(code, namespace):
-    stdout, stderr, completions = io.StringIO(), io.StringIO(), []
+    stdout, stderr = io.StringIO(), io.StringIO()
+    completion = None
 
     def done(message):
+        nonlocal completion
         if not isinstance(message, str) or not message.strip():
             raise ValueError("done requires a nonempty message")
-        completions.append(message)
+        completion = message
 
     namespace["done"] = done
     error = None
@@ -42,7 +44,7 @@ def execute(code, namespace):
         "stdout": stdout.getvalue(),
         "stderr": stderr.getvalue(),
         "exception": error,
-        "done": completions[-1] if completions and error is None else None,
+        "done": completion if error is None else None,
         "more_input": False,
     }
 
@@ -569,7 +571,7 @@ def main(argv=None):
         if (args.output / name).exists():
             raise FileExistsError(args.output / name)
     legacy_path = REPO / "model/train/data/chat/raw/train.jsonl"
-    legacy = [json.loads(line) for line in legacy_path.read_text().splitlines()]
+    legacy = read_jsonl(legacy_path)
     assert len(legacy) == 500
     for record in legacy:
         verify_legacy(record)
@@ -590,7 +592,7 @@ def main(argv=None):
     new_families = {item["family"] for item in train}
     assert not new_families.intersection(item["family"] for item in validation)
     manifest = {
-        "serialization": "task-code-console-v1",
+        "serialization": FORMAT,
         "system_role": False,
         "benchmark_cases_used": False,
         "legacy_train_examples": 500,

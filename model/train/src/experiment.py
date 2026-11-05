@@ -3,13 +3,12 @@
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 from model.benchmark.src.corpus import sha256, verify_training_data
 from model.benchmark.src.proof_policy import development_ready
 from model.train.src.export import export_command
-from model.train.src.processes import benchmark_command
+from model.train.src.processes import benchmark_command, training_command
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parents[1]
@@ -72,12 +71,8 @@ def run(args):
         "cpu",
         "--data",
         str(args.data.resolve()),
-        "--backend",
-        args.backend,
         "--threads",
         str(args.threads),
-        "--device",
-        device,
         *(
             ["--base-model", str(ROOT / "artifacts/base")]
             if args.backend == "hf"
@@ -107,32 +102,18 @@ def run(args):
     adapter = args.output / "adapter"
     command(
         "training",
-        [
-            sys.executable,
-            "-u",
-            "-m",
-            "model.train.main",
-            "train",
-            "--data",
-            str(training_data.resolve()),
-            "--output",
-            str(adapter.resolve()),
-            "--steps",
-            str(args.steps),
-            "--threads",
-            str(args.threads),
-            "--device",
-            device,
-            "--learning-rate",
-            str(args.learning_rate),
-            "--eval-samples",
-            "12",
-            *(
-                ["--initialize-adapter", str(args.initialize_adapter.resolve())]
-                if args.initialize_adapter
-                else []
-            ),
-        ],
+        training_command(
+            data=training_data.resolve(),
+            output=adapter.resolve(),
+            steps=args.steps,
+            threads=args.threads,
+            device=device,
+            learning_rate=args.learning_rate,
+            eval_samples=12,
+            initialize_adapter=args.initialize_adapter.resolve()
+            if args.initialize_adapter
+            else None,
+        ),
     )
     gguf = args.output / "adapter.gguf"
     if args.backend == "gguf":

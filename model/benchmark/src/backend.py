@@ -1,8 +1,28 @@
 """Lifecycle of an execution container reserved for benchmark trials."""
 
 import os
+import fcntl
 import asyncio
 from pathlib import Path
+from contextlib import contextmanager
+from collections.abc import Generator
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@contextmanager
+def backend_lock() -> Generator[None, None, None]:
+    """The Compose project has one workspace, regardless of requested port."""
+    (ROOT / "results").mkdir(exist_ok=True)
+    with (ROOT / "results" / "backend.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("Another benchmark owns the execution backend") from error
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 class ContainerBackend:

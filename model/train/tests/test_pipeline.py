@@ -39,7 +39,7 @@ class TestPipelineData:
                 ) as execute,
                 redirect_stdout(io.StringIO()),
             ):
-                assert pipeline.main([option, "prior"]) == 0
+                assert pipeline.main([option, "prior", "--evaluate-every", "8"]) == 0
                 command = execute.call_args_list[0].args[0]
                 expected = (
                     str(Path("prior").resolve())
@@ -47,6 +47,9 @@ class TestPipelineData:
                     else "prior"
                 )
                 assert command[command.index(option) + 1] == expected
+                assert command[command.index("--evaluate-every") + 1] == "8"
+                assert "--device" not in command
+                assert "--eval-samples" not in command
 
     def test_checkpoint_evaluation_exports_by_default(self):
         command = pipeline.evaluation_command("checkpoint", 200, "history.jsonl")
@@ -80,6 +83,11 @@ class TestPipelineData:
                 ]
                 assert training[training.index("--data") + 1] == str(expected)
                 assert "--serialization" not in training
+                assert training[training.index("--evaluate-every") + 1] == "0"
+                assert "--device" not in training
+                assert "--eval-samples" not in training
+                assert "--backend" not in syntax
+                assert "--device" not in syntax
                 assert syntax[syntax.index("--serialization") + 1] == "raw"
                 assert syntax[syntax.index("--syntax-data") + 1] == str(
                     expected / "validation.jsonl"

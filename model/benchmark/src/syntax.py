@@ -37,7 +37,10 @@ def main(argv=None):
     output.mkdir(parents=True, exist_ok=False)
     data_path = args.data or default_training_data(args.serialization) / "validation.jsonl"
     records = [json.loads(line) for line in data_path.read_text().splitlines()]
-    results = []
+    compiles = 0
+    passed = 0
+    finish_reasons = Counter()
+    per_family = {}
     print(f"Syntax-only evaluation: {len(records)} held-out prompts, temperature={args.temperature}; results: {output}", flush=True)
     for index, record in enumerate(records, 1):
         payload = {
@@ -87,33 +90,31 @@ def main(argv=None):
             "seconds": time.monotonic() - started,
             "usage": completion.get("usage"),
         }
-        results.append(item)
+
+        # Keep aggregate outcomes; full responses are persisted below.
+        compiles += item["compiles"]
+        passed += item["passed"]
+        finish_reasons[finish_reason] += 1
+        family = per_family.setdefault(item["family"], {"total": 0, "passed": 0})
+        family["total"] += 1
+        family["passed"] += item["passed"]
         with (output / "responses.jsonl").open("a") as file:
             file.write(json.dumps(item) + "\n")
         if index % 10 == 0 or not item["passed"]:
-            print(
-                f"{index}/{len(records)}: {sum(r['passed'] for r in results)} valid completed responses; latest: {error or finish_reason}",
-                flush=True,
-            )
+            print(f"{index}/{len(records)}: {passed} valid completed responses; latest: {error or finish_reason}", flush=True)
     summary = {
         "model": args.model,
         "temperature": args.temperature,
         "serialization": args.serialization,
         "prompts": len(records),
-        "compiles": sum(item["compiles"] for item in results),
-        "passed": sum(item["passed"] for item in results),
-        "raw_python_rate": sum(item["compiles"] for item in results) / len(results),
-        "completed_python_rate": sum(item["passed"] for item in results) / len(results),
-        "finish_reasons": dict(Counter(item["finish_reason"] for item in results)),
-        "per_family": {
-            family: {
-                "total": sum(item["family"] == family for item in results),
-                "passed": sum(item["family"] == family and item["passed"] for item in results),
-            }
-            for family in sorted({item["family"] for item in results})
-        },
+        "compiles": compiles,
+        "passed": passed,
+        "raw_python_rate": compiles / len(records),
+        "completed_python_rate": passed / len(records),
+        "finish_reasons": dict(finish_reasons),
+        "per_family": dict(sorted(per_family.items())),
         "scope": "raw syntax only; no stripping, repairs, execution, or task correctness grading",
     }
     (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2), flush=True)
-    return 0 if all(item["passed"] for item in results) else 1
+    return 0 if passed == len(records) else 1

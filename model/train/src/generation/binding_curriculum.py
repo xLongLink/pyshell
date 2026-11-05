@@ -4,7 +4,6 @@ import argparse
 import ast
 import json
 import re
-from collections import Counter
 from contextlib import closing
 from pathlib import Path
 
@@ -12,7 +11,6 @@ from model.benchmark.src.corpus import (
     read_jsonl,
     sha256,
     verify_training_data,
-    write_jsonl,
 )
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.reference import ReferenceSession
@@ -21,6 +19,7 @@ from model.train.src.generation.binding_language import (
     diversify_binding,
     diversify_support,
 )
+from model.train.src.generation.publication import publish_curriculum
 from model.train.src.generation.transfer import make_contrast_pair, supervision
 
 
@@ -141,42 +140,27 @@ def prepare(
                             if key != "expected"
                         }
                     )
-    assert len({row["id"] for row in rows}) == len(rows)
-    setups = {record["setup"] for record in records}
-    templates = {record["template_id"] for record in records}
-    for split in ("dev", "test"):
-        path = evaluation / f"{split}-tasks.jsonl"
-        assert sha256(path) == frozen["splits"][split]["sha256"]
-        assert not setups.intersection(record["setup"] for record in read_jsonl(path))
-        assert not templates.intersection(frozen["splits"][split]["template_ids"])
-    write_jsonl(output / "train-tasks.jsonl", records)
-    write_jsonl(output / "train.jsonl", rows)
-    (output / "validation.jsonl").write_bytes(
-        (evaluation / "validation.jsonl").read_bytes()
+    return publish_curriculum(
+        output,
+        replay,
+        evaluation,
+        frozen,
+        rows,
+        records,
+        generator_source=Path(__file__),
+        metadata={
+            "language_diversity": language,
+            "seed": seed,
+            "pairs_per_target_family": pairs,
+            "support_pairs_per_family": support_pairs,
+        },
+        details={
+            "language_generator_sha256": sha256(
+                Path(__file__).with_name("binding_language.py")
+            ),
+            "feedback": "Real isolated execution; successful direct and two error-recovery trajectories per target task; erroneous scripts are context only, never supervised targets",
+        },
     )
-    manifest = {
-        "training_only": True,
-        "language_diversity": language,
-        "seed": seed,
-        "pairs_per_target_family": pairs,
-        "support_pairs_per_family": support_pairs,
-        "training_records": len(rows),
-        "supervision_by_family": dict(Counter(row["family"] for row in rows)),
-        "training_records_sha256": sha256(output / "train.jsonl"),
-        "validation_records_sha256": sha256(output / "validation.jsonl"),
-        "evaluation_test_sha256": frozen["splits"]["test"]["sha256"],
-        "replay_sha256": sha256(replay / "train.jsonl"),
-        "generator_sha256": sha256(Path(__file__)),
-        "language_generator_sha256": sha256(
-            Path(__file__).with_name("binding_language.py")
-        ),
-        "feedback": "Real isolated execution; successful direct and two error-recovery trajectories per target task; erroneous scripts are context only, never supervised targets",
-    }
-    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    for path in output.iterdir():
-        path.chmod(0o444)
-    print(json.dumps(manifest, indent=2))
-    return manifest
 
 
 def main(argv=None):

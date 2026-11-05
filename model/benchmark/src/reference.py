@@ -10,20 +10,20 @@ from pyshell.serialization import serialize
 
 def feedback(source, namespace):
     output, errors = io.StringIO(), io.StringIO()
-    done = []
-    namespace["done"] = lambda message: done.append(message)
+    completion = None
+
+    def done(message):
+        nonlocal completion
+        completion = message
+
+    namespace["done"] = done
     error = None
     with redirect_stdout(output), redirect_stderr(errors):
         try:
             exec(compile(source, "<agent>", "exec"), namespace)
         except Exception:
             error = traceback.format_exc()
-    return {
-        "stdout": output.getvalue(),
-        "stderr": errors.getvalue(),
-        "exception": error,
-        "done": done[-1] if done and error is None else None,
-    }
+    return {"stdout": output.getvalue(), "stderr": errors.getvalue(), "exception": error, "done": completion if error is None else None}
 
 
 class ReferenceWorkspace:

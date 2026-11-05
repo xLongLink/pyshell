@@ -8,10 +8,10 @@ import argparse
 from pathlib import Path
 from sample.src.shell import RemoteShell
 from pyshell.serialization import CODE, MARKERS, END_CODE, console_block
-from model.benchmark.src.cli import backend_lock
 from sample.src.agents.script import STARTUP_LINES
+from model.benchmark.src.corpus import read_jsonl
 from model.benchmark.src.syntax import check_source
-from model.benchmark.src.backend import ContainerBackend
+from model.benchmark.src.backend import ContainerBackend, backend_lock
 from model.benchmark.src.recording import write_json
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,7 +100,7 @@ async def rollout(backend, client, record, max_rounds):
 
 async def evaluate(args):
     args.output.mkdir(parents=True, exist_ok=False)
-    records = [json.loads(line) for line in args.data.read_text().splitlines()]
+    records = read_jsonl(args.data)
     if not records:
         raise ValueError("Execution audit requires at least one record")
     backend = ContainerBackend(8020, args.output / "backend.log")

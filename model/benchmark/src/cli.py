@@ -4,7 +4,6 @@ import os
 import sys
 import json
 import uuid
-import fcntl
 import asyncio
 import hashlib
 import argparse
@@ -14,15 +13,15 @@ from openai import AsyncOpenAI
 from typing import Any
 from pathlib import Path
 from datetime import UTC, datetime
-from contextlib import AsyncExitStack, contextmanager
+from contextlib import AsyncExitStack
 from dataclasses import asdict
-from collections.abc import Iterator
 from importlib.metadata import version
+from pyshell.serialization import FORMAT
 from model.benchmark.src.cases import CASES
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from model.benchmark.src.report import summarize
 from model.benchmark.src.runner import Limits, run_trial
-from model.benchmark.src.backend import ContainerBackend
+from model.benchmark.src.backend import ContainerBackend, backend_lock
 from pydantic_ai.providers.openai import OpenAIProvider
 from model.benchmark.src.raw_model import RawCompletionModel
 from model.benchmark.src.recording import TokenBudget, write_json
@@ -92,21 +91,6 @@ def print_summary(summary: dict[str, Any]) -> None:
         print(f"Warning: {summary['unmeasured_calls']} calls have missing usage; token budgets cannot bound their cost.")
 
 
-@contextmanager
-def backend_lock() -> Iterator[None]:
-    """The Compose project has one workspace, regardless of requested port."""
-    (ROOT / "results").mkdir(exist_ok=True)
-    with (ROOT / "results" / "backend.lock").open("w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise RuntimeError("Another benchmark owns the execution backend") from error
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
-
-
 async def run(args: argparse.Namespace) -> int:
     env_file = args.env_file or ROOT / ".env"
     if args.env_file and not env_file.is_file():
@@ -155,7 +139,7 @@ async def run(args: argparse.Namespace) -> int:
         "suite_sha256": hashlib.sha256((ROOT / "src/cases.py").read_bytes()).hexdigest(),
         "worker_sha256": hashlib.sha256((ROOT.parents[1] / "sample/src/agents/script.py").read_bytes()).hexdigest(),
         "instructions": None if args.api == "raw" else INSTRUCTIONS,
-        "serialization": "task-code-console-v1" if args.api == "raw" else "chat",
+        "serialization": FORMAT if args.api == "raw" else "chat",
         "startup_lines": STARTUP_LINES,
         "pydantic_ai_version": version("pydantic-ai-slim"),
         "stopped_reason": None,

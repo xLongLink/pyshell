@@ -20,12 +20,12 @@ def replay(worker, record, prediction):
     if record["followup"]:
         checks.append(record["followup"]["check"])
     stage = 0
-    calls = [0] * len(checks)
+    calls = 0
     for step in prediction["steps"]:
         if step["stage"] != stage:
             raise ValueError(f"Invalid stage sequence: {record['id']}")
-        calls[stage] += 1
-        if calls[stage] > MAX_CALLS:
+        calls += 1
+        if calls > MAX_CALLS:
             raise ValueError(f"Call budget exceeded: {record['id']}")
         if not step["end_marker_seen"] or not step["source"].strip():
             return "boundary_error"
@@ -34,6 +34,7 @@ def replay(worker, record, prediction):
             grade = worker.execute(checks[stage])
             if grade["exception"]:
                 return "incorrect"
+            calls = 0
             stage += 1
             if stage == len(checks):
                 return "passed"

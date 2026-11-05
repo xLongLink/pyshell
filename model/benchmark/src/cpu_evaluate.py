@@ -62,7 +62,7 @@ def evaluate(args):
     with exclusive_cpu(), generator(args) as generate, closing(Worker()) as worker:
         for index, record in enumerate(records, 1):
             row = trial(worker, record, generate)
-            rows.append(row)
+            rows.append({"family": row["family"], "status": row["status"]})
             with (args.output / "responses.jsonl").open("a") as file:
                 file.write(json.dumps(row) + "\n")
             metrics = execution_metrics(rows)

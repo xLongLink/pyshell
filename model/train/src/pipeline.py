@@ -2,13 +2,12 @@
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from model.benchmark.src.corpus import default_training_data
 from model.train.src.checkpoint_evaluation import evaluation_command
 from model.train.src.export import CONVERTER, export_command
-from model.train.src.processes import benchmark_command, run_logged
+from model.train.src.processes import benchmark_command, run_logged, training_command
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,31 +34,18 @@ def main(argv=None):
     commands = [
         (
             "training",
-            [
-                sys.executable,
-                "-u",
-                "-m",
-                "model.train.main",
-                "train",
-                "--output",
-                str(adapter),
-                "--threads",
-                str(args.threads),
-                "--steps",
-                str(args.steps),
-                "--data",
-                str(data),
-                "--learning-rate",
-                str(args.learning_rate),
-                "--evaluate-every",
-                str(args.evaluate_every),
-                *(
-                    ["--initialize-adapter", str(args.initialize_adapter.resolve())]
-                    if args.initialize_adapter
-                    else []
-                ),
-                *(["--resume", str(args.resume)] if args.resume else []),
-            ],
+            training_command(
+                output=adapter,
+                threads=args.threads,
+                steps=args.steps,
+                data=data,
+                learning_rate=args.learning_rate,
+                evaluate_every=args.evaluate_every,
+                initialize_adapter=args.initialize_adapter.resolve()
+                if args.initialize_adapter
+                else None,
+                resume=args.resume,
+            ),
         ),
         (
             "export",

@@ -104,6 +104,16 @@ class TestExperiment:
                 )
                 training = next(command for command in calls if "train" in command)
                 assert ("--initialize-adapter" in training) == (adapter is not None)
+                assert training[training.index("--device") + 1] == "cpu"
+                assert training[training.index("--eval-samples") + 1] == "12"
+                assert training[training.index("--data") + 1] == str(
+                    (Path(directory) / "data").resolve()
+                )
+                assert training[training.index("--output") + 1] == str(
+                    (output / "adapter").resolve()
+                )
+                assert "--evaluate-every" not in training
+                assert "--resume" not in training
 
     def test_hf_skips_unused_export_and_leaves_final_unopened_when_dev_fails(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -141,6 +151,9 @@ class TestExperiment:
             output, calls = self.experiment(directory, "hf", True)
             baseline, _, development, final = calls
             for command in (baseline, development, final):
+                assert command.count("--backend") == 1
+                assert command.count("--device") == 1
+                assert command[command.index("--extra") + 1] == "local"
                 assert command[command.index("--backend") + 1] == "hf"
                 assert command[command.index("--threads") + 1] == "1"
                 assert command[command.index("--data") + 1] == str(
@@ -161,6 +174,8 @@ class TestExperiment:
             assert len(calls) == 4
             for command in calls:
                 assert command[command.index("--device") + 1] == "cuda"
+                if "model.benchmark.main" in command:
+                    assert command[command.index("--extra") + 1] == "cuda"
 
     def test_cuda_does_not_silently_use_cpu_gguf_evaluation(self):
         with tempfile.TemporaryDirectory() as directory:

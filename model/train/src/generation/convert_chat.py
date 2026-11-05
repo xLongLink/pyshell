@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pyshell.serialization import FORMAT, serialize, target_text
 
-from model.benchmark.src.corpus import sha256, write_jsonl
+from model.benchmark.src.corpus import read_jsonl, sha256, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -26,7 +26,7 @@ def main(argv=None):
     }
     for split in ("train", "validation"):
         source = args.source / f"{split}.jsonl"
-        records = [json.loads(line) for line in source.read_text().splitlines()]
+        records = read_jsonl(source)
         converted = [
             {
                 "id": record["id"],

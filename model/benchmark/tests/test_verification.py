@@ -8,7 +8,8 @@ import tempfile
 from pathlib import Path
 from contextlib import redirect_stdout
 from unittest.mock import patch
-from model.benchmark.src.verification import verify
+from model.benchmark.src.proof_policy import MAX_CALLS
+from model.benchmark.src.verification import replay, verify
 
 
 class ReplayWorkspace:
@@ -31,6 +32,51 @@ class ReplayWorkspace:
 
 
 class TestVerification:
+    def replay_task(self):
+        return {
+            "id": "staged",
+            "setup": "result = []",
+            "check": "assert result == [1]",
+            "followup": {"check": "assert result is saved_result\nassert result == [1, 2]"},
+        }
+
+    def step(self, stage, source="pass", end_marker_seen=True):
+        return {"stage": stage, "source": source, "end_marker_seen": end_marker_seen}
+
+    def test_each_stage_can_use_its_entire_budget(self):
+        steps = [self.step(0) for _ in range(MAX_CALLS - 1)]
+        steps.append(self.step(0, "result.append(1)\ndone('first')"))
+        steps.extend(self.step(1) for _ in range(MAX_CALLS - 1))
+        steps.append(self.step(1, "result.append(2)\ndone('last')"))
+        worker = ReplayWorkspace()
+        assert replay(worker, self.replay_task(), {"steps": steps}) == "passed"
+        assert worker.namespace["result"] is worker.namespace["saved_result"]
+
+    @pytest.mark.parametrize("stage", [0, 1])
+    def test_call_budget_precedes_boundary_validation(self, stage):
+        steps = [] if stage == 0 else [self.step(0, "result.append(1)\ndone('first')")]
+        steps.extend(self.step(stage) for _ in range(MAX_CALLS))
+        steps.append(self.step(stage, "", False))
+        worker = ReplayWorkspace()
+        with pytest.raises(ValueError, match="Call budget exceeded"):
+            replay(worker, self.replay_task(), {"steps": steps})
+
+    def test_stage_validation_precedes_budget_and_boundary_validation(self):
+        steps = [self.step(0) for _ in range(MAX_CALLS)]
+        steps.append(self.step(1, "", False))
+        worker = ReplayWorkspace()
+        with pytest.raises(ValueError, match="Invalid stage sequence"):
+            replay(worker, self.replay_task(), {"steps": steps})
+
+    @pytest.mark.parametrize(
+        ("source", "status"),
+        [("done('wrong')", "incorrect"), ("result.append(1)\ndone('first')\nraise ValueError('failed')", "call_limit")],
+    )
+    def test_only_successful_execution_and_grade_advance_stage(self, source, status):
+        worker = ReplayWorkspace()
+        assert replay(worker, self.replay_task(), {"steps": [self.step(0, source)]}) == status
+        assert "saved_result" not in worker.namespace
+
     def artifacts(self, root, directory_adapter=True):
         experiment, data = root / "experiment", root / "data"
         (experiment / "test").mkdir(parents=True)

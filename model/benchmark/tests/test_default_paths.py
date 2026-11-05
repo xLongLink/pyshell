@@ -12,6 +12,42 @@ from model.benchmark.src.corpus import default_training_data
 
 
 class TestDefaultTrainingData:
+    def test_syntax_aggregates_mixed_outcomes_without_changing_responses(self, tmp_path, capsys):
+        families = ["z", "a", "z", *(["a"] * 8)]
+        data = tmp_path / "validation.jsonl"
+        data.write_text(
+            "".join(
+                json.dumps({"id": str(index), "family": family, "prompt": "Write Python"}) + "\n" for index, family in enumerate(families)
+            )
+        )
+        completions = [
+            {"content": "x = 1", "stopping_word": END_CODE},
+            {"content": "(", "stopping_word": END_CODE},
+            {"content": "x = 2", "stopping_word": TASK},
+            *[{"content": f"x = {index}", "stopping_word": END_CODE} for index in range(8)],
+        ]
+        output = tmp_path / "syntax"
+        with patch.object(syntax.urllib.request, "urlopen", side_effect=[io.StringIO(json.dumps(row)) for row in completions]):
+            assert syntax.main(["--model", "fixture", "--data", str(data), "--output", str(output)]) == 1
+        responses = [json.loads(line) for line in (output / "responses.jsonl").read_text().splitlines()]
+        assert [row["source"] for row in responses] == [row["content"] for row in completions]
+        assert [row["id"] for row in responses] == [str(index) for index in range(11)]
+        assert responses[1]["compile_error"].startswith("SyntaxError:")
+        assert responses[2]["finish_reason"] == "missing_end_marker"
+        summary = json.loads((output / "summary.json").read_text())
+        assert summary["prompts"] == 11
+        assert summary["compiles"] == 10
+        assert summary["passed"] == 9
+        assert summary["raw_python_rate"] == 10 / 11
+        assert summary["completed_python_rate"] == 9 / 11
+        assert summary["finish_reasons"] == {"stop": 10, "missing_end_marker": 1}
+        assert list(summary["per_family"]) == ["a", "z"]
+        assert summary["per_family"] == {"a": {"total": 9, "passed": 8}, "z": {"total": 2, "passed": 1}}
+        progress = capsys.readouterr().out
+        assert "2/11: 1 valid completed responses" in progress
+        assert "3/11: 1 valid completed responses" in progress
+        assert "10/11: 8 valid completed responses" in progress
+
     def test_defaults_are_repository_relative_in_both_modes(self, subtests):
         repo = Path(__file__).resolve().parents[2]
         for serialization, directory in (("raw", "train/data/raw"), ("chat", "train/data/chat")):

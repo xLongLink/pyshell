@@ -9,6 +9,8 @@ import random
 import traceback
 from pathlib import Path
 
+from pyshell.serialization import INITIALIZATION
+
 from model.benchmark.src.corpus import sha256, write_jsonl
 
 REPO = Path(__file__).resolve().parents[4]
@@ -63,7 +65,7 @@ def worker_context():
         {"role": "system", "content": constants["INSTRUCTIONS"]},
         {
             "role": "user",
-            "content": "Initialize the Python terminal, report the preloaded names, and display ui's docstring.",
+            "content": INITIALIZATION,
         },
         {"role": "assistant", "content": "\n".join(constants["STARTUP_LINES"])},
         {"role": "user", "content": json.dumps(feedback)},
@@ -72,11 +74,12 @@ def worker_context():
 
 def execute(code, namespace):
     output, error_output = io.StringIO(), io.StringIO()
-    completion = []
+    completion = None
 
     def done(message):
+        nonlocal completion
         assert isinstance(message, str) and message.strip()
-        completion.append(message)
+        completion = message
 
     namespace["done"] = done
     error = None
@@ -89,7 +92,7 @@ def execute(code, namespace):
         "stdout": output.getvalue(),
         "stderr": error_output.getvalue(),
         "exception": error,
-        "done": completion[-1] if completion and error is None else None,
+        "done": completion if error is None else None,
         "more_input": False,
     }
 
