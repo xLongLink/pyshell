@@ -1,11 +1,15 @@
 """Check binding fixtures and negative controls independently of model output."""
 
+import copy
+import hashlib
+import json
 from collections import defaultdict
 
 import pytest
 
 from model.benchmark.src.reference import ReferenceWorkspace
-from model.benchmark.src.task_types import FAMILIES
+from model.benchmark.src.task_families import FAMILIES
+from model.train.src.generation import transfer
 from model.train.src.generation.binding import make_task, verify_negative_control
 from model.train.src.generation.binding_curriculum import binding_record, trajectories
 from model.train.src.generation.binding_evaluation import evaluation_task
@@ -18,6 +22,46 @@ from model.train.src.generation.transfer import make_contrast_pair, supervision
 
 
 class TestBinding:
+    def test_constructed_records_preserve_frozen_json_bytes(self):
+        records = []
+        for pair in (0, 1, 5):
+            for variant in (0, 1):
+                for family in ("inspect_callable", "joined_totals"):
+                    records.append(make_task(family, pair, variant, 719, "train"))
+                    record, errors = binding_record(family, pair, variant, 719)
+                    records.append([record.copy(), errors])
+                    records.append(diversify_binding(record, pair))
+                for family in ("left_join", "stateful_followup", "missing_input"):
+                    record = transfer.make_task(
+                        family, pair, variant, 719, "train", pair % 6
+                    )
+                    if family == "left_join":
+                        records.append(join_record(copy.copy(record)))
+                    records.append(diversify_support(record, pair))
+                for split in ("dev", "test"):
+                    for family in FAMILIES:
+                        records.append(evaluation_task(family, pair, variant, 719, split))
+        assert hashlib.sha256(json.dumps(records).encode()).hexdigest() == (
+            "b1cd9f6028d859ac25a94721ce4967d432df3d1bf2d8b86b7f572d476e385d6e"
+        )
+
+    def test_language_uses_construction_inputs_not_generated_source(self):
+        record, _ = binding_record("inspect_callable", 1, 0, 719)
+        expected = diversify_binding(copy.copy(record), 1)["instruction"]
+        record["setup"] = record["code"] = "not valid Python!"
+        assert diversify_binding(record, 1)["instruction"] == expected
+
+        record = transfer.make_task("stateful_followup", 1, 1, 719, "train", 1)
+        expected = diversify_support(copy.deepcopy(record), 1)["followup"]["instruction"]
+        record["followup"]["code"] = "not valid Python!"
+        assert diversify_support(record, 1)["followup"]["instruction"] == expected
+
+    def test_join_uses_construction_names_not_request_wording(self):
+        record = transfer.make_task("left_join", 1, 0, 719, "train", 1)
+        expected = join_record(copy.copy(record))["code"]
+        record["instruction"] = "No generated identifiers here."
+        assert join_record(record)["code"] == expected
+
     @pytest.mark.parametrize("error_count", [0, 1, 2])
     def test_trajectory_ids_and_targets_preserve_direct_and_recovery_order(
         self, error_count

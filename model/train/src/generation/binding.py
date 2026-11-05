@@ -14,6 +14,7 @@ from model.benchmark.src.corpus import sha256, write_jsonl
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.reference import ReferenceSession
 from model.benchmark.src.task_types import CONTRACT
+from model.train.src.generation.construction import TaskRecord
 
 KEYWORDS = (
     ("scale", "offset"),
@@ -53,7 +54,7 @@ REQUESTS = {
 }
 
 
-def make_task(family, pair, variant, seed, split):
+def make_task(family, pair, variant, seed, split) -> TaskRecord:
     if (
         family not in REQUESTS
         or split not in ("train", "dev", "test")
@@ -75,15 +76,19 @@ def make_task(family, pair, variant, seed, split):
         ],
         2,
     )
-    record = {
-        "id": f"{split}-binding-{family}-{pair:04d}-v{variant}",
-        "family": family,
-        "template_id": f"binding-{family}-{split}",
-        "contrast_group": f"{split}-binding-{family}-{pair:04d}",
-        "variant": variant,
-        "followup": None,
-        "recovery_code": None,
-    }
+    record = TaskRecord(
+        {
+            "id": f"{split}-binding-{family}-{pair:04d}-v{variant}",
+            "family": family,
+            "template_id": f"binding-{family}-{split}",
+            "contrast_group": f"{split}-binding-{family}-{pair:04d}",
+            "variant": variant,
+            "followup": None,
+            "recovery_code": None,
+        },
+        name=name,
+        other=other,
+    )
     if family == "inspect_callable":
         multiplier, shift = KEYWORDS[
             (pair + random.Random(seed).randrange(len(KEYWORDS))) % len(KEYWORDS)
@@ -120,9 +125,14 @@ def make_task(family, pair, variant, seed, split):
             if before
             else np.asarray(values) * gain + offset
         ).tolist()
-        code = (
-            f"result = {other}.convert({name}, {multiplier}={gain}, {shift}={offset})"
+        record.expression = (
+            f"(x + {offset}) * {gain}" if before else f"x * {gain} + {offset}"
         )
+
+        def solution(name, other):
+            return f"result = {other}.convert({name}, {multiplier}={gain}, {shift}={offset})"
+
+        aliases = "values", "converter"
         check = (
             f"assert {other} is _binding_original\nassert isinstance(result, list)\n"
             f"assert np.allclose(result, {expected!r}, rtol=0, atol=1e-7)\n"
@@ -173,15 +183,19 @@ def make_task(family, pair, variant, seed, split):
             for key, value in prices.items()
         }
         path = f"entry[{container!r}]" if nested_rows else "entry"
-        price_expression = f"{other}[row[{item!r}]]" + (
-            f"[{price!r}]" if nested_prices else ""
-        )
-        term = f"row[{quantity!r}]" + (f" * {price_expression}" if not variant else "")
-        code = (
-            f"result = {{}}\nfor entry in {name}:\n    row = {path}\n"
-            f"    if row[{item!r}] in {other}:\n        key = row[{group!r}]\n"
-            f"        result[key] = result.get(key, 0) + {term}"
-        )
+
+        def solution(name, other):
+            price_expression = f"{other}[row[{item!r}]]" + (
+                f"[{price!r}]" if nested_prices else ""
+            )
+            term = f"row[{quantity!r}]" + (f" * {price_expression}" if not variant else "")
+            return (
+                f"result = {{}}\nfor entry in {name}:\n    row = {path}\n"
+                f"    if row[{item!r}] in {other}:\n        key = row[{group!r}]\n"
+                f"        result[key] = result.get(key, 0) + {term}"
+            )
+
+        aliases = "orders", "prices"
         frame = pd.DataFrame(flat)
         frame = frame[frame["item"].isin(prices)]
         frame["contribution"] = (
@@ -214,7 +228,8 @@ def make_task(family, pair, variant, seed, split):
             },
             negative_control="result = {}\ndone(str(result))",
         )
-    record["code"] = code + "\ndone(str(result))"
+    record["code"] = solution(name, other) + "\ndone(str(result))"
+    record.alias_code = solution(*aliases) + "\ndone(str(result))"
     record["instruction"] += "\n" + CONTRACT
     return record
 

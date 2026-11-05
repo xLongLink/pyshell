@@ -78,6 +78,41 @@ class TestTrainingArguments:
 
 
 class TestTrainingRuntime:
+    @pytest.mark.parametrize("world_size", ["0", "2"])
+    @pytest.mark.parametrize(
+        "variable", ["WORLD_SIZE", "PMI_SIZE", "OMPI_COMM_WORLD_SIZE", "MV2_COMM_WORLD_SIZE"]
+    )
+    def test_multiple_processes_are_rejected_before_creating_output(self, variable, world_size):
+        output = Mock()
+        with patch.dict("os.environ", {variable: world_size}):
+            with pytest.raises(ValueError, match="one process"):
+                training.train(SimpleNamespace(device="cpu", output=output))
+        output.mkdir.assert_not_called()
+
+    def test_initialized_distributed_world_is_checked(self):
+        with (
+            patch.object(training.torch.distributed, "is_initialized", return_value=True),
+            patch.object(training.torch.distributed, "get_world_size", return_value=2),
+            pytest.raises(ValueError, match="one process"),
+        ):
+            training.train(SimpleNamespace(device="cpu"))
+
+    def test_multiple_visible_cuda_devices_are_rejected(self):
+        with (
+            patch.object(training.torch.cuda, "is_available", return_value=True),
+            patch.object(training.torch.cuda, "device_count", return_value=2),
+            pytest.raises(ValueError, match="one CPU or CUDA device"),
+        ):
+            training.train(SimpleNamespace(device="cuda"))
+
+    @pytest.mark.parametrize("precision", ["fp16", "bf16"])
+    def test_accelerate_mixed_precision_is_rejected(self, precision):
+        output = Mock()
+        with patch.dict("os.environ", {"ACCELERATE_MIXED_PRECISION": precision}):
+            with pytest.raises(ValueError, match="requires float32"):
+                training.train(SimpleNamespace(device="cpu", output=output))
+        output.mkdir.assert_not_called()
+
     def test_unavailable_cuda_is_checked_before_the_output_guard(self):
         output = Mock()
         with patch.object(runtime, "torch") as torch:
@@ -291,7 +326,7 @@ class TinyResponseModel(torch.nn.Module):
         return SimpleNamespace(logits=self.logits[input_ids[:, logits_to_keep]])
 
 
-class TestResponseTrainer:
+class TestOptimization:
     @pytest.mark.parametrize("steps", [1, 4, 5, 100, 1200])
     def test_library_scheduler_preserves_every_used_legacy_learning_rate(self, steps):
         updates = math.ceil(steps / 4)
@@ -439,8 +474,9 @@ class TestResponseTrainer:
         ]
 
     @pytest.mark.parametrize("steps,accumulation", [(1, 4), (5, 4), (10, 4), (9, 1)])
+    @pytest.mark.parametrize("scale", [1, 100])
     def test_real_loss_matches_reference_updates_and_fixed_cycling(
-        self, tmp_path, steps, accumulation
+        self, steps, accumulation, scale
     ):
         items = [
             {"id": str(i), "ids": [0, i, 2, 3], "prefix_length": 2} for i in range(3)
@@ -456,45 +492,89 @@ class TestResponseTrainer:
         reference_scheduler = training.scheduler_for(
             reference_optimizer, steps, accumulation
         )
+        reference_losses = []
         for start in range(0, steps, accumulation):
             group = sequence[start : start + accumulation]
             for item in group:
-                (training.loss_for(reference, item) / len(group)).backward()
+                loss = training.loss_for(reference, item) * scale
+                reference_losses.append(float(loss.detach()))
+                (loss / len(group)).backward()
             torch.nn.utils.clip_grad_norm_(reference.parameters(), 1.0)
             reference_optimizer.step()
             reference_scheduler.step()
             reference_optimizer.zero_grad(set_to_none=True)
-        status = {"completed_steps": 0}
+        status = {"completed_steps": 0, "updates": 0}
         log = io.StringIO()
-        trainer = training.ResponseTrainer(
-            model=model,
-            args=training.TrainingArguments(
-                output_dir=str(tmp_path),
-                use_cpu=True,
-                per_device_train_batch_size=1,
-                gradient_accumulation_steps=accumulation,
-                num_train_epochs=1,
-                remove_unused_columns=False,
-                save_strategy="no",
-                logging_strategy="no",
-                report_to="none",
-                disable_tqdm=True,
-                seed=713,
-            ),
-            train_dataset=sequence,
-            data_collator=training.single_example,
-            optimizers=(optimizer, scheduler),
-            status=status,
-            log=log,
-        )
-        trainer.train()
+        original_loss = training.loss_for
+        with patch.object(
+            training,
+            "loss_for",
+            side_effect=lambda model, item: original_loss(model, item) * scale,
+        ):
+            training.optimize(
+                model,
+                items,
+                optimizer,
+                scheduler,
+                accumulation=accumulation,
+                stop_step=steps,
+                status=status,
+                log=log,
+                checkpoint=Mock(),
+            )
         assert torch.equal(model.logits, reference.logits)
         assert model.positions == [[1, 2]] * steps
         assert status["completed_steps"] == steps
-        assert trainer.state.global_step == (steps + accumulation - 1) // accumulation
+        assert status["updates"] == (steps + accumulation - 1) // accumulation
         rows = [json.loads(line) for line in log.getvalue().splitlines()]
         assert [row["id"] for row in rows] == [item["id"] for item in sequence]
         assert all(row["loss"] > 0 for row in rows)
+        assert [row["loss"] for row in rows] == reference_losses
+
+    @pytest.mark.parametrize("accumulation,updates", [(4, 25), (8, 12)])
+    def test_training_mode_seeds_and_checkpoint_update_timing(self, accumulation, updates):
+        model = torch.nn.Linear(1, 1, bias=False)
+        model.eval()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+        scheduler = training.scheduler_for(optimizer, 104, accumulation)
+        status = {"completed_steps": 0, "updates": 0}
+        log = io.StringIO()
+        checkpoints = []
+        draws = []
+        training.set_seed(713)
+        torch.empty((), dtype=torch.int64).random_()
+        expected = (random.random(), torch.rand(1).item())
+        training.set_seed(42)
+
+        def loss_for(model, item):
+            assert model.training
+            draws.append((random.random(), torch.rand(1).item()))
+            return model.weight.square().mean()
+
+        def checkpoint(name):
+            checkpoints.append((name, dict(status)))
+            assert len(log.getvalue().splitlines()) == 100
+            assert (model.weight.grad is None) == (accumulation == 4)
+
+        with patch.object(training, "loss_for", side_effect=loss_for):
+            training.optimize(
+                model,
+                [{"id": "example"}],
+                optimizer,
+                scheduler,
+                accumulation=accumulation,
+                stop_step=104,
+                status=status,
+                log=log,
+                checkpoint=checkpoint,
+            )
+        assert draws[0] == expected
+        assert checkpoints == [
+            ("checkpoint-100", {"completed_steps": 100, "updates": updates})
+        ]
+        assert status == {"completed_steps": 104, "updates": 104 // accumulation}
+        assert model.weight.grad is None
+        assert model.training
 
     def test_scheduler_state_and_legacy_position_resume_identical_rates(self):
         optimizer = torch.optim.SGD([torch.nn.Parameter(torch.ones(1))], lr=0.1)

@@ -22,7 +22,7 @@ class TestTransfer:
     def test_fixture_names_preserve_random_data_and_metadata(self, subtests):
         from dataclasses import asdict
 
-        from model.benchmark.src.task_types import FAMILIES
+        from model.benchmark.src.task_families import FAMILIES
         from model.train.src.generation.proof import build_task
 
         fixtures = []
@@ -67,7 +67,7 @@ class TestTransfer:
         self, subtests
     ):
         from model.benchmark.src.reference import ReferenceSession
-        from model.benchmark.src.task_types import FAMILIES
+        from model.benchmark.src.task_families import FAMILIES
         from model.train.src.generation.transfer import TEMPLATE_PARTITIONS, make_task
 
         records = []
@@ -145,7 +145,7 @@ class TestTransfer:
         import pandas as pd
 
         from model.benchmark.src.reference import feedback
-        from model.benchmark.src.task_types import FAMILIES
+        from model.benchmark.src.task_families import FAMILIES
         from model.train.src.generation.transfer import make_task
 
         for family in FAMILIES:
@@ -187,6 +187,7 @@ class TestTransfer:
         from model.train.src.generation.transfer import make_task, supervision
 
         record = make_task("recover_execution", 1, 1, 183731, "train", 2)
+        record["inspect"] = "print('Inspect the existing reader without help().')"
         rows = supervision(record, include_inspection=True)
         assert len(rows) == 3
         assert "RuntimeError" in rows[-1]["prompt"]
@@ -201,7 +202,7 @@ class TestTransfer:
             ReferenceWorkspace,
             serialize,
         )
-        from model.benchmark.src.task_types import FAMILIES
+        from model.benchmark.src.task_families import FAMILIES
         from model.train.src.generation.transfer import make_task, supervision
 
         sessions = []

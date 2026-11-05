@@ -1,17 +1,6 @@
 """Training-only wording variation for binding and stateful operations."""
 
-import ast
-import re
-
 from model.benchmark.src.task_types import CONTRACT
-from model.train.src.generation.binding import KEYWORDS
-
-
-def names(record):
-    assignments = [
-        node for node in ast.parse(record["setup"]).body if isinstance(node, ast.Assign)
-    ]
-    return [node.targets[0].id for node in assignments[:2]]
 
 
 def language_slot(pair):
@@ -19,7 +8,7 @@ def language_slot(pair):
 
 
 def diversify_binding(record, pair):
-    name, other = names(record)
+    name, other = record.name, record.other
     slot = language_slot(pair)
     if record["family"] == "joined_totals":
         item, group, quantity, container, price = record["binding_axes"]["fields"]
@@ -47,25 +36,7 @@ def diversify_binding(record, pair):
             f"orders = {name}\nprices = {other}\nprint(type(orders).__name__)\nprint(orders)\nprint(type(prices).__name__)\nprint(prices)"
         )
     else:
-        call = next(
-            node
-            for node in ast.walk(ast.parse(record["code"]))
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "convert"
-        )
-        values = {
-            keyword.arg: ast.literal_eval(keyword.value) for keyword in call.keywords
-        }
-        multiplier, shift = next(
-            options for options in KEYWORDS if set(options) == set(values)
-        )
-        gain, offset = values[multiplier], values[shift]
-        expression = (
-            f"(x + {offset}) * {gain}"
-            if record["binding_axes"]["order"] == "add_then_multiply"
-            else f"x * {gain} + {offset}"
-        )
+        expression = record.expression
         requests = [
             f"Invoke {other}.convert on {name} for the transformation {expression}. Inspect the accepted keyword names first.",
             f"Transform the numbers {name} through {other}.convert so each x becomes {expression}; discover its call interface.",
@@ -88,7 +59,7 @@ def diversify_support(record, pair):
     family, variant = record["family"], record["variant"]
     slot = language_slot(pair)
     if family == "left_join":
-        name, other = names(record)
+        name, other = record.name, record.other
         rule = (
             "Include only matched orders; discard unknown customers."
             if variant
@@ -117,16 +88,19 @@ def diversify_support(record, pair):
                 f"for row in orders.to_dict('records'){guard}]\ndone(str(result))"
             )
         else:
-            code = re.sub(r"\b" + re.escape(name) + r"\b", "orders", record["code"])
-            code = re.sub(r"\b" + re.escape(other) + r"\b", "customers", code)
-            record["code"] = aliases + code
+            how = "inner" if variant else "left"
+            record["code"] = (
+                aliases
+                + f"joined = orders.merge(customers, on='customer_id', how={how!r}, sort=False)\n"
+                "result = [{'order_id': int(row.order_id), 'customer_name': None if pd.isna(row.name) else row.name} for row in joined.itertuples()]\n"
+                "done(str(result))"
+            )
         record["inspect"] = (
             aliases
             + "print(orders)\nprint(customers)\nprint(customers.columns.tolist())"
         )
     elif family == "stateful_followup":
-        call = ast.parse(record["followup"]["code"]).body[0].value
-        extra, power = call.args[0].left.value, call.args[0].right.value
+        extra, power = record.extra, 2 + variant
         requests = [
             f"Extend result in place with the number {extra} raised to exponent {power}.",
             f"Compute power {power} of {extra}, then append that single value to the existing result object.",

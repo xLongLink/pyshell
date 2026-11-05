@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import random
-import re
 import secrets
 import statistics
 from collections import Counter
@@ -16,8 +15,10 @@ import pandas as pd
 from model.benchmark.src.corpus import sha256, write_jsonl
 from model.benchmark.src.proof_policy import acceptance_metadata
 from model.benchmark.src.reference import ReferenceSession
-from model.benchmark.src.task_types import CONTRACT, FAMILIES
+from model.benchmark.src.task_families import FAMILIES
+from model.benchmark.src.task_types import CONTRACT
 from model.benchmark.src.transfer_families import BUILDERS, BuildContext
+from model.train.src.generation.construction import TaskRecord
 from model.train.src.generation.proof import build_task
 
 ROOT = Path(__file__).resolve().parents[3] / "benchmark"
@@ -188,7 +189,7 @@ TEMPLATES = {
 }
 
 
-def make_task(family, pair, variant, seed, split, slot):
+def make_task(family, pair, variant, seed, split, slot) -> TaskRecord:
     rng = random.Random(seed + pair * 65537)
     name = f"{rng.choice(NAMES)}_{rng.randrange(10000, 999999)}"
     fixture = build_task(family, pair, seed, name=name)
@@ -209,21 +210,26 @@ def make_task(family, pair, variant, seed, split, slot):
     instruction = TEMPLATES[family][slot].format(
         name=build.name, other=build.other, **build.wording
     )
-    return {
-        "id": f"{split}-{family}-{pair:04d}-v{variant}",
-        "family": family,
-        "setup": record["setup"],
-        "instruction": instruction + "\n" + CONTRACT,
-        "inspect": record["inspect"],
-        "code": solution.code + "\ndone(str(result))",
-        "check": solution.check,
-        "followup": record["followup"],
-        "template_id": f"{family}-t{slot}",
-        "contrast_group": f"{split}-{family}-{pair:04d}",
-        "variant": variant,
-        "recovery_code": solution.recovery_code,
-        "expected": solution.expected,
-    }
+    task = TaskRecord(
+        {
+            "id": f"{split}-{family}-{pair:04d}-v{variant}",
+            "family": family,
+            "setup": record["setup"],
+            "instruction": instruction + "\n" + CONTRACT,
+            "inspect": record["inspect"],
+            "code": solution.code + "\ndone(str(result))",
+            "check": solution.check,
+            "followup": record["followup"],
+            "template_id": f"{family}-t{slot}",
+            "contrast_group": f"{split}-{family}-{pair:04d}",
+            "variant": variant,
+            "recovery_code": solution.recovery_code,
+            "expected": solution.expected,
+        },
+        name=name,
+    )
+    task.extra = fixture.extra
+    return task
 
 
 def make_contrast_pair(family, pair, seed, split, slot):
@@ -257,8 +263,7 @@ def supervision(
 
     add(record["inspect"], include_inspection)
     if retry:
-        name = re.search(r"help\((\w+)\.read\)", record["inspect"])[1]
-        add(f"values = {name}.read()", expect_error=True)
+        add(f"values = {record.name}.read()", expect_error=True)
         add(record["recovery_code"])
     else:
         add(record["code"])

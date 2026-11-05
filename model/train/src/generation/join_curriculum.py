@@ -1,23 +1,14 @@
 """Consolidate join selection while replaying learned binding skills."""
 
 import argparse
-import json
-import re
-from contextlib import closing
 from pathlib import Path
 
-from model.benchmark.src.corpus import (
-    read_jsonl,
-    verify_training_data,
-)
-from model.benchmark.src.execution import Worker
-from model.train.src.generation.publication import publish_curriculum
+from model.train.src.generation.publication import replay_curriculum
 from model.train.src.generation.transfer import make_contrast_pair, supervision
 
 
 def join_record(record):
-    name = re.search(r"\b[a-z]+_[0-9]+\b", record["instruction"])[0]
-    other = name + "_other"
+    name, other = record.name, record.other
     selection = (
         "orders.loc[orders['customer_id'].isin(customers['customer_id'])]"
         if record["variant"]
@@ -37,30 +28,22 @@ def join_record(record):
 def prepare(output, replay, evaluation, pairs=256, seed=20261119):
     if pairs < 1:
         raise ValueError("pairs must be positive")
-    verify_training_data(replay, json.loads((replay / "manifest.json").read_text()))
-    frozen = json.loads((evaluation / "manifest.json").read_text())
-    rows = read_jsonl(replay / "train.jsonl")
-    records = read_jsonl(replay / "train-tasks.jsonl")
-    output.mkdir(parents=True, exist_ok=False)
-    with closing(Worker()) as worker:
+
+    def generate(worker):
         for pair in range(pairs):
             for record in make_contrast_pair(
                 "left_join", pair, seed, "train", pair % 6
             ):
                 record = join_record(record)
-                rows.extend(
-                    supervision(record, include_inspection=True, workspace=worker)
+                yield record, supervision(
+                    record, include_inspection=True, workspace=worker
                 )
-                records.append(
-                    {key: value for key, value in record.items() if key != "expected"}
-                )
-    return publish_curriculum(
+
+    return replay_curriculum(
         output,
         replay,
         evaluation,
-        frozen,
-        rows,
-        records,
+        generate,
         generator_source=Path(__file__),
         metadata={
             "seed": seed,

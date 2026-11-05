@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import re
 import secrets
 from collections import Counter
 from contextlib import closing
@@ -12,7 +11,8 @@ from model.benchmark.src.corpus import sha256, write_jsonl
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.proof_policy import acceptance_metadata
 from model.benchmark.src.reference import ReferenceSession
-from model.benchmark.src.task_types import CONTRACT, FAMILIES
+from model.benchmark.src.task_families import FAMILIES
+from model.benchmark.src.task_types import CONTRACT
 from model.train.src.generation import binding
 from model.train.src.generation.transfer import make_task as transfer_task
 
@@ -25,8 +25,7 @@ def evaluation_task(family, pair, variant, seed, split):
     record = transfer_task(
         family, pair, variant, seed, split, 6 if split == "dev" else 8
     )
-    name = re.search(r"\b[a-z]+_[0-9]+\b", record["instruction"])[0]
-    other = name + "_other"
+    name, other = record.name, record.other
     aggregate = "mean" if variant else "sum"
     requests = {
         "statistics": f"Use {name} to return "

@@ -1,7 +1,41 @@
 import json
 from collections import Counter
+from contextlib import closing
 
-from model.benchmark.src.corpus import read_jsonl, sha256, write_jsonl
+from model.benchmark.src.corpus import (
+    read_jsonl,
+    sha256,
+    verify_training_data,
+    write_jsonl,
+)
+from model.benchmark.src.execution import Worker
+
+
+def replay_curriculum(
+    output, replay, evaluation, generate, *, generator_source, metadata
+):
+    frozen = json.loads((evaluation / "manifest.json").read_text())
+    verify_training_data(replay, json.loads((replay / "manifest.json").read_text()))
+    rows = read_jsonl(replay / "train.jsonl")
+    records = read_jsonl(replay / "train-tasks.jsonl")
+    output.mkdir(parents=True, exist_ok=False)
+    worker = Worker()
+    with closing(worker):
+        for record, supervision in generate(worker):
+            rows.extend(supervision)
+            records.append(
+                {key: value for key, value in record.items() if key != "expected"}
+            )
+    return publish_curriculum(
+        output,
+        replay,
+        evaluation,
+        frozen,
+        rows,
+        records,
+        generator_source=generator_source,
+        metadata=metadata,
+    )
 
 
 def write_corpus(output, evaluation, rows, records):

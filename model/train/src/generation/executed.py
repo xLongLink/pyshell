@@ -8,7 +8,7 @@ from pathlib import Path
 
 from model.benchmark.src.corpus import sha256
 from model.benchmark.src.execution import Worker
-from model.benchmark.src.task_types import FAMILIES
+from model.benchmark.src.task_families import FAMILIES
 from model.train.src.generation import publication
 from model.train.src.generation.transfer import (
     TEMPLATE_PARTITIONS,

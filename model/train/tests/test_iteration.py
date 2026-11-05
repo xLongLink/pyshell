@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from model.benchmark.src.proof_report import execution_metrics
-from model.benchmark.src.task_types import FAMILIES
+from model.benchmark.src.task_families import FAMILIES
 from model.train.src.iteration import main, run
 
 

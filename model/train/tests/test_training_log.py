@@ -125,6 +125,40 @@ class TestTrainingLog:
     def test_keyboard_interrupt_closes_log_before_interrupted_checkpoint(self):
         self.assert_loss_failure(KeyboardInterrupt())
 
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+    def test_nonfinite_loss_keeps_only_completed_rows(self, value):
+        self.loss.side_effect = [
+            torch.tensor(1.0, requires_grad=True),
+            torch.tensor(value, requires_grad=True),
+        ]
+        with pytest.raises(RuntimeError, match="Nonfinite loss at step 2"):
+            training.train(self.args)
+        assert self.checkpoints == ["interrupted"]
+        assert self.handles[0].closed
+        assert self.logged_steps() == [1]
+
+    def test_failed_optimizer_step_is_logged_but_not_counted_as_an_update(self):
+        def checkpoint(model, tokenizer, optimizer, status, output, name, *, scheduler):
+            self.check_checkpoint(
+                model, tokenizer, optimizer, status, output, name, scheduler=scheduler
+            )
+            assert status["completed_steps"] == 1
+            assert status["updates"] == 0
+
+        training.save_checkpoint.side_effect = checkpoint
+        with (
+            patch.object(
+                training.torch.optim.AdamW,
+                "step",
+                side_effect=RuntimeError("update failed"),
+            ),
+            pytest.raises(RuntimeError, match="update failed"),
+        ):
+            training.train(self.args)
+        assert self.checkpoints == ["interrupted"]
+        assert self.handles[0].closed
+        assert self.logged_steps() == [1]
+
     def test_checkpoint_failure_closes_log_and_propagates_original_exception(self):
         self.args.steps = 100
         error = OSError("checkpoint failed")

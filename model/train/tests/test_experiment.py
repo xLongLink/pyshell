@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from model.benchmark.src.corpus import sha256
-from model.benchmark.src.task_types import FAMILIES
+from model.benchmark.src.task_families import FAMILIES
 from model.train.src.experiment import main, run
 
 

@@ -1,27 +1,19 @@
 """Teach live object-role binding and recovery using training-only tasks."""
 
 import argparse
-import json
-import re
-from contextlib import closing
 from pathlib import Path
 
-from model.benchmark.src.corpus import (
-    read_jsonl,
-    sha256,
-    verify_training_data,
-)
-from model.benchmark.src.execution import Worker
+from model.benchmark.src.corpus import sha256
 from model.benchmark.src.reference import ReferenceSession
 from model.train.src.generation import binding_language
 from model.train.src.generation.binding import make_task
-from model.train.src.generation.publication import publish_curriculum
+from model.train.src.generation.publication import replay_curriculum
 from model.train.src.generation.transfer import make_contrast_pair, supervision
 
 
 def binding_record(family, pair, variant, seed):
     record = make_task(family, pair, variant, seed, "train")
-    name, other = binding_language.names(record)
+    name, other = record.name, record.other
     if family == "joined_totals":
         roles = [
             f"The order-record list is {name}; the item-price lookup is {other}.",
@@ -30,7 +22,6 @@ def binding_record(family, pair, variant, seed):
             f"Keep these roles distinct: {name} holds order rows; {other} maps item identifiers to prices.",
         ]
         aliases = f"orders = {name}\nprices = {other}\n"
-        replacements = {name: "orders", other: "prices"}
         errors = [
             f"for row in {other}:\n    print(row['item'])",
             f"print({name}[0]['item'])",
@@ -38,7 +29,6 @@ def binding_record(family, pair, variant, seed):
     else:
         roles = [f"The input numbers are {name}; the existing converter is {other}."]
         aliases = f"values = {name}\nconverter = {other}\n"
-        replacements = {name: "values", other: "converter"}
         errors = [
             f"{other}.convert({name}, unsupported_gain=2, unsupported_shift=3)",
             f"{other}.convert({name}, 2, 3)",
@@ -52,10 +42,7 @@ def binding_record(family, pair, variant, seed):
             else f"print({other})"
         )
     )
-    code = record["code"]
-    for source, target in replacements.items():
-        code = re.sub(r"\b" + re.escape(source) + r"\b", target, code)
-    record["code"] = aliases + code
+    record["code"] = aliases + record.alias_code
     record["id"] = "roles-" + record["id"]
     record["template_id"] = f"roles-{family}-train-{pair % len(roles)}"
     record["contrast_group"] = "roles-" + record["contrast_group"]
@@ -87,12 +74,8 @@ def prepare(
 ):
     if pairs < 1 or support_pairs < 1:
         raise ValueError("Pair budgets must be positive")
-    frozen = json.loads((evaluation / "manifest.json").read_text())
-    verify_training_data(replay, json.loads((replay / "manifest.json").read_text()))
-    rows = read_jsonl(replay / "train.jsonl")
-    records = read_jsonl(replay / "train-tasks.jsonl")
-    output.mkdir(parents=True, exist_ok=False)
-    with closing(Worker()) as worker:
+
+    def generate(worker):
         for family_index, family in enumerate(("inspect_callable", "joined_totals")):
             for pair in range(pairs):
                 for variant in (0, 1):
@@ -101,8 +84,7 @@ def prepare(
                     )
                     if language:
                         record = binding_language.diversify_binding(record, pair)
-                    rows.extend(trajectories(record, errors, worker))
-                    records.append(record)
+                    yield record, trajectories(record, errors, worker)
         for family_index, family in enumerate(
             ("left_join", "stateful_followup", "missing_input")
         ):
@@ -120,23 +102,15 @@ def prepare(
                     )
                     if language:
                         record = binding_language.diversify_support(record, pair)
-                    rows.extend(
-                        supervision(record, include_inspection=True, workspace=worker)
+                    yield record, supervision(
+                        record, include_inspection=True, workspace=worker
                     )
-                    records.append(
-                        {
-                            key: value
-                            for key, value in record.items()
-                            if key != "expected"
-                        }
-                    )
-    return publish_curriculum(
+
+    return replay_curriculum(
         output,
         replay,
         evaluation,
-        frozen,
-        rows,
-        records,
+        generate,
         generator_source=Path(__file__),
         metadata={
             "language_diversity": language,

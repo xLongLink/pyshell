@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from model.benchmark.src.corpus import read_jsonl, sha256, write_jsonl
-from model.train.src.generation.publication import publish_curriculum
+from model.train.src.generation.publication import publish_curriculum, replay_curriculum
 
 
 @pytest.fixture
@@ -143,7 +143,7 @@ def test_curricula_keep_generator_provenance_and_metadata(
         def close(self):
             self.closed = True
 
-    monkeypatch.setattr(module, "Worker", Workspace)
+    monkeypatch.setattr("model.train.src.generation.publication.Worker", Workspace)
     output = publication["output"] / "curriculum"
     kwargs = {"pairs": 1, "seed": 17}
     if curriculum == "binding_curriculum":
@@ -169,3 +169,29 @@ def test_curricula_keep_generator_provenance_and_metadata(
         assert manifest["new_join_pairs"] == 1
         assert manifest["intervention"]
         assert "language_generator_sha256" not in manifest
+
+
+def test_replay_generation_failure_closes_worker_without_publishing(publication, monkeypatch):
+    workers = []
+
+    class Worker:
+        def __init__(self):
+            self.closed = False
+            workers.append(self)
+
+        def close(self):
+            self.closed = True
+
+    def generate(worker):
+        yield {"id": "new", "setup": "new = 1", "template_id": "new"}, []
+        raise RuntimeError("generation failed")
+
+    monkeypatch.setattr("model.train.src.generation.publication.Worker", Worker)
+    output = publication["output"] / "failed"
+    with pytest.raises(RuntimeError, match="generation failed"):
+        replay_curriculum(
+            output, publication["replay"], publication["evaluation"], generate,
+            generator_source=publication["generator_source"], metadata={},
+        )
+    assert len(workers) == 1 and workers[0].closed
+    assert list(output.iterdir()) == []

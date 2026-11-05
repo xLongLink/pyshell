@@ -13,6 +13,11 @@ MODULES = ("model.benchmark", "model.train")
 
 
 class TestModuleLayout:
+    def test_fixture_and_solution_registries_cover_the_same_families(self):
+        from model.benchmark.src import task_families, transfer_families
+
+        assert tuple(transfer_families.BUILDERS) == task_families.FAMILIES
+
     def test_only_main_and_package_metadata_live_at_module_roots(self, subtests):
         for name in MODULES:
             with subtests.test(module=name):

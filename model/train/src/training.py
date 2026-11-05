@@ -1,6 +1,7 @@
 import argparse
 import json
 import math
+import os
 import random
 import time
 from contextlib import nullcontext
@@ -13,10 +14,8 @@ from pyshell.serialization import FORMAT
 from transformers import (
     AutoModelForImageTextToText,
     AutoTokenizer,
-    Trainer,
-    TrainerCallback,
-    TrainingArguments,
     get_cosine_with_min_lr_schedule_with_warmup,
+    set_seed,
 )
 
 from model.benchmark.src.corpus import read_jsonl, sha256
@@ -43,55 +42,46 @@ def scheduler_for(optimizer, steps, accumulation, completed_updates=0):
     )
 
 
-def single_example(items):
-    return items[0]
-
-
-class ResponseTrainer(Trainer):
-    def __init__(self, *args, status, log, **kwargs):
-        super().__init__(*args, **kwargs)
-        if self.args.world_size != 1 or self.args.n_gpu > 1:
-            raise ValueError("Training requires one process and one CPU or CUDA device")
-        if self.accelerator.mixed_precision != "no":
-            raise ValueError(
-                "Training requires float32 without Accelerate mixed precision"
-            )
-        self.status = status
-        self.step_log = log
-        self.model_accepts_loss_kwargs = False
-
-    def _get_train_sampler(self, train_dataset=None):
-        return torch.utils.data.SequentialSampler(
-            self.train_dataset if train_dataset is None else train_dataset
-        )
-
-    def compute_loss(
-        self, model, inputs, return_outputs=False, num_items_in_batch=None
-    ):
-        loss = loss_for(model, inputs)
-        if not torch.isfinite(loss):
-            raise RuntimeError(
-                f"Nonfinite loss at step {self.status['completed_steps'] + 1}"
-            )
-        self.response_loss = float(loss.detach())
-        return loss
-
-    def training_step(self, model, inputs, num_items_in_batch=None):
-        started = time.monotonic()
-        loss = super().training_step(model, inputs, num_items_in_batch)
-        self.status["completed_steps"] += 1
-        row = {
-            "step": self.status["completed_steps"],
-            "id": inputs["id"],
-            "loss": self.response_loss,
-            "seconds": time.monotonic() - started,
-            "rss_gib": psutil.Process().memory_info().rss / 2**30,
-        }
-        if self.args.device.type == "cuda":
-            row["peak_cuda_gib"] = torch.cuda.max_memory_allocated() / 2**30
-        self.step_log.write(json.dumps(row) + "\n")
-        self.step_log.flush()
-        return loss
+def optimize(
+    model, items, optimizer, scheduler, *, accumulation, stop_step, status, log, checkpoint
+):
+    indices = list(range(len(items)))
+    random.Random(713).shuffle(indices)
+    set_seed(713)
+    # Preserve the former single-worker DataLoader's RNG advance.
+    torch.empty((), dtype=torch.int64).random_()
+    model.zero_grad(set_to_none=True)
+    for start in range(status["completed_steps"], stop_step, accumulation):
+        end = min(start + accumulation, stop_step)
+        for step in range(start, end):
+            started = time.monotonic()
+            model.train()
+            item = items[indices[step % len(indices)]]
+            loss = loss_for(model, item)
+            if not torch.isfinite(loss):
+                raise RuntimeError(f"Nonfinite loss at step {step + 1}")
+            response_loss = float(loss.detach())
+            (loss / (end - start)).backward()
+            status["completed_steps"] += 1
+            row = {
+                "step": status["completed_steps"],
+                "id": item["id"],
+                "loss": response_loss,
+                "seconds": time.monotonic() - started,
+                "rss_gib": psutil.Process().memory_info().rss / 2**30,
+            }
+            if next(model.parameters()).device.type == "cuda":
+                row["peak_cuda_gib"] = torch.cuda.max_memory_allocated() / 2**30
+            log.write(json.dumps(row) + "\n")
+            log.flush()
+            if step + 1 == end:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                scheduler.step()
+                model.zero_grad(set_to_none=True)
+                status["updates"] += 1
+            if status["completed_steps"] % 100 == 0:
+                checkpoint(f"checkpoint-{status['completed_steps']}")
 
 
 def parse_args(argv=None):
@@ -124,6 +114,17 @@ def parse_args(argv=None):
 
 def train(args):
     args.device = configure_device(args.device)
+    if (
+        any(
+            int(os.environ.get(name, "1")) != 1
+            for name in ("WORLD_SIZE", "PMI_SIZE", "OMPI_COMM_WORLD_SIZE", "MV2_COMM_WORLD_SIZE")
+        )
+        or (torch.distributed.is_initialized() and torch.distributed.get_world_size() != 1)
+        or (args.device == "cuda" and torch.cuda.device_count() > 1)
+    ):
+        raise ValueError("Training requires one process and one CPU or CUDA device")
+    if os.environ.get("ACCELERATE_MIXED_PRECISION", "no").lower() != "no":
+        raise ValueError("Training requires float32 without Accelerate mixed precision")
     if args.output.exists():
         raise FileExistsError(
             f"Refusing to overwrite existing training artifacts: {args.output}"
@@ -199,8 +200,6 @@ def train(args):
             )
         )
         optimizer_restored = True
-    indices = list(range(len(train)))
-    random.Random(713).shuffle(indices)
     for group in optimizer.param_groups:
         group["initial_lr"] = args.learning_rate
     scheduler = scheduler_for(
@@ -271,56 +270,23 @@ def train(args):
             model, tokenizer, optimizer, status, args.output, name, scheduler=scheduler
         )
 
-    class CheckpointCallback(TrainerCallback):
-        def on_substep_end(self, args, state, control, **kwargs):
-            if status["completed_steps"] % 100 == 0:
-                checkpoint(f"checkpoint-{status['completed_steps']}")
-
-        def on_step_end(self, args, state, control, **kwargs):
-            status["updates"] += 1
-            self.on_substep_end(args, state, control, **kwargs)
-
     try:
         print(
             f"Training with {torch.get_num_threads()} threads, starting at example {resume_step + 1}; optimizer restored: {optimizer_restored}",
             flush=True,
         )
         with (args.output / "steps.jsonl").open("a") as file:
-            trainer = ResponseTrainer(
-                model=model,
-                args=TrainingArguments(
-                    output_dir=str(args.output),
-                    use_cpu=args.device == "cpu",
-                    per_device_train_batch_size=1,
-                    gradient_accumulation_steps=args.accumulation,
-                    max_steps=math.ceil((stop_step - resume_step) / args.accumulation),
-                    seed=713,
-                    data_seed=713,
-                    fp16=False,
-                    bf16=False,
-                    tf32=False if args.device == "cuda" else None,
-                    remove_unused_columns=False,
-                    dataloader_pin_memory=args.device == "cuda",
-                    save_strategy="no",
-                    logging_strategy="no",
-                    report_to="none",
-                    push_to_hub=False,
-                    disable_tqdm=True,
-                ),
-                train_dataset=torch.utils.data.Subset(
-                    train,
-                    [
-                        indices[step % len(indices)]
-                        for step in range(resume_step, stop_step)
-                    ],
-                ),
-                data_collator=single_example,
-                optimizers=(optimizer, scheduler),
-                callbacks=[CheckpointCallback()],
+            optimize(
+                model,
+                train,
+                optimizer,
+                scheduler,
+                accumulation=args.accumulation,
+                stop_step=stop_step,
                 status=status,
                 log=file,
+                checkpoint=checkpoint,
             )
-            trainer.train()
         status.update(
             status="completed" if stop_step == args.steps else "paused",
             validation_loss_after=evaluate_loss(model, validation),
