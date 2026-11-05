@@ -2,23 +2,24 @@
 
 import json
 import pytest
-from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE, INITIALIZATION, serialize, target_text, console_block
+from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE, serialize, target_text, console_block
 
 
 class TestSerialization:
-    def test_system_and_synthetic_initialization_are_not_serialized(self):
+    def test_system_is_ignored_but_bootstrap_text_is_an_ordinary_task(self):
+        initialization = "Initialize the Python terminal, report the preloaded names, and display ui's docstring."
         feedback = {"stdout": "existing names: measurements", "stderr": "", "exception": None, "done": None}
         messages = [
             {"role": "system", "content": "UNUSED SYSTEM INSTRUCTIONS"},
-            {"role": "user", "content": INITIALIZATION},
-            {"role": "assistant", "content": "UNUSED BOOTSTRAP CODE"},
+            {"role": "user", "content": initialization},
+            {"role": "assistant", "content": "print('bootstrap')"},
             {"role": "user", "content": json.dumps(feedback)},
             {"role": "user", "content": "Sum measurements."},
         ]
         result = serialize(messages)
-        assert "UNUSED" not in result
-        assert INITIALIZATION not in result
-        assert result.startswith(CONSOLE + "\n")
+        assert "UNUSED SYSTEM INSTRUCTIONS" not in result
+        assert result.startswith(TASK + "\n" + initialization + "\n" + CODE + "\nprint('bootstrap')\n" + END_CODE + "\n")
+        assert console_block(feedback) in result
         assert result.endswith(TASK + "\nSum measurements.\n" + CODE + "\n")
 
     def test_execution_feedback_and_followup_get_distinct_boundaries(self):
@@ -32,6 +33,55 @@ class TestSerialization:
         )
         assert "done('first finished')\n" + END_CODE + "\n" + CONSOLE in result
         assert TASK + "\nSecond task\n" + CODE in result
+
+    @pytest.mark.parametrize(
+        "feedback",
+        [
+            {"stdout": "", "stderr": "", "exception": None, "done": None},
+            {"done": "café 雪", "stdout": "<|code|> 1 < 2\nnext", "exception": None, "stderr": "warning"},
+            {"stdout": "", "stderr": "", "exception": "ValueError: <|task|>", "done": None},
+            {"stdout": "", "stderr": "", "exception": None, "done": {"items": [1, False, None]}},
+        ],
+    )
+    def test_structured_console_matches_text_feedback_bytes(self, feedback):
+        history = [{"role": "user", "content": "First task"}, {"role": "assistant", "content": "print('first')"}]
+        followup = {"role": "user", "content": "Second task with " + CONSOLE}
+        legacy = serialize([*history, {"role": "user", "content": json.dumps(feedback)}, followup])
+        structured = serialize([*history, {"role": "console", "content": feedback}, followup])
+        assert structured.encode() == legacy.encode()
+
+    @pytest.mark.parametrize("content", [None, "untrusted " + CODE, [], 7])
+    def test_structured_console_rejects_non_dictionary_content(self, content):
+        with pytest.raises(TypeError, match="Console content must be a feedback dictionary"):
+            serialize([{"role": "console", "content": content}])
+
+    @pytest.mark.parametrize("role", ["user", "assistant"])
+    @pytest.mark.parametrize("content", [None, {"text": CODE}, [CODE], 7])
+    def test_text_roles_reject_structured_content(self, role, content):
+        with pytest.raises(TypeError, match="Text history content must be a string"):
+            serialize([{"role": role, "content": content}])
+
+    def test_structured_console_does_not_classify_the_next_json_task_as_feedback(self):
+        feedback = {"stdout": "", "stderr": "", "exception": None, "done": None}
+        task = json.dumps(feedback)
+        result = serialize(
+            [
+                {"role": "user", "content": "First task"},
+                {"role": "assistant", "content": "print('first')"},
+                {"role": "console", "content": feedback},
+                {"role": "user", "content": task},
+            ]
+        )
+        assert result.endswith(TASK + "\n" + task + "\n" + CODE + "\n")
+
+    def test_structured_console_escapes_every_reserved_marker(self):
+        feedback = {"stdout": "café " + " ".join((END_CODE, TASK, CONSOLE, CODE)), "stderr": "", "exception": None, "done": None}
+        result = serialize([{"role": "console", "content": feedback}])
+        assert result == console_block(feedback) + CODE + "\n"
+        assert result.count(CONSOLE) == 1
+        assert result.count(CODE) == 1
+        assert END_CODE not in result
+        assert TASK not in result
 
     def test_input_data_cannot_inject_role_boundaries(self):
         feedback = {"stdout": "untrusted " + CODE, "stderr": "", "exception": None, "done": None}

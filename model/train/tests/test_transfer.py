@@ -36,24 +36,36 @@ class TestTransfer:
                     assert renamed.extra == original.extra
                     assert renamed.record == {
                         **original.record,
-                        "setup": original.record["setup"].replace("original_input", "chosen_input"),
-                        "inspect": original.record["inspect"].replace("original_input", "chosen_input"),
+                        "setup": original.record["setup"].replace(
+                            "original_input", "chosen_input"
+                        ),
+                        "inspect": original.record["inspect"].replace(
+                            "original_input", "chosen_input"
+                        ),
                     }
                     assert renamed.record["followup"] is None
                     fixtures.append(
                         {
                             "family": family,
-                            **{key: renamed.record[key] for key in ("setup", "inspect")},
+                            **{
+                                key: renamed.record[key] for key in ("setup", "inspect")
+                            },
                             "values": renamed.values,
-                            "converter": asdict(renamed.converter) if renamed.converter else None,
+                            "converter": asdict(renamed.converter)
+                            if renamed.converter
+                            else None,
                             "extra": renamed.extra,
                         }
                     )
-        assert hashlib.sha256(json.dumps(fixtures, sort_keys=True).encode()).hexdigest() == (
+        assert hashlib.sha256(
+            json.dumps(fixtures, sort_keys=True).encode()
+        ).hexdigest() == (
             "84e99f1f4d9963ea7b78bb0b04e337d56c5ba77416d6a9e550196b2cc1ab4557"
         )
 
-    def test_transfer_records_preserve_frozen_output_and_execute_followups(self, subtests):
+    def test_transfer_records_preserve_frozen_output_and_execute_followups(
+        self, subtests
+    ):
         from model.benchmark.src.reference import ReferenceSession
         from model.benchmark.src.task_types import FAMILIES
         from model.train.src.generation.transfer import TEMPLATE_PARTITIONS, make_task
@@ -64,7 +76,9 @@ class TestTransfer:
                 for slot in slots:
                     for pair in (0, 1):
                         for variant in (0, 1):
-                            records.append(make_task(family, pair, variant, 183731, split, slot))
+                            records.append(
+                                make_task(family, pair, variant, 183731, split, slot)
+                            )
         assert hashlib.sha256(json.dumps(records).encode()).hexdigest() == (
             "00bc2391482645a813775b451f8243620689c7589a4dd6daa6509fb091345d97"
         )
@@ -236,7 +250,9 @@ class TestTransfer:
                         assert sessions[-2].turns == sessions[-1].turns
                         if record["recovery_code"] and variant:
                             assert any(
-                                "RuntimeError" in turn["content"]
+                                turn["role"] == "console"
+                                and "RuntimeError"
+                                in (turn["content"]["exception"] or "")
                                 for turn in sessions[-1].turns
                             )
                         if record["followup"]:

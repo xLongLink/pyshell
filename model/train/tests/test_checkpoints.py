@@ -20,6 +20,24 @@ class Artifact:
 
 
 class TestCheckpoint:
+    @pytest.mark.parametrize("name", ["checkpoint-4", "final"])
+    def test_save_requires_existing_output_directory(self, tmp_path, name):
+        output = tmp_path / "missing" / "adapter"
+        optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.tensor(2.0))])
+        scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, total_iters=4)
+        with pytest.raises(FileNotFoundError):
+            save_checkpoint(
+                Artifact(),
+                Artifact(),
+                optimizer,
+                {"updates": 1},
+                output,
+                name,
+                scheduler=scheduler,
+            )
+        assert not output.parent.exists()
+        assert list(tmp_path.iterdir()) == []
+
     def test_resume_requires_checkpoint_local_metadata_even_when_parent_state_exists(
         self,
     ):
@@ -99,9 +117,10 @@ class TestCheckpoint:
                     assert json.loads(source.read_text()) == state
                     assert (output / "training.json").read_text() == previous
                     assert (output / "optimizer.pt").is_file()
-                    assert torch.load(
-                        output / "scheduler.pt", weights_only=True
-                    ) == scheduler.state_dict()
+                    assert (
+                        torch.load(output / "scheduler.pt", weights_only=True)
+                        == scheduler.state_dict()
+                    )
                     assert (output / "scheduler.pt").stat().st_ino in flushed_inodes
                 os_replace(source, destination)
 
@@ -167,9 +186,10 @@ class TestCheckpoint:
             def fail_publication(source, destination):
                 if destination == output / "training.json":
                     assert (output / "optimizer.pt").is_file()
-                    assert torch.load(
-                        output / "scheduler.pt", weights_only=True
-                    ) == scheduler.state_dict()
+                    assert (
+                        torch.load(output / "scheduler.pt", weights_only=True)
+                        == scheduler.state_dict()
+                    )
                     assert json.loads(source.read_text()) == {"updates": 2}
                     raise OSError("metadata publication failed")
                 os_replace(source, destination)
@@ -211,6 +231,7 @@ class TestCheckpoint:
             optimizer.step()
             scheduler.step()
             output = root / "adapter"
+            output.mkdir()
             save_checkpoint(
                 Artifact(),
                 Artifact(),

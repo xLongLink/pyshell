@@ -2,20 +2,16 @@
 
 import torch
 from peft import PeftModel
-from pathlib import Path
 from transformers import AutoTokenizer, StopStringCriteria, StoppingCriteriaList, AutoModelForImageTextToText
 from pyshell.parsing import parse_completion
 from pyshell.serialization import MARKERS
 from model.benchmark.src.runtime import configure_device, configure_threads
 
-ROOT = Path(__file__).resolve().parents[1]
-
 
 class HFCompletion:
-    def __init__(self, adapter=None, threads=16, device="cpu", *, base_model=None):
+    def __init__(self, adapter, threads, device, *, base_model):
         configure_device(device)
         configure_threads(threads)
-        base_model = base_model or ROOT / "local/base"
         self.tokenizer = AutoTokenizer.from_pretrained(base_model, local_files_only=True)
         self.model = AutoModelForImageTextToText.from_pretrained(
             base_model, dtype=torch.float32, attn_implementation="sdpa", local_files_only=True

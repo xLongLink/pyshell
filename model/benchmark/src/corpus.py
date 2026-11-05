@@ -13,8 +13,8 @@ def read_jsonl(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
-def write_jsonl(path, records, *, ensure_ascii=True):
-    path.write_text("".join(json.dumps(record, ensure_ascii=ensure_ascii) + "\n" for record in records))
+def write_jsonl(path, records):
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
 
 
 def verify_training_data(directory, manifest):

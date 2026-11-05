@@ -24,11 +24,8 @@ def load_resume(adapter, data, accumulation):
     return state
 
 
-def save_checkpoint(
-    model, tokenizer, optimizer, status, output, name, *, scheduler
-):
+def save_checkpoint(model, tokenizer, optimizer, status, output, name, *, scheduler):
     path = output if name == "final" else output / name
-    output.mkdir(parents=True, exist_ok=True)
     if path != output and path.exists():
         raise FileExistsError(f"Refusing to overwrite checkpoint: {path}")
     state = json.dumps(status, indent=2) + "\n"

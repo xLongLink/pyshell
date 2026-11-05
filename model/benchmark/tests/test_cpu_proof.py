@@ -31,6 +31,15 @@ class Worker:
 
 
 class TestCPUProof:
+    def test_cli_owns_the_inference_defaults(self, tmp_path):
+        with patch.object(cpu_evaluate, "evaluate") as evaluate:
+            cpu_evaluate.main(["--label", "fixture", "--output", str(tmp_path / "output")])
+        args = evaluate.call_args.args[0]
+        assert args.adapter is None
+        assert args.device == "cpu"
+        assert args.threads == 16
+        assert args.base_model == Path(__file__).resolve().parents[1] / "local/base"
+
     def test_evaluation_persists_full_trajectories_and_incremental_metrics(self, tmp_path, capsys):
         records = [{"id": str(index), "family": family} for index, family in enumerate(("join", "recovery", "join"))]
         tasks = tmp_path / "dev-tasks.jsonl"
@@ -151,6 +160,24 @@ class TestCPUProof:
         assert sum((action == "reset" for _, action in worker.sources)) == 1
         assert "Append 9 in place." in prompts[1]
         assert "assert result[-1]" not in prompts[1]
+
+    def test_structured_feedback_and_followup_do_not_use_text_decoding(self):
+        record = self.record()
+        record["followup"] = {"instruction": "Append 9 in place.", "check": "assert result[-1] == 9"}
+        scripts = iter(["print(values)", "result = sum(values)\ndone(str(result))", "done('ok')"])
+        prompts = []
+
+        def complete(prompt):
+            prompts.append(prompt)
+            return next(scripts), True
+
+        with patch("pyshell.serialization.feedback_and_task", side_effect=AssertionError("Legacy feedback decoding used")):
+            result = trial(Worker(), record, complete)
+        assert result["status"] == "passed"
+        assert len(prompts) == 3
+        assert "[4, 7]" in prompts[1]
+        assert prompts[-1].endswith("<|task|>\nAppend 9 in place.\n<|code|>\n")
+        assert all(record["check"] not in prompt and record["followup"]["check"] not in prompt for prompt in prompts)
 
     def final_request(self, directory, *, final=False, limit=None):
         root = Path(directory)

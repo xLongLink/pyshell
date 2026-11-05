@@ -185,11 +185,11 @@ def train(args):
         else evaluate_loss(model, validation)
     )
     print(f"Held-out loss before training: {baseline}", flush=True)
-    parameters = [
-        parameter for parameter in model.parameters() if parameter.requires_grad
-    ]
     optimizer = torch.optim.AdamW(
-        parameters, lr=args.learning_rate, betas=(0.9, 0.95), weight_decay=0.01
+        (parameter for parameter in model.parameters() if parameter.requires_grad),
+        lr=args.learning_rate,
+        betas=(0.9, 0.95),
+        weight_decay=0.01,
     )
     optimizer_restored = False
     if args.resume and (args.resume / "optimizer.pt").is_file():

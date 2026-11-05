@@ -197,7 +197,6 @@ def make_task(family, pair, variant, seed, split, slot):
     exec(record["setup"], ns)
     build = BuildContext(
         fixture=fixture,
-        record=record,
         namespace=ns,
         name=name,
         pair=pair,

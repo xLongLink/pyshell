@@ -1,7 +1,7 @@
 """Run a bounded task while keeping setup and grading out of model context."""
 
-import json
 import time
+from copy import deepcopy
 from pyshell.serialization import serialize
 from model.benchmark.src.proof_policy import MAX_CALLS
 
@@ -29,7 +29,7 @@ def trial(worker, record, generate):
                 return row
             result = worker.execute(source)
             step["feedback"] = result
-            turns.extend([{"role": "assistant", "content": source}, {"role": "user", "content": json.dumps(result)}])
+            turns.extend([{"role": "assistant", "content": source}, {"role": "console", "content": deepcopy(result)}])
             if result["done"] is not None and not result["exception"]:
                 grade = worker.execute(stage["check"])
                 if grade["exception"]:

@@ -1,13 +1,13 @@
 """Raw task/code/console framing shared by training and inference."""
 
 import json
+from collections.abc import Mapping, Sequence
 
 TASK = "<|task|>"
 CODE = "<|code|>"
 CONSOLE = "<|console|>"
 END_CODE = "<|end_code|>"
 FORMAT = "task-code-console-v1"
-INITIALIZATION = "Initialize the Python terminal, report the preloaded names, and display ui's docstring."
 MARKERS = (END_CODE, TASK, CONSOLE, CODE)
 
 
@@ -36,21 +36,25 @@ def console_block(feedback: dict) -> str:
     return f"{CONSOLE}\n{encoded}\n"
 
 
-def serialize(messages: list[dict[str, str]]) -> str:
+def serialize(messages: Sequence[Mapping[str, str | dict]]) -> str:
     """Render context without a system role or a pretrained chat template."""
     turns = [message for message in messages if message["role"] != "system"]
     expects_console = False
-    if len(turns) >= 3 and turns[0] == {"role": "user", "content": INITIALIZATION} and turns[1]["role"] == "assistant":
-        turns = turns[2:]
-        expects_console = True
     parts = []
     for turn in turns:
         content = turn["content"]
+        if turn["role"] in {"assistant", "user"} and not isinstance(content, str):
+            raise TypeError("Text history content must be a string")
         if turn["role"] == "assistant":
             if any(marker in content for marker in MARKERS):
                 raise ValueError("Code history contains a reserved framing marker")
             parts.append(f"{CODE}\n{content}\n{END_CODE}\n")
             expects_console = True
+        elif turn["role"] == "console":
+            if not isinstance(content, dict):
+                raise TypeError("Console content must be a feedback dictionary")
+            parts.append(console_block(content))
+            expects_console = False
         elif turn["role"] == "user":
             feedback, task = feedback_and_task(content) if expects_console else (None, content)
             if feedback is not None:

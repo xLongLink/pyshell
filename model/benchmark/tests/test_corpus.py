@@ -7,17 +7,14 @@ from model.benchmark.src.corpus import read_jsonl, write_jsonl
 
 
 class TestCorpusWriting:
-    def test_ascii_modes_preserve_order_nested_feedback_and_terminal_newlines(self, subtests):
+    def test_default_preserves_order_nested_feedback_and_terminal_newlines(self):
         records = [{"z": "café <|console|>", "a": {"stdout": "line\nnext", "done": None}}, {"success": True}]
-        for ensure_ascii, expected in (
-            (True, b'{"z": "caf\\u00e9 <|console|>", "a": {"stdout": "line\\nnext", "done": null}}\n{"success": true}\n'),
-            (False, '{"z": "café <|console|>", "a": {"stdout": "line\\nnext", "done": null}}\n{"success": true}\n'.encode()),
-        ):
-            with subtests.test(ensure_ascii=ensure_ascii), tempfile.TemporaryDirectory(dir="/tmp/opencode") as directory:
-                path = Path(directory) / "records.jsonl"
-                write_jsonl(path, iter(records), ensure_ascii=ensure_ascii)
-                assert path.read_bytes() == expected
-                assert read_jsonl(path) == records
+        expected = b'{"z": "caf\\u00e9 <|console|>", "a": {"stdout": "line\\nnext", "done": null}}\n{"success": true}\n'
+        with tempfile.TemporaryDirectory(dir="/tmp/opencode") as directory:
+            path = Path(directory) / "records.jsonl"
+            write_jsonl(path, iter(records))
+            assert path.read_bytes() == expected
+            assert read_jsonl(path) == records
 
     def test_default_escapes_unicode_and_replaces_existing_content(self):
         with tempfile.TemporaryDirectory(dir="/tmp/opencode") as directory:

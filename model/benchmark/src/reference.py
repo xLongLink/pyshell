@@ -51,12 +51,14 @@ class ReferenceSession:
         self.id = record["id"]
 
     def add(self, source, record_id=None, *, expect_error=False):
+        from copy import deepcopy
+
         if self.capture_rows and record_id is not None:
             self.rows.append({"id": record_id, **self.metadata, "prompt": serialize(self.turns), "completion": source})
         result = self.workspace.execute(source)
         if bool(result["exception"]) != expect_error:
             raise AssertionError((self.id, source, result))
-        self.turns.extend([{"role": "assistant", "content": source}, {"role": "user", "content": json.dumps(result)}])
+        self.turns.extend([{"role": "assistant", "content": source}, {"role": "console", "content": deepcopy(result)}])
 
     def check(self, source):
         result = self.workspace.execute(source)

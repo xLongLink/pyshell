@@ -3,7 +3,6 @@
 import torch
 import pytest
 from types import SimpleNamespace
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 from model.benchmark.src import runtime
 from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE
@@ -29,23 +28,31 @@ class TestInference:
         self.model.to.return_value = self.model
         self.model.eval.return_value = self.model
 
-    def completion(self, *, base_model=None):
+    def completion(self, *, base_model="fixture-base", adapter=None):
         with (
             patch("model.benchmark.src.runtime.torch.set_num_interop_threads"),
             patch("model.benchmark.src.runtime.torch.set_num_threads"),
             patch("model.benchmark.src.inference.AutoTokenizer.from_pretrained", return_value=self.tokenizer) as tokenizer,
             patch("model.benchmark.src.inference.AutoModelForImageTextToText.from_pretrained", return_value=self.model) as model,
+            patch("model.benchmark.src.inference.PeftModel.from_pretrained", return_value=self.model) as load_adapter,
             patch("model.benchmark.src.inference.StopStringCriteria", return_value=SimpleNamespace()) as build,
         ):
-            completion = HFCompletion(base_model=base_model)
+            completion = HFCompletion(adapter, 3, "cpu", base_model=base_model)
             build.assert_called_once_with(self.tokenizer, [END_CODE, TASK, CONSOLE, CODE])
-            expected = base_model or Path(__file__).resolve().parents[1] / "local/base"
-            tokenizer.assert_called_once_with(expected, local_files_only=True)
-            model.assert_called_once_with(expected, dtype=torch.float32, attn_implementation="sdpa", local_files_only=True)
+            tokenizer.assert_called_once_with(base_model, local_files_only=True)
+            model.assert_called_once_with(base_model, dtype=torch.float32, attn_implementation="sdpa", local_files_only=True)
+            if adapter is None:
+                load_adapter.assert_not_called()
+            else:
+                load_adapter.assert_called_once_with(self.model, adapter)
         return completion
 
     def test_explicit_base_model_does_not_depend_on_training_artifacts(self, tmp_path):
         self.completion(base_model=tmp_path / "base-model")
+
+    @pytest.mark.parametrize("adapter", [None, "fixture-adapter"])
+    def test_base_model_and_adapter_evaluation_remain_supported(self, adapter):
+        self.completion(adapter=adapter)
 
     def test_runtime_failures_propagate_before_model_loading(self, subtests):
         for device, available in (("cuda", False), ("cpu", False), ("cuda", True)):
@@ -59,7 +66,7 @@ class TestInference:
                 error = RuntimeError("interop threads already initialized")
                 runtime_torch.set_num_interop_threads.side_effect = error
                 with pytest.raises(RuntimeError) as raised:
-                    HFCompletion(device=device, threads=3)
+                    HFCompletion(None, 3, device, base_model="fixture-base")
                 if device == "cuda" and not available:
                     assert str(raised.value) == "CUDA requested but unavailable"
                     runtime_torch.set_num_threads.assert_not_called()

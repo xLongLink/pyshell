@@ -58,29 +58,6 @@ def run(args):
                 arguments, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, check=True
             )
 
-    evaluation = [
-        "uv",
-        "run",
-        "--locked",
-        "--project",
-        str(ROOT.parent / "benchmark"),
-        "--extra",
-        "cuda" if device == "cuda" else "local",
-        "python",
-        "-u",
-        "-m",
-        "model.benchmark.main",
-        "cpu",
-        "--device",
-        device,
-        "--data",
-        str(args.data.resolve()),
-        "--threads",
-        str(args.threads),
-        "--base-model",
-        str(ROOT / "artifacts/base"),
-    ]
-
     adapter = args.output / "adapter"
     command(
         "training",
@@ -113,7 +90,26 @@ def run(args):
     )
     dev = args.output / "dev"
     evaluation = [
-        *evaluation,
+        "uv",
+        "run",
+        "--locked",
+        "--project",
+        str(ROOT.parent / "benchmark"),
+        "--extra",
+        "cuda" if device == "cuda" else "local",
+        "python",
+        "-u",
+        "-m",
+        "model.benchmark.main",
+        "cpu",
+        "--device",
+        device,
+        "--data",
+        str(args.data.resolve()),
+        "--threads",
+        str(args.threads),
+        "--base-model",
+        str(ROOT / "artifacts/base"),
         "--adapter",
         str(adapter.resolve()),
         "--label",

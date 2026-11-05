@@ -9,7 +9,6 @@ from model.benchmark.src.task_types import TaskFixture
 @dataclass
 class BuildContext:
     fixture: TaskFixture
-    record: dict
     namespace: dict
     name: str
     pair: int
@@ -143,7 +142,7 @@ def build_left_join(build: BuildContext) -> Solution:
     name, other, variant = build.name, build.other, build.variant
     orders, customers = build.namespace[name].to_dict("records"), build.namespace[other].to_dict("records")
     orders[-1]["customer_id"] = 999999
-    build.record["setup"] = f"{name} = pd.DataFrame({orders!r})\n{other} = pd.DataFrame({customers!r})"
+    build.fixture.record["setup"] = f"{name} = pd.DataFrame({orders!r})\n{other} = pd.DataFrame({customers!r})"
     build.wording["join_rule"] = (
         [
             "Keep only orders with a matched customer; omit unmatched orders.",
@@ -218,7 +217,7 @@ def build_stateful_followup(build: BuildContext) -> Solution:
         "dev": "Modify the existing result list by appending the {power}-th power of {extra}; do not replace the list or alter the source.",
         "test": "Keep the same result object and extend it with one extra value, {extra} raised to {power}. Leave the input unchanged.",
     }
-    build.record["followup"] = {
+    build.fixture.record["followup"] = {
         "instruction": followups[build.split].format(extra=extra, power=power),
         "code": f"result.append({extra} ** {power})",
         "check": f"assert result is saved_result\nassert result == {expected + [extra**power]!r}\nassert {name} == {values!r}",
@@ -231,7 +230,7 @@ def build_missing_input(build: BuildContext) -> Solution:
     code = f"if {name!r} in globals():\n    result = sum({name})\nelse:\n    result = None\n    status = 'missing_data'"
     if build.variant:
         values = build.fixture.values
-        build.record["setup"] += f"\n{name} = {values!r}"
+        build.fixture.record["setup"] += f"\n{name} = {values!r}"
         expected = sum(values)
         return Solution(code, expected, check_number(expected))
     return Solution(code, None, "assert result is None\nassert status == 'missing_data'")
