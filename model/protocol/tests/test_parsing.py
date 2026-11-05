@@ -16,6 +16,9 @@ from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE
         ("code", ("code", False)),
         ("", ("", False)),
         (END_CODE, ("", True)),
+        ("code" + END_CODE + "more" + END_CODE, ("code", True)),
+        (CONSOLE + END_CODE, ("", False)),
+        ("code" + CODE + TASK + CONSOLE + END_CODE, ("code", False)),
     ],
 )
 def test_completion_uses_the_first_boundary(text, expected):

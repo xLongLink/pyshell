@@ -21,7 +21,11 @@ def run(args):
         if actual != metadata["sha256"]:
             raise ValueError(f"Frozen {split} tasks changed")
     training_data = args.training_data or args.data
-    training_manifest = json.loads((training_data / "manifest.json").read_text())
+    training_manifest = (
+        json.loads((training_data / "manifest.json").read_text())
+        if args.training_data
+        else manifest
+    )
     if (
         args.training_data
         and training_manifest["evaluation_test_sha256"]

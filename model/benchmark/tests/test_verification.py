@@ -167,8 +167,28 @@ class TestVerification:
                 path = weights if changed == "weights" else data / "test-tasks.jsonl"
                 path.write_bytes(path.read_bytes() + b"\n")
                 with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
-                    with pytest.raises(ValueError, match="Adapter differs|Final tasks differ"):
+                    with pytest.raises(ValueError, match="Adapter differs|Frozen evaluation tasks have changed"):
                         verify(experiment, data)
+
+    def test_summary_task_digest_must_match_even_when_manifest_is_valid(self, tmp_path):
+        experiment, data, _ = self.artifacts(tmp_path)
+        path = experiment / "test/summary.json"
+        summary = json.loads(path.read_text())
+        summary["task_file_sha256"] = "0" * 64
+        path.write_text(json.dumps(summary))
+        with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
+            with pytest.raises(ValueError, match="Final tasks differ"):
+                verify(experiment, data)
+
+    def test_development_gate_precedes_loading_final_tasks(self, tmp_path):
+        experiment, data, _ = self.artifacts(tmp_path)
+        path = experiment / "experiment.json"
+        state = json.loads(path.read_text())
+        state["development"]["success_rate"] = 0
+        path.write_text(json.dumps(state))
+        (data / "test-tasks.jsonl").unlink()
+        with pytest.raises(ValueError, match="Development gate was not met"):
+            verify(experiment, data)
 
     def test_predictions_must_cover_tasks_once_and_in_order(self, subtests):
         for invalid in ("missing", "duplicate", "reordered"):
@@ -187,11 +207,22 @@ class TestVerification:
                     with pytest.raises(ValueError, match="exactly once"):
                         verify(experiment, data)
 
-    def test_blank_jsonl_records_are_not_silently_ignored(self):
+    @pytest.mark.parametrize("blank_tasks", [False, True])
+    def test_blank_jsonl_records_are_not_silently_ignored(self, blank_tasks):
         with tempfile.TemporaryDirectory() as temporary:
             experiment, data, _ = self.artifacts(Path(temporary))
-            path = experiment / "test/responses.jsonl"
+            path = data / "test-tasks.jsonl" if blank_tasks else experiment / "test/responses.jsonl"
             path.write_text("\n" + path.read_text())
+            if blank_tasks:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                manifest_path = data / "manifest.json"
+                manifest = json.loads(manifest_path.read_text())
+                manifest["splits"]["test"]["sha256"] = digest
+                manifest_path.write_text(json.dumps(manifest))
+                summary_path = experiment / "test/summary.json"
+                summary = json.loads(summary_path.read_text())
+                summary["task_file_sha256"] = digest
+                summary_path.write_text(json.dumps(summary))
             with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
                 with pytest.raises(json.JSONDecodeError):
                     verify(experiment, data)

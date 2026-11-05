@@ -17,7 +17,9 @@ from model.train.src.experiment import main, run
 
 
 class TestExperiment:
-    def experiment(self, directory, ready, device="cpu", initialize_adapter="initial"):
+    def experiment(
+        self, directory, ready, device="cpu", initialize_adapter="initial", curriculum=False
+    ):
         root = Path(directory)
         data = root / "data"
         data.mkdir()
@@ -34,6 +36,21 @@ class TestExperiment:
             path.write_text('{"id":"synthetic"}\n')
             manifest[key] = sha256(path)
         (data / "manifest.json").write_text(json.dumps(manifest))
+        training_data = None
+        if curriculum:
+            training_data = root / "curriculum"
+            training_data.mkdir()
+            training_manifest = {
+                "evaluation_test_sha256": manifest["splits"]["test"]["sha256"]
+            }
+            for name, key in (
+                ("train.jsonl", "training_records_sha256"),
+                ("validation.jsonl", "validation_records_sha256"),
+            ):
+                path = training_data / name
+                path.write_text('{"id":"curriculum"}\n')
+                training_manifest[key] = sha256(path)
+            (training_data / "manifest.json").write_text(json.dumps(training_manifest))
         args = SimpleNamespace(
             data=data,
             output=root / "run",
@@ -41,7 +58,7 @@ class TestExperiment:
             threads=1,
             device=device,
             learning_rate=1e-4,
-            training_data=None,
+            training_data=training_data,
             initialize_adapter=root / initialize_adapter
             if initialize_adapter is not None
             else None,
@@ -69,10 +86,24 @@ class TestExperiment:
             (output / "summary.json").write_text(json.dumps(summary))
 
         with (
+            patch.object(
+                Path, "read_text", autospec=True, side_effect=Path.read_text
+            ) as reads,
             patch("model.train.src.experiment.subprocess.run", side_effect=execute),
             redirect_stdout(io.StringIO()) as stdout,
         ):
             metadata = run(args)
+        manifests_read = [
+            call.args[0]
+            for call in reads.call_args_list
+            if call.args[0].name == "manifest.json"
+        ]
+        assert manifests_read == [data / "manifest.json"] + (
+            [training_data / "manifest.json"] if curriculum else []
+        )
+        assert metadata["training_manifest"] == (
+            training_manifest if curriculum else manifest
+        )
         serialized = json.dumps(metadata, indent=2) + "\n"
         assert (args.output / "experiment.json").read_text() == serialized
         assert stdout.getvalue().endswith(serialized)
@@ -84,6 +115,11 @@ class TestExperiment:
         ) as experiment:
             assert main(["--output", "run"]) is None
         assert experiment.call_args.args[0].output == Path("run")
+
+    def test_separate_training_data_uses_its_own_manifest(self, tmp_path):
+        _, calls = self.experiment(tmp_path, False, curriculum=True)
+        training = calls[0]
+        assert training[training.index("--data") + 1] == str(tmp_path / "curriculum")
 
     def test_initialized_from_is_the_only_freshness_metadata(self, subtests):
         for adapter in (None, "initial"):

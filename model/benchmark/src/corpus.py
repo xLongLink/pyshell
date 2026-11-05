@@ -9,6 +9,10 @@ def sha256(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def adapter_weights(adapter):
+    return adapter / "adapter_model.safetensors" if adapter.is_dir() else adapter
+
+
 def read_jsonl(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
 

@@ -283,6 +283,7 @@ class TestTransfer:
                     supervision(record, include_inspection=True, capture_rows=False)
 
     def test_templates_and_workspaces_are_disjoint_and_final_count_is_fixed(self):
+        from model.train.src.generation import transfer
         from model.train.src.generation.transfer import prepare, supervision
 
         captured = {split: [] for split in ("train", "dev", "test")}
@@ -299,13 +300,17 @@ class TestTransfer:
                     "model.train.src.generation.transfer.supervision",
                     side_effect=capture_rows,
                 ),
-                redirect_stdout(io.StringIO()),
+                redirect_stdout(io.StringIO()) as stdout,
             ):
                 prepare(output)
             assert all(captured["train"])
             assert all(captured["dev"])
             assert captured["test"] == [0] * 120
             manifest = json.loads((output / "manifest.json").read_text())
+            assert (output / "generator-frozen.py").read_bytes() == Path(transfer.__file__).read_bytes()
+            assert all(path.stat().st_mode & 0o777 == 0o444 for path in output.iterdir())
+            assert (output / "manifest.json").read_text() == json.dumps(manifest, indent=2) + "\n"
+            assert stdout.getvalue() == json.dumps(manifest, indent=2) + "\n"
             assert manifest["splits"]["train"]["tasks"] == 144
             assert manifest["splits"]["dev"]["tasks"] == 60
             assert manifest["splits"]["test"]["tasks"] == 120
@@ -319,3 +324,14 @@ class TestTransfer:
             assert not (sets[0] & sets[2])
             assert not (sets[1] & sets[2])
             assert not manifest["old_test_reused"]
+
+    def test_snapshot_failure_does_not_publish_a_manifest(self, tmp_path):
+        from model.train.src.generation.transfer import prepare
+
+        output = tmp_path / "corpus"
+        with (
+            patch.object(Path, "write_bytes", side_effect=OSError("snapshot failed")),
+            pytest.raises(OSError, match="snapshot failed"),
+        ):
+            prepare(output)
+        assert not (output / "manifest.json").exists()

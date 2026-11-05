@@ -5,7 +5,7 @@ import json
 import math
 import random
 import tempfile
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -78,6 +78,51 @@ class TestTrainingArguments:
 
 
 class TestTrainingRuntime:
+    @pytest.mark.parametrize("entrypoint", ["train", "main"])
+    @pytest.mark.parametrize(
+        "requested,resolved",
+        [("auto", "cpu"), ("auto", "cuda"), ("cpu", "cpu"), ("cuda", "cuda")],
+    )
+    def test_device_is_resolved_once_and_cpu_work_is_locked(
+        self, tmp_path, entrypoint, requested, resolved
+    ):
+        output = tmp_path / "adapter"
+        active = False
+        error = RuntimeError("stop before model loading")
+
+        @contextmanager
+        def lock():
+            nonlocal active
+            assert not output.exists()
+            active = True
+            try:
+                yield
+            finally:
+                active = False
+
+        def configure_threads(threads):
+            assert threads == 3
+            assert active == (resolved == "cpu")
+            assert output.is_dir()
+            raise error
+
+        argv = ["--device", requested, "--output", str(output), "--threads", "3"]
+        with (
+            patch.object(training, "configure_device", return_value=resolved) as device,
+            patch.object(training, "exclusive_cpu", side_effect=lock) as cpu,
+            patch.object(training, "configure_threads", side_effect=configure_threads),
+            patch.object(training.torch.cuda, "device_count", return_value=1),
+            pytest.raises(RuntimeError) as raised,
+        ):
+            if entrypoint == "main":
+                training.main(argv)
+            else:
+                training.train(parse_args(argv))
+        assert raised.value is error
+        device.assert_called_once_with(requested)
+        assert cpu.call_count == (1 if resolved == "cpu" else 0)
+        assert not active
+
     @pytest.mark.parametrize("world_size", ["0", "2"])
     @pytest.mark.parametrize(
         "variable", ["WORLD_SIZE", "PMI_SIZE", "OMPI_COMM_WORLD_SIZE", "MV2_COMM_WORLD_SIZE"]

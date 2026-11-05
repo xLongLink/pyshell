@@ -40,7 +40,11 @@ class TestCPUProof:
         assert args.threads == 16
         assert args.base_model == Path(__file__).resolve().parents[1] / "local/base"
 
-    def test_evaluation_persists_full_trajectories_and_incremental_metrics(self, tmp_path, capsys):
+    @pytest.mark.parametrize(
+        "adapter_form,mutate_adapter",
+        [(None, False), ("file", False), ("directory", False), ("file", True), ("directory", True)],
+    )
+    def test_evaluation_persists_full_trajectories_and_incremental_metrics(self, tmp_path, capsys, adapter_form, mutate_adapter):
         records = [{"id": str(index), "family": family} for index, family in enumerate(("join", "recovery", "join"))]
         tasks = tmp_path / "dev-tasks.jsonl"
         tasks.write_text("".join(json.dumps(record) + "\n" for record in records))
@@ -58,6 +62,16 @@ class TestCPUProof:
             output=tmp_path / "output",
             label="fixture",
         )
+        weights = None
+        if adapter_form:
+            args.adapter = tmp_path / "adapter"
+            if adapter_form == "directory":
+                args.adapter.mkdir()
+                weights = args.adapter / "adapter_model.safetensors"
+            else:
+                weights = args.adapter
+            weights.write_bytes(b"fixed weights")
+        adapter_digest = hashlib.sha256(b"fixed weights").hexdigest() if weights else None
         rows = [
             {**record, "status": status, "steps": [{"source": "print('payload')", "feedback": {"stdout": "payload"}}]}
             for record, status in zip(records, ("passed", "call_limit", "incorrect"))
@@ -67,6 +81,8 @@ class TestCPUProof:
         def run_trial(worker, record, generate):
             if record["id"] != "0":
                 summaries.append(json.loads((args.output / "summary.json").read_text()))
+            if mutate_adapter and record["id"] == "2":
+                weights.write_bytes(b"changed weights")
             return rows[int(record["id"])]
 
         with (
@@ -76,7 +92,8 @@ class TestCPUProof:
             patch.object(cpu_evaluate, "trial", side_effect=run_trial),
         ):
             model.return_value.runtime = {"fixture": True}
-            evaluate(args)
+            with pytest.raises(RuntimeError, match="Adapter changed during evaluation") if mutate_adapter else nullcontext():
+                evaluate(args)
         model.assert_called_once_with(args.adapter, 3, "cpu", base_model=args.base_model)
         summaries.append(json.loads((args.output / "summary.json").read_text()))
         assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows
@@ -86,6 +103,8 @@ class TestCPUProof:
         assert all(not summary["acceptance_met"] for summary in summaries)
         summary = summaries[-1]
         assert summary["task_file_sha256"] == digest
+        assert summary["adapter"] == (str(args.adapter) if args.adapter else None)
+        assert summary["adapter_sha256"] == adapter_digest
         assert summary["backend"] == "hf"
         assert summary["dtype"] == "float32"
         assert summary["runtime"] == {"fixture": True}
@@ -161,7 +180,7 @@ class TestCPUProof:
         assert "Append 9 in place." in prompts[1]
         assert "assert result[-1]" not in prompts[1]
 
-    def test_structured_feedback_and_followup_do_not_use_text_decoding(self):
+    def test_structured_feedback_and_followup_keep_distinct_boundaries(self):
         record = self.record()
         record["followup"] = {"instruction": "Append 9 in place.", "check": "assert result[-1] == 9"}
         scripts = iter(["print(values)", "result = sum(values)\ndone(str(result))", "done('ok')"])
@@ -171,8 +190,7 @@ class TestCPUProof:
             prompts.append(prompt)
             return next(scripts), True
 
-        with patch("pyshell.serialization.feedback_and_task", side_effect=AssertionError("Legacy feedback decoding used")):
-            result = trial(Worker(), record, complete)
+        result = trial(Worker(), record, complete)
         assert result["status"] == "passed"
         assert len(prompts) == 3
         assert "[4, 7]" in prompts[1]

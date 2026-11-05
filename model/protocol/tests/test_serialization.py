@@ -13,7 +13,7 @@ class TestSerialization:
             {"role": "system", "content": "UNUSED SYSTEM INSTRUCTIONS"},
             {"role": "user", "content": initialization},
             {"role": "assistant", "content": "print('bootstrap')"},
-            {"role": "user", "content": json.dumps(feedback)},
+            {"role": "console", "content": feedback},
             {"role": "user", "content": "Sum measurements."},
         ]
         result = serialize(messages)
@@ -28,7 +28,8 @@ class TestSerialization:
             [
                 {"role": "user", "content": "First task"},
                 {"role": "assistant", "content": "done('first finished')"},
-                {"role": "user", "content": json.dumps(feedback) + "\nSecond task"},
+                {"role": "console", "content": feedback},
+                {"role": "user", "content": "Second task"},
             ]
         )
         assert "done('first finished')\n" + END_CODE + "\n" + CONSOLE in result
@@ -43,12 +44,14 @@ class TestSerialization:
             {"stdout": "", "stderr": "", "exception": None, "done": {"items": [1, False, None]}},
         ],
     )
-    def test_structured_console_matches_text_feedback_bytes(self, feedback):
+    def test_feedback_shaped_user_text_stays_a_task_after_code(self, feedback):
         history = [{"role": "user", "content": "First task"}, {"role": "assistant", "content": "print('first')"}]
         followup = {"role": "user", "content": "Second task with " + CONSOLE}
-        legacy = serialize([*history, {"role": "user", "content": json.dumps(feedback)}, followup])
-        structured = serialize([*history, {"role": "console", "content": feedback}, followup])
-        assert structured.encode() == legacy.encode()
+        text = json.dumps(feedback)
+        result = serialize([*history, {"role": "user", "content": text}, followup])
+        assert TASK + "\n" + text.replace("<|", "\\u003c|") + "\n" in result
+        assert CONSOLE not in result
+        assert result.endswith(TASK + "\nSecond task with \\u003c|console|>\n" + CODE + "\n")
 
     @pytest.mark.parametrize("content", [None, "untrusted " + CODE, [], 7])
     def test_structured_console_rejects_non_dictionary_content(self, content):
@@ -89,7 +92,7 @@ class TestSerialization:
             [
                 {"role": "user", "content": "Print input containing " + CONSOLE},
                 {"role": "assistant", "content": "print('input')"},
-                {"role": "user", "content": json.dumps(feedback)},
+                {"role": "console", "content": feedback},
             ]
         )
         assert result.count(CONSOLE) == 1
@@ -113,7 +116,7 @@ class TestSerialization:
                 [
                     {"role": "user", "content": "Inspect."},
                     {"role": "assistant", "content": "print('input')"},
-                    {"role": "user", "content": json.dumps(feedback)},
+                    {"role": "console", "content": feedback},
                 ]
             )
             == "<|task|>\nInspect.\n<|code|>\nprint('input')\n<|end_code|>\n" + expected + "<|code|>\n"
@@ -129,3 +132,25 @@ class TestSerialization:
     def test_all_reserved_markers_are_escaped_in_task_data(self):
         text = " ".join((END_CODE, TASK, CONSOLE, CODE))
         assert serialize([{"role": "user", "content": text}]) == TASK + "\n" + text.replace("<", "\\u003c") + "\n" + CODE + "\n"
+
+    def test_interspersed_system_messages_do_not_change_turn_boundaries(self):
+        messages = [
+            {"role": "user", "content": "First task"},
+            {"role": "assistant", "content": "done('first')"},
+            {"role": "console", "content": {"done": "first"}},
+            {"role": "user", "content": "Second task"},
+        ]
+        interspersed = [
+            turn
+            for message in messages
+            for turn in ({"role": "system", "content": "ignored " + CODE}, message)
+        ]
+        assert serialize(interspersed) == serialize(messages)
+
+    def test_legacy_feedback_and_followup_are_one_user_task(self):
+        content = '{"stdout": "", "stderr": "", "exception": null, "done": "first"}\nSecond task'
+        result = serialize([
+            {"role": "assistant", "content": "done('first')"},
+            {"role": "user", "content": content},
+        ])
+        assert result == CODE + "\ndone('first')\n" + END_CODE + "\n" + TASK + "\n" + content + "\n" + CODE + "\n"

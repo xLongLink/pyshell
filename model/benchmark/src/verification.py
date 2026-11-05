@@ -4,7 +4,7 @@ import json
 import argparse
 from pathlib import Path
 from contextlib import closing
-from model.benchmark.src.corpus import sha256, read_jsonl
+from model.benchmark.src.corpus import adapter_weights, load_tasks, sha256, read_jsonl
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.proof_policy import MAX_CALLS, FINAL_TASKS, final_passed, development_ready
 
@@ -50,18 +50,13 @@ def verify(experiment, data):
     dev = state["development"]
     if not development_ready(dev):
         raise ValueError("Development gate was not met")
-    manifest = json.loads((data / "manifest.json").read_text())
-    path = data / "test-tasks.jsonl"
-    task_digest = sha256(path)
-    if task_digest != manifest["splits"]["test"]["sha256"] or task_digest != summary["task_file_sha256"]:
+    _, task_digest, tasks = load_tasks(data, "test", final=True)
+    if task_digest != summary["task_file_sha256"]:
         raise ValueError("Final tasks differ from the frozen manifest")
-    adapter = Path(summary["adapter"])
-    if adapter.is_dir():
-        adapter /= "adapter_model.safetensors"
+    adapter = adapter_weights(Path(summary["adapter"]))
     adapter_digest = sha256(adapter)
     if adapter_digest != summary["adapter_sha256"]:
         raise ValueError("Adapter differs from the one evaluated")
-    tasks = read_jsonl(path)
     predictions = read_jsonl(experiment / "test/responses.jsonl")
     if len(tasks) != FINAL_TASKS or [row["id"] for row in predictions] != [row["id"] for row in tasks]:
         raise ValueError("Final predictions do not cover all 120 tasks exactly once")

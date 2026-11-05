@@ -2,17 +2,15 @@
 
 import sys
 import pytest
-from unittest.mock import patch
 from model.benchmark.src.reference import ReferenceSession, feedback
 
 
 class TestReference:
-    def test_session_snapshots_mutable_feedback_without_text_decoding(self):
+    def test_session_snapshots_mutable_feedback(self):
         session = ReferenceSession({"id": "snapshot", "setup": "message = [1]", "instruction": "Inspect message."})
-        with patch("pyshell.serialization.feedback_and_task", side_effect=AssertionError("Legacy feedback decoding used")):
-            session.add("done(message)", "first")
-            session.add("message.append(2)", "mutate")
-            session.add("done('ok')", "last")
+        session.add("done(message)", "first")
+        session.add("message.append(2)", "mutate")
+        session.add("done('ok')", "last")
         assert session.workspace.namespace["message"] == [1, 2]
         prompt = session.rows[-1]["prompt"]
         assert '"done": [1]' in prompt

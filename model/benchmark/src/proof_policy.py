@@ -1,12 +1,15 @@
 """Fixed acceptance rules for CPU execution-proof experiments."""
 
+import math
+
 MAX_CALLS = 4
 FINAL_TASKS = 120
-REQUIRED_PASSES = 97
+FINAL_SUCCESS_RATE = 0.8
+REQUIRED_PASSES = math.floor(FINAL_TASKS * FINAL_SUCCESS_RATE) + 1
 
 
 def acceptance_metadata():
-    return {"test_tasks": FINAL_TASKS, "required_passes": REQUIRED_PASSES, "strictly_greater_than": 0.8, "max_calls_per_stage": MAX_CALLS}
+    return {"test_tasks": FINAL_TASKS, "required_passes": REQUIRED_PASSES, "strictly_greater_than": FINAL_SUCCESS_RATE, "max_calls_per_stage": MAX_CALLS}
 
 
 def development_ready(summary):

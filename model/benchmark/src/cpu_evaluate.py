@@ -4,7 +4,7 @@ import json
 import argparse
 from pathlib import Path
 from contextlib import closing
-from model.benchmark.src.corpus import sha256, load_tasks
+from model.benchmark.src.corpus import adapter_weights, sha256, load_tasks
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.resources import exclusive_cpu
 from model.benchmark.src.proof_trial import trial
@@ -18,9 +18,7 @@ def evaluate(args):
     manifest, digest, records = load_tasks(args.data, args.split, final=args.final, limit=args.limit)
     from model.benchmark.src.inference import HFCompletion
 
-    adapter_file = None
-    if args.adapter:
-        adapter_file = args.adapter / "adapter_model.safetensors" if args.adapter.is_dir() else args.adapter
+    adapter_file = adapter_weights(args.adapter) if args.adapter else None
     adapter_digest = sha256(adapter_file) if adapter_file else None
     args.output.mkdir(parents=True, exist_ok=False)
     rows = []

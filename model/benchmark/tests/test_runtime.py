@@ -29,6 +29,7 @@ class TestRuntime:
         with patch.object(runtime, "torch") as torch:
             torch.cuda.is_available.return_value = available
             assert runtime.configure_device("auto") == expected
+            torch.cuda.is_available.assert_called_once_with()
             assert not torch.backends.cuda.matmul.allow_tf32
             assert not torch.backends.cudnn.allow_tf32
 

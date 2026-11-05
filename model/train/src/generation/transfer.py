@@ -20,6 +20,7 @@ from model.benchmark.src.task_types import CONTRACT
 from model.benchmark.src.transfer_families import BUILDERS, BuildContext
 from model.train.src.generation.construction import TaskRecord
 from model.train.src.generation.proof import build_task
+from model.train.src.generation.publication import seal_corpus
 
 ROOT = Path(__file__).resolve().parents[3] / "benchmark"
 TEMPLATE_PARTITIONS = {
@@ -349,11 +350,8 @@ def prepare(output):
             json.dumps(TEMPLATES, sort_keys=True).encode()
         ).hexdigest(),
     }
-    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     (output / "generator-frozen.py").write_bytes(Path(__file__).read_bytes())
-    for path in output.iterdir():
-        path.chmod(0o444)
-    print(json.dumps(manifest, indent=2), flush=True)
+    seal_corpus(output, manifest)
 
 
 def main(argv=None):
