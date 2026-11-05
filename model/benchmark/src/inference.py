@@ -31,17 +31,11 @@ class HFCompletion:
             "tf32": False,
         }
 
-    def __call__(self, prompt, *, streamer=None):
+    def __call__(self, prompt):
         inputs = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(self.model.device)
         with torch.inference_mode():
             output = self.model.generate(
-                **inputs,
-                do_sample=False,
-                max_new_tokens=384,
-                use_cache=True,
-                stop_strings=None,
-                stopping_criteria=self.stopping_criteria,
-                streamer=streamer,
+                **inputs, do_sample=False, max_new_tokens=384, use_cache=True, stop_strings=None, stopping_criteria=self.stopping_criteria
             )
         text = self.tokenizer.decode(output[0, inputs.input_ids.shape[1] :], skip_special_tokens=False)
         return parse_completion(text)

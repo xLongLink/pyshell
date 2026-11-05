@@ -4,7 +4,7 @@ import os
 import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import call, patch
 from model.benchmark.src.cli import run, parser
 from model.benchmark.src.runner import Limits
 from model.benchmark.src.backend import ContainerBackend
@@ -46,3 +46,26 @@ class TestEntrypoint:
         backend = ContainerBackend(8020, Path("unused.log"))
         assert backend.compose == Path(__file__).resolve().parents[1] / "compose.yaml"
         assert backend.compose.is_file()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("no_build", [False, True])
+    async def test_build_precedes_model_initialization_unless_disabled(self, tmp_path, no_build):
+        arguments = ["run", "--model", "test", "--api", "raw", "--output", str(tmp_path)]
+        if no_build:
+            arguments.append("--no-build")
+        args = parser().parse_args(arguments)
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "fixture-key"}),
+            patch.object(ContainerBackend, "command") as command,
+            patch("model.benchmark.src.cli.RawCompletionModel") as model,
+        ):
+
+            def initialize(*args, **kwargs):
+                assert command.await_args_list == ([] if no_build else [call("build", "pyshell")])
+                raise RuntimeError("model initialization failed")
+
+            model.side_effect = initialize
+            with pytest.raises(RuntimeError, match="model initialization failed"):
+                await run(args)
+            expected = [] if no_build else [call("build", "pyshell")]
+            assert command.await_args_list == [*expected, call("down", "--remove-orphans")]

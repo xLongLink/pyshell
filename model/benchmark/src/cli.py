@@ -157,7 +157,7 @@ async def run(args: argparse.Namespace) -> int:
     try:
         if backend and not args.no_build:
             print("Building dedicated execution image…")
-            await backend.build()
+            await backend.command("build", "pyshell")
         async with AsyncExitStack() as resources:
             if args.api == "raw":
                 model = await resources.enter_async_context(

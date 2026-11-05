@@ -2,26 +2,21 @@
 
 import pytest
 
-from model.benchmark.src.corpus import read_jsonl, write_jsonl
 from model.train.src.generation.expanded import make_record
 
 
 @pytest.fixture(scope="module")
-def corpus(tmp_path_factory):
-    directory = tmp_path_factory.mktemp("corpus")
+def corpus():
     splits = {}
     for split, families, seed in (
         ("train", range(40), 862019),
         ("validation", range(40, 50), 429371),
     ):
-        records = [
+        splits[split] = [
             make_record(variant * len(families) + index, family, seed, split, [])
             for variant in range(5)
             for index, family in enumerate(families)
         ]
-        path = directory / f"{split}.jsonl"
-        write_jsonl(path, records)
-        splits[split] = read_jsonl(path)
     return splits
 
 

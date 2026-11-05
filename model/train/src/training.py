@@ -90,7 +90,6 @@ def train(args):
         attn_implementation="sdpa",
         local_files_only=True,
     )
-    model.config.use_cache = False
     resume_state = (
         load_resume(args.resume, args.data, args.accumulation) if args.resume else None
     )

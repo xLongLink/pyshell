@@ -168,7 +168,6 @@ def prepare(output, seed=None):
         "manifest_sha256": sha256(output / "manifest.json"),
     }
     print(json.dumps(receipt, indent=2))
-    return receipt
 
 
 def main(argv=None):

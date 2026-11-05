@@ -74,13 +74,12 @@ class TestInference:
     def test_boundary_matcher_is_built_once_and_reused_across_requests(self):
         completion = self.completion()
         self.tokenizer.decode.return_value = "result = 1\n" + END_CODE
-        streamer = object()
         for _ in range(2):
-            assert completion("prompt", streamer=streamer) == ("result = 1\n", True)
+            assert completion("prompt") == ("result = 1\n", True)
             options = self.model.generate.call_args.kwargs
             assert options["stopping_criteria"] is completion.stopping_criteria
             assert options["stop_strings"] is None
-            assert options["streamer"] is streamer
+            assert "streamer" not in options
             assert options["max_new_tokens"] == 384
             assert not options["do_sample"]
 

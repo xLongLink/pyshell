@@ -49,9 +49,6 @@ class ContainerBackend:
         if returncode:
             raise RuntimeError(f"Docker Compose failed ({returncode}); see {self.log}")
 
-    async def build(self) -> None:
-        await self.command("build", "pyshell")
-
     async def fresh(self) -> None:
         await self.command("up", "--detach", "--force-recreate", "--wait", "--wait-timeout", "90", "pyshell")
 
