@@ -1,5 +1,3 @@
-"""Container-only execution worker; evaluation oracles arrive after generation."""
-
 import os
 import sys
 import json

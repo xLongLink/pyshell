@@ -1,11 +1,24 @@
-"""Check the reference executor's persistent state and completion semantics."""
-
 import sys
 import pytest
 from model.benchmark.src.reference import ReferenceSession, feedback
 
 
 class TestReference:
+    def test_check_only_session_does_not_copy_feedback_or_retain_a_trajectory(self):
+        session = ReferenceSession(
+            {"id": "check-only", "setup": "payload = (value for value in [1, 2])\nresult = []", "instruction": "Inspect payload."},
+            capture_rows=False,
+        )
+        session.add("done(payload)", "unused")
+        session.check("assert next(payload) == 1")
+        session.followup(
+            {"instruction": "Append in place.", "code": "result.append(3)", "check": "assert result is saved_result\nassert result == [3]"},
+            "unused-followup",
+        )
+        assert session.rows == []
+        assert session.turns == []
+        assert session.metadata == {}
+
     def test_session_snapshots_mutable_feedback(self):
         session = ReferenceSession({"id": "snapshot", "setup": "message = [1]", "instruction": "Inspect message."})
         session.add("done(message)", "first")

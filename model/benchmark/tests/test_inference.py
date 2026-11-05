@@ -1,5 +1,3 @@
-"""Keep boundary matching resident without changing generation or parsing."""
-
 import torch
 import pytest
 from types import SimpleNamespace
@@ -28,7 +26,7 @@ class TestInference:
         self.model.to.return_value = self.model
         self.model.eval.return_value = self.model
 
-    def completion(self, *, base_model="fixture-base", adapter=None):
+    def completion(self, *, base_model="fixture-base", adapter=None, device="cpu"):
         with (
             patch("model.benchmark.src.runtime.torch.set_num_interop_threads"),
             patch("model.benchmark.src.runtime.torch.set_num_threads"),
@@ -37,7 +35,7 @@ class TestInference:
             patch("model.benchmark.src.inference.PeftModel.from_pretrained", return_value=self.model) as load_adapter,
             patch("model.benchmark.src.inference.StopStringCriteria", return_value=SimpleNamespace()) as build,
         ):
-            completion = HFCompletion(adapter, 3, "cpu", base_model=base_model)
+            completion = HFCompletion(adapter, 3, device, base_model=base_model)
             build.assert_called_once_with(self.tokenizer, [END_CODE, TASK, CONSOLE, CODE])
             tokenizer.assert_called_once_with(base_model, local_files_only=True)
             model.assert_called_once_with(base_model, dtype=torch.float32, attn_implementation="sdpa", local_files_only=True)
@@ -53,6 +51,21 @@ class TestInference:
     @pytest.mark.parametrize("adapter", [None, "fixture-adapter"])
     def test_base_model_and_adapter_evaluation_remain_supported(self, adapter):
         self.completion(adapter=adapter)
+
+    @pytest.mark.parametrize("available", [False, True])
+    def test_auto_device_uses_resolved_device_and_runtime_metadata(self, available):
+        with (
+            patch("model.benchmark.src.runtime.torch.cuda.is_available", return_value=available),
+            patch("model.benchmark.src.inference.torch.cuda.get_device_name", return_value="fixture-gpu") as gpu,
+        ):
+            completion = self.completion(device="auto")
+        self.model.to.assert_called_once_with("cuda" if available else "cpu")
+        assert completion.runtime["gpu"] == ("fixture-gpu" if available else None)
+        assert completion.runtime["tf32"] is False
+        if available:
+            gpu.assert_called_once_with()
+        else:
+            gpu.assert_not_called()
 
     def test_runtime_failures_propagate_before_model_loading(self, subtests):
         for device, available in (("cuda", False), ("cpu", False), ("cuda", True)):

@@ -1,5 +1,3 @@
-"""Check balanced inspection and recovery supervision without a model."""
-
 import io
 import json
 import stat
@@ -132,7 +130,7 @@ class TestExecutedCurriculum:
     def test_training_template_cycle_wraps_after_six_pairs_for_every_family(
         self, subtests
     ):
-        from model.benchmark.src.task_families import FAMILIES
+        from model.benchmark.src.transfer_families import FAMILIES
         from model.train.src.generation.executed import training_tasks
 
         records = list(training_tasks(8, 917341))
@@ -149,7 +147,7 @@ class TestExecutedCurriculum:
     def test_every_family_and_variant_has_supervised_inspection_and_a_verified_answer(
         self, subtests
     ):
-        from model.benchmark.src.task_families import FAMILIES
+        from model.benchmark.src.transfer_families import FAMILIES
         from model.train.src.generation.executed import training_tasks
 
         records = list(training_tasks(2, 917341))

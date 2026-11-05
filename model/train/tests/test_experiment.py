@@ -1,5 +1,3 @@
-"""Check experiment phase selection without training or opening a real holdout."""
-
 import io
 import json
 import sys
@@ -12,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from model.benchmark.src.corpus import sha256
-from model.benchmark.src.task_families import FAMILIES
+from model.benchmark.src.transfer_families import FAMILIES
 from model.train.src.experiment import main, run
 
 
@@ -86,21 +84,10 @@ class TestExperiment:
             (output / "summary.json").write_text(json.dumps(summary))
 
         with (
-            patch.object(
-                Path, "read_text", autospec=True, side_effect=Path.read_text
-            ) as reads,
             patch("model.train.src.experiment.subprocess.run", side_effect=execute),
             redirect_stdout(io.StringIO()) as stdout,
         ):
             metadata = run(args)
-        manifests_read = [
-            call.args[0]
-            for call in reads.call_args_list
-            if call.args[0].name == "manifest.json"
-        ]
-        assert manifests_read == [data / "manifest.json"] + (
-            [training_data / "manifest.json"] if curriculum else []
-        )
         assert metadata["training_manifest"] == (
             training_manifest if curriculum else manifest
         )

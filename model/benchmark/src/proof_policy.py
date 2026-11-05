@@ -1,5 +1,3 @@
-"""Fixed acceptance rules for CPU execution-proof experiments."""
-
 import math
 
 MAX_CALLS = 4

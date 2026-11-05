@@ -1,3 +1,4 @@
+import random
 from dataclasses import dataclass
 
 CONTRACT = (
@@ -8,16 +9,32 @@ CONTRACT = (
 
 
 @dataclass
-class ConverterSpec:
-    gain: int
-    offset: int
-    multiplier: str
-    shift: str
+class TaskSeed:
+    rng: random.Random
+    name: str
+    values: list[int]
+    labels: list[str]
+
+    @property
+    def other(self):
+        return self.name + "_other"
+
+    @property
+    def setup(self):
+        return f"{self.name} = {self.values!r}"
+
+    @property
+    def inspection(self):
+        return f"print(type({self.name}).__name__)\nprint({self.name})"
 
 
 @dataclass
-class TaskFixture:
-    record: dict
-    values: list[int]
-    converter: ConverterSpec | None = None
+class ConstructedTask:
+    setup: str
+    inspect: str
+    code: str
+    expected: object
+    check: str
+    recovery_code: str | None = None
+    followup: dict | None = None
     extra: int | None = None

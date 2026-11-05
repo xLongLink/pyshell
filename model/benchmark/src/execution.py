@@ -1,5 +1,3 @@
-"""Network-isolated Python execution for trials and independent replay."""
-
 import json
 import uuid
 import selectors

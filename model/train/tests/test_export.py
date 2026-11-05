@@ -1,5 +1,3 @@
-"""Check adapter export routing without running the converter."""
-
 import sys
 from pathlib import Path
 from types import SimpleNamespace

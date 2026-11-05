@@ -1,5 +1,3 @@
-"""Run sequential development-selected CPU pilots, opening the final set at most once."""
-
 import argparse
 import json
 import math

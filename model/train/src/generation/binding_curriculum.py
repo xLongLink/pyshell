@@ -1,5 +1,3 @@
-"""Teach live object-role binding and recovery using training-only tasks."""
-
 import argparse
 from pathlib import Path
 

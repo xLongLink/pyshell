@@ -1,7 +1,4 @@
-"""Protect selection thresholds while orchestration changes."""
-
 from model.benchmark.src.proof_policy import final_passed, development_ready, acceptance_metadata
-from model.benchmark.src.cpu_evaluate import execution_metrics
 
 
 class TestProofPolicy:
@@ -32,16 +29,3 @@ class TestProofPolicy:
         assert final_passed(120, 97)
         assert not final_passed(120, 96)
         assert not final_passed(100, 97)
-
-    def test_metrics_count_failures_and_group_by_family(self):
-        rows = [
-            {"family": "join", "status": "passed"},
-            {"family": "recovery", "status": "call_limit"},
-            {"family": "join", "status": "incorrect"},
-        ]
-        metrics = execution_metrics(rows)
-        assert metrics["tasks"] == 3
-        assert metrics["passed"] == 1
-        assert metrics["success_rate"] == 1 / 3
-        assert metrics["by_family"] == {"join": {"tasks": 2, "passed": 1}, "recovery": {"tasks": 1, "passed": 0}}
-        assert metrics["statuses"] == {"passed": 1, "call_limit": 1, "incorrect": 1}

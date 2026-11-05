@@ -1,5 +1,3 @@
-"""Read and write execution records and verify corpus provenance."""
-
 import json
 import hashlib
 

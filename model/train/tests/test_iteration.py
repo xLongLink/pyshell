@@ -1,5 +1,3 @@
-"""Protect checkpoint selection and the one-shot final-test boundary."""
-
 import io
 import json
 import tempfile
@@ -10,8 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from model.benchmark.src.cpu_evaluate import execution_metrics
-from model.benchmark.src.task_families import FAMILIES
+from model.benchmark.src.transfer_families import FAMILIES
 from model.train.src.iteration import main, run
 
 
@@ -26,7 +23,16 @@ class TestIteration:
             }
             for index in range(60)
         ]
-        summary = {"complete": True, **execution_metrics(rows)}
+        summary = {
+            "complete": True,
+            "tasks": 60,
+            "passed": passed,
+            "success_rate": passed / 60,
+            "by_family": {
+                family: {"tasks": 5, "passed": sum(row["family"] == family and row["status"] == "passed" for row in rows)}
+                for family in FAMILIES
+            },
+        }
         (directory / "summary.json").write_text(json.dumps(summary))
         (directory / "responses.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in rows)

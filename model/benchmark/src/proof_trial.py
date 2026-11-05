@@ -1,7 +1,5 @@
-"""Run a bounded task while keeping setup and grading out of model context."""
-
 import time
-from pyshell.serialization import serialize
+from pyshell.serialization import Prompt
 from model.benchmark.src.proof_policy import MAX_CALLS
 
 
@@ -9,7 +7,8 @@ def trial(worker, record, generate):
     setup = worker.execute(record["setup"], "reset")
     if setup["exception"]:
         raise RuntimeError(f"Invalid fixture {record['id']}: {setup['exception']}")
-    turns = [{"role": "user", "content": record["instruction"]}]
+    prompt = Prompt()
+    prompt.append({"role": "user", "content": record["instruction"]})
     stages = [{"instruction": record["instruction"], "check": record["check"]}]
     if record["followup"]:
         stages.append(record["followup"])
@@ -17,10 +16,10 @@ def trial(worker, record, generate):
     for stage_index, stage in enumerate(stages):
         if stage_index:
             worker.execute("saved_result = result")
-            turns.append({"role": "user", "content": stage["instruction"]})
+            prompt.append({"role": "user", "content": stage["instruction"]})
         for _ in range(MAX_CALLS):
             started = time.monotonic()
-            source, ended = generate(serialize(turns))
+            source, ended = generate(prompt.render())
             step = {"source": source, "stage": stage_index, "end_marker_seen": ended, "seconds": time.monotonic() - started}
             row["steps"].append(step)
             if not ended or not source.strip():
@@ -28,7 +27,8 @@ def trial(worker, record, generate):
                 return row
             result = worker.execute(source)
             step["feedback"] = result
-            turns.extend([{"role": "assistant", "content": source}, {"role": "console", "content": result}])
+            prompt.append({"role": "assistant", "content": source})
+            prompt.append({"role": "console", "content": result})
             if result["done"] is not None and not result["exception"]:
                 grade = worker.execute(stage["check"])
                 if grade["exception"]:

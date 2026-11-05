@@ -1,24 +1,16 @@
-"""Build a template-held-out, contrastive successor to the first CPU proof."""
-
 import argparse
 import hashlib
 import json
 import random
 import secrets
-import statistics
 from collections import Counter
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
-
-from model.benchmark.src import task_families
 from model.benchmark.src.corpus import sha256, write_jsonl
 from model.benchmark.src.proof_policy import acceptance_metadata
 from model.benchmark.src.reference import ReferenceSession
-from model.benchmark.src.task_families import FAMILIES
 from model.benchmark.src.task_types import CONTRACT
-from model.benchmark.src.transfer_families import BUILDERS, BuildContext
+from model.benchmark.src.transfer_families import FAMILIES, build_family
 from model.train.src.generation.construction import TaskRecord
 from model.train.src.generation.publication import seal_corpus
 
@@ -190,58 +182,40 @@ TEMPLATES = {
 }
 
 
-def build_task(family, index, seed, *, name):
-    builder = task_families.BUILDERS[family]
-    rng = random.Random(seed + index * 104729)
-    # Preserve the discarded name draw so existing datasets retain their values.
-    rng.randrange(100000, 999999)
-    count = rng.randint(4, 14)
-    values = rng.sample(range(-300, 501), count)
-    labels = [rng.choice(["copper", "silver", "gold"]) for _ in values]
-    fixture_seed = task_families.FixtureSeed(rng, name, values, labels)
-    return builder(fixture_seed)
-
-
-def make_task(family, pair, variant, seed, split, slot) -> TaskRecord:
+def assemble_task(family, pair, variant, seed, split, slot):
     rng = random.Random(seed + pair * 65537)
     name = f"{rng.choice(NAMES)}_{rng.randrange(10000, 999999)}"
-    fixture = build_task(family, pair, seed, name=name)
-    record = fixture.record
-    ns = {"np": np, "pd": pd, "statistics": statistics, "json": json}
-    exec(record["setup"], ns)
-    build = BuildContext(
-        fixture=fixture,
-        namespace=ns,
-        name=name,
-        pair=pair,
-        variant=variant,
-        slot=slot,
-        split=split,
-        wording={},
-    )
-    solution = BUILDERS[family](build)
-    instruction = TEMPLATES[family][slot].format(
-        name=build.name, other=build.other, **build.wording
+    constructed, wording = build_family(
+        family, pair, variant, seed, split, slot, name=name
     )
     task = TaskRecord(
         {
             "id": f"{split}-{family}-{pair:04d}-v{variant}",
             "family": family,
-            "setup": record["setup"],
-            "instruction": instruction + "\n" + CONTRACT,
-            "inspect": record["inspect"],
-            "code": solution.code + "\ndone(str(result))",
-            "check": solution.check,
-            "followup": record["followup"],
+            "setup": constructed.setup,
+            "instruction": "",
+            "inspect": constructed.inspect,
+            "code": constructed.code + "\ndone(str(result))",
+            "check": constructed.check,
+            "followup": constructed.followup,
             "template_id": f"{family}-t{slot}",
             "contrast_group": f"{split}-{family}-{pair:04d}",
             "variant": variant,
-            "recovery_code": solution.recovery_code,
-            "expected": solution.expected,
+            "recovery_code": constructed.recovery_code,
+            "expected": constructed.expected,
         },
         name=name,
     )
-    task.extra = fixture.extra
+    task.extra = constructed.extra
+    return task, wording
+
+
+def make_task(family, pair, variant, seed, split, slot) -> TaskRecord:
+    task, wording = assemble_task(family, pair, variant, seed, split, slot)
+    instruction = TEMPLATES[family][slot].format(
+        name=task.name, other=task.other, **wording
+    )
+    task["instruction"] = instruction + "\n" + CONTRACT
     return task
 
 
@@ -270,19 +244,25 @@ def supervision(
         retry = bool(record["recovery_code"] and record["variant"])
     id_prefix = record["id"] if id_prefix is None else id_prefix
 
-    def add(source, supervise=True, expect_error=False):
-        record_id = id_prefix + f"-s{len(session.turns)}" if supervise else None
-        session.add(source, record_id, expect_error=expect_error)
-
-    add(record["inspect"], include_inspection)
+    session.add(
+        record["inspect"],
+        id_prefix + "-s1" if capture_rows and include_inspection else None,
+    )
     if retry:
-        add(f"values = {record.name}.read()", expect_error=True)
-        add(record["recovery_code"])
+        session.add(
+            f"values = {record.name}.read()",
+            id_prefix + "-s3" if capture_rows else None,
+            expect_error=True,
+        )
+        session.add(
+            record["recovery_code"], id_prefix + "-s5" if capture_rows else None
+        )
     else:
-        add(record["code"])
+        session.add(record["code"], id_prefix + "-s3" if capture_rows else None)
     session.check(record["check"])
     if record["followup"]:
-        session.followup(record["followup"], id_prefix + f"-s{len(session.turns) + 1}")
+        record_id = id_prefix + f"-s{len(session.turns) + 1}" if capture_rows else None
+        session.followup(record["followup"], record_id)
     return session.rows
 
 

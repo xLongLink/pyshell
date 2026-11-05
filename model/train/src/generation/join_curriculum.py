@@ -1,5 +1,3 @@
-"""Consolidate join selection while replaying learned binding skills."""
-
 import argparse
 from pathlib import Path
 

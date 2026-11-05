@@ -1,11 +1,9 @@
-"""Capture reference-script feedback for supervision generators."""
-
 import io
 import json
 import traceback
 import statistics
 from contextlib import redirect_stderr, redirect_stdout
-from pyshell.serialization import serialize
+from pyshell.serialization import Prompt
 
 
 def feedback(source, namespace):
@@ -44,8 +42,11 @@ class ReferenceSession:
         setup = self.workspace.execute(record["setup"], "reset")
         if setup["exception"]:
             raise AssertionError((record["id"], setup))
-        self.turns = [{"role": "user", "content": record["instruction"]}]
-        self.metadata = {key: record[key] for key in ("family", "template_id") if key in record}
+        self.turns = [{"role": "user", "content": record["instruction"]}] if capture_rows else []
+        self._prompt = Prompt()
+        for turn in self.turns:
+            self._prompt.append(turn)
+        self.metadata = {key: record[key] for key in ("family", "template_id") if key in record} if capture_rows else {}
         self.rows = []
         self.capture_rows = capture_rows
         self.id = record["id"]
@@ -54,11 +55,15 @@ class ReferenceSession:
         from copy import deepcopy
 
         if self.capture_rows and record_id is not None:
-            self.rows.append({"id": record_id, **self.metadata, "prompt": serialize(self.turns), "completion": source})
+            self.rows.append({"id": record_id, **self.metadata, "prompt": self._prompt.render(), "completion": source})
         result = self.workspace.execute(source)
         if bool(result["exception"]) != expect_error:
             raise AssertionError((self.id, source, result))
-        self.turns.extend([{"role": "assistant", "content": source}, {"role": "console", "content": deepcopy(result)}])
+        if self.capture_rows:
+            turns = [{"role": "assistant", "content": source}, {"role": "console", "content": deepcopy(result)}]
+            for turn in turns:
+                self._prompt.append(turn)
+            self.turns.extend(turns)
 
     def check(self, source):
         result = self.workspace.execute(source)
@@ -67,6 +72,9 @@ class ReferenceSession:
 
     def followup(self, followup, record_id):
         self.check("saved_result = result")
-        self.turns.append({"role": "user", "content": followup["instruction"]})
+        if self.capture_rows:
+            turn = {"role": "user", "content": followup["instruction"]}
+            self._prompt.append(turn)
+            self.turns.append(turn)
         self.add(followup["code"] + "\ndone(str(result))", record_id)
         self.check(followup["check"])

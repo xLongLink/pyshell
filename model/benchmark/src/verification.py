@@ -1,5 +1,3 @@
-"""Replay every frozen final-test prediction before accepting an experiment."""
-
 import json
 import argparse
 from pathlib import Path

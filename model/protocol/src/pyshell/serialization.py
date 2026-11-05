@@ -1,5 +1,3 @@
-"""Raw task/code/console framing shared by training and inference."""
-
 import json
 from collections.abc import Mapping, Sequence
 
@@ -7,7 +5,6 @@ TASK = "<|task|>"
 CODE = "<|code|>"
 CONSOLE = "<|console|>"
 END_CODE = "<|end_code|>"
-FORMAT = "task-code-console-v1"
 MARKERS = (END_CODE, TASK, CONSOLE, CODE)
 
 
@@ -26,27 +23,42 @@ def console_block(feedback: dict) -> str:
 
 def serialize(messages: Sequence[Mapping[str, str | dict]]) -> str:
     """Render context without a system role or a pretrained chat template."""
-    parts = []
-    for turn in messages:
-        if turn["role"] == "system":
-            continue
-        content = turn["content"]
-        if turn["role"] in {"assistant", "user"} and not isinstance(content, str):
-            raise TypeError("Text history content must be a string")
-        if turn["role"] == "assistant":
-            if any(marker in content for marker in MARKERS):
-                raise ValueError("Code history contains a reserved framing marker")
-            parts.append(f"{CODE}\n{content}\n{END_CODE}\n")
-        elif turn["role"] == "console":
-            if not isinstance(content, dict):
-                raise TypeError("Console content must be a feedback dictionary")
-            parts.append(console_block(content))
-        elif turn["role"] == "user":
-            if content.strip():
-                parts.append(f"{TASK}\n{escape_text(content)}\n")
-        else:
-            raise ValueError(f"Unsupported source role: {turn['role']}")
-    return "".join(parts) + CODE + "\n"
+    return "".join(_block(turn) for turn in messages) + CODE + "\n"
+
+
+def _block(turn: Mapping[str, str | dict]) -> str:
+    role = turn["role"]
+    if role == "system":
+        return ""
+    content = turn["content"]
+    if role in {"assistant", "user"} and not isinstance(content, str):
+        raise TypeError("Text history content must be a string")
+    if role == "assistant":
+        if any(marker in content for marker in MARKERS):
+            raise ValueError("Code history contains a reserved framing marker")
+        return f"{CODE}\n{content}\n{END_CODE}\n"
+    if role == "console":
+        if not isinstance(content, dict):
+            raise TypeError("Console content must be a feedback dictionary")
+        return console_block(content)
+    if role == "user":
+        return f"{TASK}\n{escape_text(content)}\n" if content.strip() else ""
+    raise ValueError(f"Unsupported source role: {role}")
+
+
+class Prompt:
+    """Snapshot each appended message as a serialized block."""
+
+    def __init__(self) -> None:
+        self._blocks: list[str] = []
+
+    def append(self, message: Mapping[str, str | dict]) -> None:
+        """Validate and serialize a new message without revisiting history."""
+        self._blocks.append(_block(message))
+
+    def render(self) -> str:
+        """Join the saved blocks with the next code boundary."""
+        return "".join(self._blocks) + CODE + "\n"
 
 
 def target_text(code: str) -> str:

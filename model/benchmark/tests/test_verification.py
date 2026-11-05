@@ -1,12 +1,6 @@
-"""Protect final replay provenance and report failures without model weights."""
-
-import io
 import json
 import pytest
 import hashlib
-import tempfile
-from pathlib import Path
-from contextlib import redirect_stdout
 from unittest.mock import patch
 from model.benchmark.src.proof_policy import MAX_CALLS
 from model.benchmark.src.verification import replay, verify
@@ -132,12 +126,12 @@ class TestVerification:
         )
         return experiment, data, weights
 
-    def test_valid_artifacts_replay_with_file_and_directory_adapters(self, subtests):
+    def test_valid_artifacts_replay_with_file_and_directory_adapters(self, subtests, tmp_path):
         for directory_adapter in (False, True):
-            with subtests.test(directory_adapter=directory_adapter), tempfile.TemporaryDirectory() as temporary:
-                experiment, data, _ = self.artifacts(Path(temporary), directory_adapter)
+            with subtests.test(directory_adapter=directory_adapter):
+                experiment, data, _ = self.artifacts(tmp_path / str(directory_adapter), directory_adapter)
                 worker = ReplayWorkspace()
-                with patch("model.benchmark.src.verification.Worker", return_value=worker), redirect_stdout(io.StringIO()):
+                with patch("model.benchmark.src.verification.Worker", return_value=worker):
                     verify(experiment, data)
                 report = json.loads((experiment / "test/verification.json").read_text())
                 assert report["objective_verified"]
@@ -145,10 +139,10 @@ class TestVerification:
                 assert report["status_mismatches"] == []
                 assert worker.closed
 
-    def test_worker_closes_and_preserves_replay_exceptions(self, subtests):
+    def test_worker_closes_and_preserves_replay_exceptions(self, subtests, tmp_path):
         for error in (TimeoutError("worker unavailable"), KeyboardInterrupt()):
-            with subtests.test(error=type(error).__name__), tempfile.TemporaryDirectory(dir="/tmp/opencode") as temporary:
-                experiment, data, _ = self.artifacts(Path(temporary))
+            with subtests.test(error=type(error).__name__):
+                experiment, data, _ = self.artifacts(tmp_path / type(error).__name__)
                 worker = ReplayWorkspace()
                 with (
                     patch("model.benchmark.src.verification.Worker", return_value=worker),
@@ -160,10 +154,10 @@ class TestVerification:
                 assert worker.closed
                 assert not (experiment / "test/verification.json").exists()
 
-    def test_changed_tasks_or_weights_are_rejected_before_execution(self, subtests):
+    def test_changed_tasks_or_weights_are_rejected_before_execution(self, subtests, tmp_path):
         for changed in ("tasks", "weights"):
-            with subtests.test(changed=changed), tempfile.TemporaryDirectory() as temporary:
-                experiment, data, weights = self.artifacts(Path(temporary))
+            with subtests.test(changed=changed):
+                experiment, data, weights = self.artifacts(tmp_path / changed)
                 path = weights if changed == "weights" else data / "test-tasks.jsonl"
                 path.write_bytes(path.read_bytes() + b"\n")
                 with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
@@ -190,10 +184,10 @@ class TestVerification:
         with pytest.raises(ValueError, match="Development gate was not met"):
             verify(experiment, data)
 
-    def test_predictions_must_cover_tasks_once_and_in_order(self, subtests):
+    def test_predictions_must_cover_tasks_once_and_in_order(self, subtests, tmp_path):
         for invalid in ("missing", "duplicate", "reordered"):
-            with subtests.test(invalid=invalid), tempfile.TemporaryDirectory() as temporary:
-                experiment, data, _ = self.artifacts(Path(temporary))
+            with subtests.test(invalid=invalid):
+                experiment, data, _ = self.artifacts(tmp_path / invalid)
                 path = experiment / "test/responses.jsonl"
                 rows = path.read_text().splitlines()
                 if invalid == "missing":
@@ -208,38 +202,36 @@ class TestVerification:
                         verify(experiment, data)
 
     @pytest.mark.parametrize("blank_tasks", [False, True])
-    def test_blank_jsonl_records_are_not_silently_ignored(self, blank_tasks):
-        with tempfile.TemporaryDirectory() as temporary:
-            experiment, data, _ = self.artifacts(Path(temporary))
-            path = data / "test-tasks.jsonl" if blank_tasks else experiment / "test/responses.jsonl"
-            path.write_text("\n" + path.read_text())
-            if blank_tasks:
-                digest = hashlib.sha256(path.read_bytes()).hexdigest()
-                manifest_path = data / "manifest.json"
-                manifest = json.loads(manifest_path.read_text())
-                manifest["splits"]["test"]["sha256"] = digest
-                manifest_path.write_text(json.dumps(manifest))
-                summary_path = experiment / "test/summary.json"
-                summary = json.loads(summary_path.read_text())
-                summary["task_file_sha256"] = digest
-                summary_path.write_text(json.dumps(summary))
-            with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
-                with pytest.raises(json.JSONDecodeError):
-                    verify(experiment, data)
+    def test_blank_jsonl_records_are_not_silently_ignored(self, blank_tasks, tmp_path):
+        experiment, data, _ = self.artifacts(tmp_path)
+        path = data / "test-tasks.jsonl" if blank_tasks else experiment / "test/responses.jsonl"
+        path.write_text("\n" + path.read_text())
+        if blank_tasks:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            manifest_path = data / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["splits"]["test"]["sha256"] = digest
+            manifest_path.write_text(json.dumps(manifest))
+            summary_path = experiment / "test/summary.json"
+            summary = json.loads(summary_path.read_text())
+            summary["task_file_sha256"] = digest
+            summary_path.write_text(json.dumps(summary))
+        with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
+            with pytest.raises(json.JSONDecodeError):
+                verify(experiment, data)
 
-    def test_failed_replay_publishes_mismatch_report_before_raising(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            experiment, data, _ = self.artifacts(Path(temporary))
-            path = experiment / "test/responses.jsonl"
-            rows = [json.loads(line) for line in path.read_text().splitlines()]
-            rows[0]["steps"][0]["source"] = "result = value + 2\ndone('claimed success')"
-            path.write_text("".join(json.dumps(row) + "\n" for row in rows))
-            worker = ReplayWorkspace()
-            with patch("model.benchmark.src.verification.Worker", return_value=worker), redirect_stdout(io.StringIO()):
-                with pytest.raises(RuntimeError, match="independent replay"):
-                    verify(experiment, data)
-            report = json.loads((experiment / "test/verification.json").read_text())
-            assert not report["objective_verified"]
-            assert report["replayed_passed"] == 119
-            assert report["status_mismatches"] == [{"id": "task-0", "original": "passed", "replay": "incorrect"}]
-            assert worker.closed
+    def test_failed_replay_publishes_mismatch_report_before_raising(self, tmp_path):
+        experiment, data, _ = self.artifacts(tmp_path)
+        path = experiment / "test/responses.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        rows[0]["steps"][0]["source"] = "result = value + 2\ndone('claimed success')"
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        worker = ReplayWorkspace()
+        with patch("model.benchmark.src.verification.Worker", return_value=worker):
+            with pytest.raises(RuntimeError, match="independent replay"):
+                verify(experiment, data)
+        report = json.loads((experiment / "test/verification.json").read_text())
+        assert not report["objective_verified"]
+        assert report["replayed_passed"] == 119
+        assert report["status_mismatches"] == [{"id": "task-0", "original": "passed", "replay": "incorrect"}]
+        assert worker.closed

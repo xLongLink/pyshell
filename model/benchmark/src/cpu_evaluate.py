@@ -1,5 +1,3 @@
-"""Measure fresh-workspace execution through a network-isolated Python container."""
-
 import json
 import argparse
 from pathlib import Path
@@ -14,24 +12,6 @@ from model.benchmark.src.proof_policy import final_passed
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def execution_metrics(rows):
-    groups = {}
-    statuses = Counter()
-    for row in rows:
-        group = groups.setdefault(row["family"], {"tasks": 0, "passed": 0})
-        group["tasks"] += 1
-        group["passed"] += row["status"] == "passed"
-        statuses[row["status"]] += 1
-    passed = statuses["passed"]
-    return {
-        "tasks": len(rows),
-        "passed": passed,
-        "success_rate": passed / len(rows),
-        "by_family": dict(sorted(groups.items())),
-        "statuses": dict(statuses),
-    }
-
-
 def evaluate(args):
     manifest, digest, records = load_tasks(args.data, args.split, final=args.final, limit=args.limit)
     from model.benchmark.src.inference import HFCompletion
@@ -39,21 +19,29 @@ def evaluate(args):
     adapter_file = adapter_weights(args.adapter) if args.adapter else None
     adapter_digest = sha256(adapter_file) if adapter_file else None
     args.output.mkdir(parents=True, exist_ok=False)
-    rows = []
+    groups = {}
+    statuses = Counter()
     with exclusive_cpu():
         generate = HFCompletion(args.adapter, args.threads, args.device, base_model=args.base_model)
-        with closing(Worker()) as worker:
+        with closing(Worker()) as worker, (args.output / "responses.jsonl").open("a") as file:
             for index, record in enumerate(records, 1):
                 row = trial(worker, record, generate)
-                rows.append({"family": row["family"], "status": row["status"]})
-                with (args.output / "responses.jsonl").open("a") as file:
-                    file.write(json.dumps(row) + "\n")
-                metrics = execution_metrics(rows)
+                file.write(json.dumps(row) + "\n")
+                file.flush()
+                group = groups.setdefault(row["family"], {"tasks": 0, "passed": 0})
+                group["tasks"] += 1
+                group["passed"] += row["status"] == "passed"
+                statuses[row["status"]] += 1
+                passed = statuses["passed"]
                 summary = {
                     "label": args.label,
                     "split": args.split,
-                    "complete": len(rows) == len(records),
-                    **metrics,
+                    "complete": index == len(records),
+                    "tasks": index,
+                    "passed": passed,
+                    "success_rate": passed / index,
+                    "by_family": dict(sorted(groups.items())),
+                    "statuses": dict(statuses),
                     "task_file_sha256": digest,
                     "adapter": str(args.adapter) if args.adapter else None,
                     "adapter_sha256": adapter_digest,
@@ -63,11 +51,11 @@ def evaluate(args):
                     "runtime": generate.runtime,
                     "scope": manifest["scope"],
                     "isolation": "network-disabled container; fresh PythonShell per task; no reference prior context",
-                    "acceptance_met": args.split == "test" and final_passed(len(rows), metrics["passed"]),
+                    "acceptance_met": args.split == "test" and final_passed(index, passed),
                 }
                 (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
                 print(
-                    f"{args.label} {args.split} {index}/{len(records)}: {metrics['passed']} passed; {record['family']}={row['status']}",
+                    f"{args.label} {args.split} {index}/{len(records)}: {passed} passed; {record['family']}={row['status']}",
                     flush=True,
                 )
     if adapter_file and sha256(adapter_file) != adapter_digest:

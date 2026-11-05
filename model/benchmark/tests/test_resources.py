@@ -1,22 +1,18 @@
-"""Check that the lock lifetime follows its file context."""
-
 import fcntl
 import pytest
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 from model.benchmark.src import resources
 
 
 class TestResource:
-    def test_context_releases_the_lock_on_normal_and_exceptional_exit(self, subtests):
+    def test_context_releases_the_lock_on_normal_and_exceptional_exit(self, subtests, tmp_path):
         for error in (None, RuntimeError, KeyboardInterrupt):
+            directory = tmp_path / (error.__name__ if error is not None else "normal")
             with (
                 subtests.test(error=error),
-                tempfile.TemporaryDirectory() as directory,
-                patch.object(resources, "__file__", str(Path(directory) / "src/resources.py")),
+                patch.object(resources, "__file__", str(directory / "src/resources.py")),
             ):
-                path = Path(directory) / "artifacts/cpu-workload.lock"
+                path = directory / "artifacts/cpu-workload.lock"
 
                 def workload(path, error):
                     with resources.exclusive_cpu():

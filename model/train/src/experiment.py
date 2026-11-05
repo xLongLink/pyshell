@@ -1,5 +1,3 @@
-"""Run a bounded CPU pilot, selecting on development tasks before the frozen test."""
-
 import argparse
 import json
 import subprocess

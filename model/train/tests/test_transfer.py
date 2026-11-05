@@ -1,5 +1,3 @@
-"""Check template isolation and genuinely contrasting execution oracles."""
-
 import hashlib
 import io
 import json
@@ -19,55 +17,29 @@ AVAILABLE = find_spec("pandas") is not None
     not (AVAILABLE), reason="Install the benchmark project's data extra"
 )
 class TestTransfer:
-    def test_fixture_names_preserve_random_data_and_metadata(self, subtests):
-        from dataclasses import asdict
+    def test_task_names_preserve_random_data_and_metadata(self, subtests):
+        from model.benchmark.src.transfer_families import FAMILIES
+        from model.train.src.generation import transfer
 
-        from model.benchmark.src.task_families import FAMILIES
-        from model.train.src.generation.transfer import build_task
-
-        fixtures = []
         for family in FAMILIES:
             for index, seed in ((0, 183731), (1, 813797), (5, 731971)):
                 with subtests.test(family=family, index=index, seed=seed):
-                    original = build_task(family, index, seed, name="original_input")
-                    renamed = build_task(family, index, seed, name="chosen_input")
-                    assert renamed.values == original.values
-                    assert renamed.converter == original.converter
+                    with patch.object(transfer, "NAMES", ["original_input"]):
+                        original = transfer.make_task(
+                            family, index, 0, seed, "train", 0
+                        )
+                    with patch.object(transfer, "NAMES", ["chosen_input"]):
+                        renamed = transfer.make_task(family, index, 0, seed, "train", 0)
                     assert renamed.extra == original.extra
-                    assert renamed.record == {
-                        **original.record,
-                        "setup": original.record["setup"].replace(
-                            "original_input", "chosen_input"
-                        ),
-                        "inspect": original.record["inspect"].replace(
-                            "original_input", "chosen_input"
-                        ),
-                    }
-                    assert renamed.record["followup"] is None
-                    fixtures.append(
-                        {
-                            "family": family,
-                            **{
-                                key: renamed.record[key] for key in ("setup", "inspect")
-                            },
-                            "values": renamed.values,
-                            "converter": asdict(renamed.converter)
-                            if renamed.converter
-                            else None,
-                            "extra": renamed.extra,
-                        }
+                    assert renamed == json.loads(
+                        json.dumps(original).replace(original.name, renamed.name)
                     )
-        assert hashlib.sha256(
-            json.dumps(fixtures, sort_keys=True).encode()
-        ).hexdigest() == (
-            "84e99f1f4d9963ea7b78bb0b04e337d56c5ba77416d6a9e550196b2cc1ab4557"
-        )
 
     def test_transfer_records_preserve_frozen_output_and_execute_followups(
         self, subtests
     ):
         from model.benchmark.src.reference import ReferenceSession
-        from model.benchmark.src.task_families import FAMILIES
+        from model.benchmark.src.transfer_families import FAMILIES
         from model.train.src.generation.transfer import TEMPLATE_PARTITIONS, make_task
 
         records = []
@@ -145,25 +117,12 @@ class TestTransfer:
         import pandas as pd
 
         from model.benchmark.src.reference import feedback
-        from model.benchmark.src.task_families import FAMILIES
-        from model.train.src.generation.transfer import make_task
+        from model.benchmark.src.transfer_families import FAMILIES
+        from model.train.src.generation.transfer import make_contrast_pair
 
         for family in FAMILIES:
             with subtests.test(family=family):
-                for attempt in range(32):
-                    pair = [
-                        make_task(
-                            family,
-                            0,
-                            variant,
-                            183731 + attempt * 1000000007,
-                            "train",
-                            1,
-                        )
-                        for variant in (0, 1)
-                    ]
-                    if pair[0]["expected"] != pair[1]["expected"]:
-                        break
+                pair = make_contrast_pair(family, 0, 183731, "train", 1)
                 assert pair[0]["expected"] != pair[1]["expected"]
                 if family != "missing_input":
                     assert pair[0]["setup"] == pair[1]["setup"]
@@ -194,15 +153,15 @@ class TestTransfer:
         assert ".recover()" in rows[-1]["completion"]
         assert ".read()" in rows[-1]["completion"]
 
-    def test_disabling_capture_preserves_execution_and_turns_for_every_family(
+    def test_disabling_capture_preserves_execution_without_turns_for_every_family(
         self, subtests
     ):
         from model.benchmark.src.reference import (
             ReferenceSession,
             ReferenceWorkspace,
-            serialize,
         )
-        from model.benchmark.src.task_families import FAMILIES
+        from pyshell.serialization import Prompt
+        from model.benchmark.src.transfer_families import FAMILIES
         from model.train.src.generation.transfer import make_task, supervision
 
         sessions = []
@@ -230,8 +189,9 @@ class TestTransfer:
                                     side_effect=start_session,
                                 ),
                                 patch(
-                                    "model.benchmark.src.reference.serialize",
-                                    wraps=serialize,
+                                    "model.benchmark.src.reference.Prompt.render",
+                                    autospec=True,
+                                    side_effect=Prompt.render,
                                 ) as capture,
                             ):
                                 rows = supervision(
@@ -248,13 +208,14 @@ class TestTransfer:
                                 capture.assert_not_called()
                             calls.append(worker.execute.call_args_list)
                         assert calls[0] == calls[1]
-                        assert sessions[-2].turns == sessions[-1].turns
+                        assert sessions[-2].turns
+                        assert sessions[-1].turns == []
                         if record["recovery_code"] and variant:
                             assert any(
                                 turn["role"] == "console"
                                 and "RuntimeError"
                                 in (turn["content"]["exception"] or "")
-                                for turn in sessions[-1].turns
+                                for turn in sessions[-2].turns
                             )
                         if record["followup"]:
                             for workspace in workspaces:

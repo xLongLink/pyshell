@@ -1,12 +1,13 @@
-"""Interpret generated code and its protocol boundary."""
+import re
 
 from pyshell.serialization import MARKERS, END_CODE
+
+BOUNDARY = re.compile("|".join(re.escape(marker) for marker in MARKERS))
 
 
 def parse_completion(text: str) -> tuple[str, bool]:
     """Return code before the first marker and whether it ended explicitly."""
-    boundaries = [(offset, marker) for marker in MARKERS if (offset := text.find(marker)) >= 0]
-    if not boundaries:
+    match = BOUNDARY.search(text)
+    if match is None:
         return text, False
-    offset, marker = min(boundaries)
-    return text[:offset], marker == END_CODE
+    return text[:match.start()], match.group() == END_CODE

@@ -1,5 +1,3 @@
-"""Entry point for dataset generation, model training, and export."""
-
 import argparse
 from importlib import import_module
 

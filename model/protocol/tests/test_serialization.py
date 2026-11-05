@@ -1,8 +1,6 @@
-"""Check raw framing independently of training and model inference."""
-
 import json
 import pytest
-from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE, serialize, target_text, console_block
+from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE, Prompt, serialize, target_text, console_block
 
 
 class TestSerialization:
@@ -154,3 +152,56 @@ class TestSerialization:
             {"role": "user", "content": content},
         ])
         assert result == CODE + "\ndone('first')\n" + END_CODE + "\n" + TASK + "\n" + content + "\n" + CODE + "\n"
+
+
+def test_incremental_prompt_matches_serialization_after_each_append():
+    prompt = Prompt()
+    messages = []
+    assert prompt.render() == serialize(messages)
+    for message in [
+        {"role": "system", "content": "ignored"},
+        {"role": "user", "content": "Inspect café 雪 " + " ".join((CODE, TASK, CONSOLE, END_CODE))},
+        {"role": "assistant", "content": "print('café')"},
+        {"role": "console", "content": {"stdout": "café <tag>", "done": {"values": [1, None]}}},
+        {"role": "user", "content": " \n"},
+        {"role": "user", "content": "Follow up"},
+    ]:
+        prompt.append(message)
+        messages.append(message)
+        assert prompt.render() == serialize(messages)
+        assert prompt.render() == serialize(messages)
+
+
+def test_incremental_prompt_snapshots_mutable_input():
+    prompt = Prompt()
+    feedback = {"stdout": "original", "done": {"values": [1]}}
+    message = {"role": "console", "content": feedback}
+    expected = serialize([message])
+    prompt.append(message)
+    feedback["done"]["values"].append(2)
+    feedback["stdout"] = "changed"
+    message["content"] = {}
+    assert prompt.render() == expected
+
+
+@pytest.mark.parametrize("message, error", [
+    ({"role": "user", "content": {}}, TypeError),
+    ({"role": "assistant", "content": None}, TypeError),
+    ({"role": "assistant", "content": CODE}, ValueError),
+    ({"role": "console", "content": "not feedback"}, TypeError),
+    ({"role": "unknown", "content": "text"}, ValueError),
+])
+def test_incremental_prompt_rejects_invalid_append_without_changing_history(message, error):
+    prompt = Prompt()
+    prompt.append({"role": "user", "content": "Original"})
+    expected = prompt.render()
+    with pytest.raises(error):
+        prompt.append(message)
+    assert prompt.render() == expected
+
+
+def test_incremental_prompts_have_independent_histories():
+    first = Prompt()
+    second = Prompt()
+    first.append({"role": "user", "content": "First"})
+    assert second.render() == CODE + "\n"

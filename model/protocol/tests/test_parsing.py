@@ -1,5 +1,3 @@
-"""Check generated response boundaries without loading a model."""
-
 import pytest
 from pyshell.parsing import parse_completion
 from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE
@@ -19,6 +17,8 @@ from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE
         ("code" + END_CODE + "more" + END_CODE, ("code", True)),
         (CONSOLE + END_CODE, ("", False)),
         ("code" + CODE + TASK + CONSOLE + END_CODE, ("code", False)),
+        ("café 雪\n" + END_CODE + TASK, ("café 雪\n", True)),
+        ("x" * 4096 + "<|end_cod", ("x" * 4096 + "<|end_cod", False)),
     ],
 )
 def test_completion_uses_the_first_boundary(text, expected):

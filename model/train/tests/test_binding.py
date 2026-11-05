@@ -1,5 +1,3 @@
-"""Check binding fixtures and negative controls independently of model output."""
-
 import copy
 import hashlib
 import json
@@ -8,7 +6,7 @@ from collections import defaultdict
 import pytest
 
 from model.benchmark.src.reference import ReferenceWorkspace
-from model.benchmark.src.task_families import FAMILIES
+from model.benchmark.src.transfer_families import FAMILIES
 from model.train.src.generation import transfer
 from model.train.src.generation.binding import (
     make_task,

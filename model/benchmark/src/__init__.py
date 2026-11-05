@@ -1,1 +1,0 @@
-"""Python-worker benchmark implementation."""

@@ -1,16 +1,14 @@
-"""Keep the CPU experiment's grading independent of model-visible context."""
-
 import sys
 import json
 import pytest
 import hashlib
-import tempfile
+import selectors
 import subprocess
 from types import SimpleNamespace
 from pathlib import Path
 from contextlib import nullcontext
 from unittest.mock import patch
-from model.benchmark.src import cpu_evaluate
+from model.benchmark.src import resources, cpu_evaluate
 from model.benchmark.src.resources import exclusive_cpu
 from model.benchmark.src.cpu_evaluate import trial, evaluate
 
@@ -81,6 +79,7 @@ class TestCPUProof:
         def run_trial(worker, record, generate):
             if record["id"] != "0":
                 summaries.append(json.loads((args.output / "summary.json").read_text()))
+                assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows[:int(record["id"])]
             if mutate_adapter and record["id"] == "2":
                 weights.write_bytes(b"changed weights")
             return rows[int(record["id"])]
@@ -100,6 +99,11 @@ class TestCPUProof:
         assert [summary["tasks"] for summary in summaries] == [1, 2, 3]
         assert [summary["passed"] for summary in summaries] == [1, 1, 1]
         assert [summary["complete"] for summary in summaries] == [False, False, True]
+        assert [summary["statuses"] for summary in summaries] == [
+            {"passed": 1},
+            {"passed": 1, "call_limit": 1},
+            {"passed": 1, "call_limit": 1, "incorrect": 1},
+        ]
         assert all(not summary["acceptance_met"] for summary in summaries)
         summary = summaries[-1]
         assert summary["task_file_sha256"] == digest
@@ -113,6 +117,52 @@ class TestCPUProof:
         assert summary["by_family"] == {"join": {"tasks": 2, "passed": 1}, "recovery": {"tasks": 1, "passed": 0}}
         assert summary["statuses"] == {"passed": 1, "call_limit": 1, "incorrect": 1}
         assert "fixture dev 3/3: 1 passed; join=incorrect" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("fail_at", [0, 1])
+    def test_trial_failure_closes_the_response_log_and_preserves_completed_rows(self, tmp_path, fail_at):
+        records = [{"id": str(index), "family": "join"} for index in range(2)]
+        args = SimpleNamespace(
+            data=tmp_path, split="dev", final=False, limit=None, adapter=None,
+            output=tmp_path / "output", threads=1, device="cpu", base_model=tmp_path / "base", label="fixture",
+        )
+        failure = RuntimeError("trial failed")
+        handles = []
+        path_open = Path.open
+
+        def open_log(path, *arguments, **kwargs):
+            file = path_open(path, *arguments, **kwargs)
+            if path == args.output / "responses.jsonl" and arguments == ("a",):
+                handles.append(file)
+            return file
+
+        def run_trial(worker, record, generate):
+            if int(record["id"]) == fail_at:
+                raise failure
+            return {**record, "status": "passed", "steps": []}
+
+        with (
+            patch.object(cpu_evaluate, "load_tasks", return_value=({"scope": "fixture"}, "digest", records)),
+            patch.object(cpu_evaluate, "exclusive_cpu", return_value=nullcontext()),
+            patch("model.benchmark.src.inference.HFCompletion") as model,
+            patch.object(cpu_evaluate, "Worker") as worker,
+            patch.object(cpu_evaluate, "trial", side_effect=run_trial),
+            patch.object(Path, "open", open_log),
+            pytest.raises(RuntimeError) as error,
+        ):
+            model.return_value.runtime = {}
+            evaluate(args)
+        assert error.value is failure
+        assert len(handles) == 1
+        assert handles[0].closed
+        worker.return_value.close.assert_called_once_with()
+        rows = [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()]
+        assert rows == [{**record, "status": "passed", "steps": []} for record in records[:fail_at]]
+        if fail_at:
+            summary = json.loads((args.output / "summary.json").read_text())
+            assert summary["tasks"] == summary["passed"] == fail_at
+            assert not summary["complete"]
+        else:
+            assert not (args.output / "summary.json").exists()
 
     @pytest.mark.parametrize("arguments", [("--backend", "gguf"), ("--backend", "hf"), ("--gguf-base", "base.gguf")])
     def test_retired_backend_options_are_rejected(self, tmp_path, capsys, arguments):
@@ -205,36 +255,46 @@ class TestCPUProof:
         (root / "manifest.json").write_text(json.dumps(manifest))
         return SimpleNamespace(data=root, split="test", final=final, limit=limit)
 
-    def test_final_requires_explicit_authorization_before_loading_a_model(self):
-        with tempfile.TemporaryDirectory() as directory:
-            args = self.final_request(directory)
-            with pytest.raises(ValueError, match="requires --final"):
-                evaluate(args)
+    def test_final_requires_explicit_authorization_before_loading_a_model(self, tmp_path):
+        args = self.final_request(tmp_path)
+        with pytest.raises(ValueError, match="requires --final"):
+            evaluate(args)
 
-    def test_final_cannot_be_reduced_to_a_selected_subset(self):
-        with tempfile.TemporaryDirectory() as directory:
-            args = self.final_request(directory, final=True, limit=10)
-            with pytest.raises(ValueError, match="cannot be reduced"):
-                evaluate(args)
+    def test_final_cannot_be_reduced_to_a_selected_subset(self, tmp_path):
+        args = self.final_request(tmp_path, final=True, limit=10)
+        with pytest.raises(ValueError, match="cannot be reduced"):
+            evaluate(args)
 
-    def test_changed_frozen_tasks_are_rejected(self):
-        with tempfile.TemporaryDirectory() as directory:
-            args = self.final_request(directory, final=True)
-            (args.data / "test-tasks.jsonl").write_text('{"modified":true}\n')
-            with pytest.raises(ValueError, match="tasks have changed"):
-                evaluate(args)
+    def test_changed_frozen_tasks_are_rejected(self, tmp_path):
+        args = self.final_request(tmp_path, final=True)
+        (args.data / "test-tasks.jsonl").write_text('{"modified":true}\n')
+        with pytest.raises(ValueError, match="tasks have changed"):
+            evaluate(args)
 
-    def test_cpu_experiments_wait_for_each_other_without_polling(self):
-        source = "from model.benchmark.src.resources import exclusive_cpu\nwith exclusive_cpu(): print('acquired', flush=True)"
-        with exclusive_cpu():
-            child = subprocess.Popen([sys.executable, "-c", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    def test_cpu_experiments_wait_for_each_other_without_polling(self, tmp_path):
+        resource_file = str(tmp_path / "src/resources.py")
+        source = (
+            "from model.benchmark.src import resources\n"
+            f"resources.__file__ = {resource_file!r}\n"
+            "with resources.exclusive_cpu(): print('acquired', flush=True)"
+        )
+        with patch.object(resources, "__file__", resource_file), exclusive_cpu():
+            child = subprocess.Popen([sys.executable, "-c", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
-                assert "Waiting for" in child.stdout.readline()
+                with selectors.DefaultSelector() as selector:
+                    selector.register(child.stdout, selectors.EVENT_READ)
+                    assert selector.select(10), "Child did not report lock contention within ten seconds"
+                    assert b"Waiting for" in child.stdout.read1(4096)
                 assert child.poll() is None
             except BaseException:
                 child.kill()
                 child.communicate()
                 raise
-        output, error = child.communicate(timeout=10)
+        try:
+            output, error = child.communicate(timeout=10)
+        except BaseException:
+            child.kill()
+            child.communicate()
+            raise
         assert child.returncode == 0, error
-        assert "acquired" in output
+        assert b"acquired" in output

@@ -1,5 +1,3 @@
-"""Shared device and threading policy for training and inference."""
-
 import torch
 
 

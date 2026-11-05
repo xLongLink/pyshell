@@ -1,5 +1,3 @@
-"""Run an unquantized adapter directly for execution evaluation."""
-
 import torch
 from peft import PeftModel
 from transformers import AutoTokenizer, StopStringCriteria, StoppingCriteriaList, AutoModelForImageTextToText
@@ -10,7 +8,7 @@ from model.benchmark.src.runtime import configure_device, configure_threads
 
 class HFCompletion:
     def __init__(self, adapter, threads, device, *, base_model):
-        configure_device(device)
+        device = configure_device(device)
         configure_threads(threads)
         self.tokenizer = AutoTokenizer.from_pretrained(base_model, local_files_only=True)
         self.model = AutoModelForImageTextToText.from_pretrained(

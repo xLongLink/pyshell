@@ -1,87 +1,22 @@
 import argparse
-import json
 import math
 import os
-import random
-import time
 from contextlib import nullcontext
 from pathlib import Path
 
-import psutil
 import torch
-from peft import LoraConfig, PeftModel, get_peft_model
-from pyshell.serialization import FORMAT
-from transformers import (
-    AutoModelForImageTextToText,
-    AutoTokenizer,
-    get_cosine_with_min_lr_schedule_with_warmup,
-    set_seed,
-)
+from datasets import Dataset
+from peft import LoraConfig, PeftModel
+from transformers import AutoModelForImageTextToText, AutoTokenizer, set_seed
+from trl import SFTConfig, SFTTrainer
 
 from model.benchmark.src.corpus import read_jsonl, sha256
 from model.benchmark.src.resources import exclusive_cpu
 from model.benchmark.src.runtime import configure_device, configure_threads
-from model.train.src.checkpoints import load_resume, save_checkpoint
-from model.train.src.supervision import encode, evaluate_loss, loss_for
+from model.train.src.checkpoints import Checkpoints, load_resume
+from model.train.src.supervision import encode
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def scheduler_for(optimizer, steps, accumulation, completed_updates=0):
-    updates = math.ceil(steps / accumulation)
-    warmup = min(10, max(1, updates // 10))
-
-    for group in optimizer.param_groups:
-        group.setdefault("initial_lr", group["lr"])
-    return get_cosine_with_min_lr_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=warmup,
-        num_training_steps=updates,
-        min_lr_rate=0.1,
-        last_epoch=completed_updates,
-    )
-
-
-def optimize(
-    model, items, optimizer, scheduler, *, accumulation, stop_step, status, log, checkpoint
-):
-    indices = list(range(len(items)))
-    random.Random(713).shuffle(indices)
-    set_seed(713)
-    # Preserve the former single-worker DataLoader's RNG advance.
-    torch.empty((), dtype=torch.int64).random_()
-    model.zero_grad(set_to_none=True)
-    for start in range(status["completed_steps"], stop_step, accumulation):
-        end = min(start + accumulation, stop_step)
-        for step in range(start, end):
-            started = time.monotonic()
-            model.train()
-            item = items[indices[step % len(indices)]]
-            loss = loss_for(model, item)
-            if not torch.isfinite(loss):
-                raise RuntimeError(f"Nonfinite loss at step {step + 1}")
-            response_loss = float(loss.detach())
-            (loss / (end - start)).backward()
-            status["completed_steps"] += 1
-            row = {
-                "step": status["completed_steps"],
-                "id": item["id"],
-                "loss": response_loss,
-                "seconds": time.monotonic() - started,
-                "rss_gib": psutil.Process().memory_info().rss / 2**30,
-            }
-            if next(model.parameters()).device.type == "cuda":
-                row["peak_cuda_gib"] = torch.cuda.max_memory_allocated() / 2**30
-            log.write(json.dumps(row) + "\n")
-            log.flush()
-            if step + 1 == end:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
-                scheduler.step()
-                model.zero_grad(set_to_none=True)
-                status["updates"] += 1
-            if status["completed_steps"] % 100 == 0:
-                checkpoint(f"checkpoint-{status['completed_steps']}")
 
 
 def parse_args(argv=None):
@@ -89,7 +24,12 @@ def parse_args(argv=None):
     parser.add_argument("--base", type=Path, default=ROOT / "artifacts/base")
     parser.add_argument("--data", type=Path, default=ROOT / "data/raw")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/adapter")
-    parser.add_argument("--steps", type=int, default=500)
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=500,
+        help="Example budget, rounded up to a complete accumulation group",
+    )
     parser.add_argument("--stop-after", type=int)
     parser.add_argument("--accumulation", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
@@ -101,8 +41,12 @@ def parse_args(argv=None):
     initialization.add_argument("--resume", type=Path)
     initialization.add_argument("--initialize-adapter", type=Path)
     args = parser.parse_args(argv)
-    if args.steps < 1 or args.accumulation < 1:
-        parser.error("--steps and --accumulation must be positive")
+    if min(args.steps, args.accumulation, args.max_length, args.threads) < 1:
+        parser.error(
+            "--steps, --accumulation, --max-length and --threads must be positive"
+        )
+    if args.eval_samples < 0:
+        parser.error("--eval-samples must not be negative")
     if args.stop_after is not None and (
         not 0 < args.stop_after <= args.steps or args.stop_after % args.accumulation
     ):
@@ -112,14 +56,35 @@ def parse_args(argv=None):
     return args
 
 
+def validation_dataset(records, tokenizer, max_length, eval_samples):
+    if not records or not eval_samples:
+        return None
+    selected = (
+        Dataset.from_dict({"index": range(len(records))})
+        .shuffle(seed=713)
+        .select(range(min(eval_samples, len(records))))
+    )
+    return Dataset.from_list(
+        [encode(records[index], tokenizer, max_length) for index in selected["index"]]
+    )
+
+
 def train(args):
     args.device = configure_device(args.device)
     if (
         any(
             int(os.environ.get(name, "1")) != 1
-            for name in ("WORLD_SIZE", "PMI_SIZE", "OMPI_COMM_WORLD_SIZE", "MV2_COMM_WORLD_SIZE")
+            for name in (
+                "WORLD_SIZE",
+                "PMI_SIZE",
+                "OMPI_COMM_WORLD_SIZE",
+                "MV2_COMM_WORLD_SIZE",
+            )
         )
-        or (torch.distributed.is_initialized() and torch.distributed.get_world_size() != 1)
+        or (
+            torch.distributed.is_initialized()
+            and torch.distributed.get_world_size() != 1
+        )
         or (args.device == "cuda" and torch.cuda.device_count() > 1)
     ):
         raise ValueError("Training requires one process and one CPU or CUDA device")
@@ -132,23 +97,38 @@ def train(args):
     with exclusive_cpu() if args.device == "cpu" else nullcontext():
         args.output.mkdir(parents=True)
         configure_threads(args.threads)
-        torch.manual_seed(713)
-        random.seed(713)
-        tokenizer = AutoTokenizer.from_pretrained(args.base, local_files_only=True)
-        train = [
-            encode(record, tokenizer, args.max_length)
-            for record in read_jsonl(args.data / "train.jsonl")
-        ]
-        validation = [
-            encode(record, tokenizer, args.max_length)
-            for record in read_jsonl(args.data / "validation.jsonl")
-        ]
-        validation = random.Random(713).sample(
-            validation, min(args.eval_samples, len(validation))
+        set_seed(713)
+        metadata = {
+            "base_model": str(args.base.resolve()),
+            "train_sha256": sha256(args.data / "train.jsonl"),
+            "validation_sha256": sha256(args.data / "validation.jsonl"),
+            "accumulation": args.accumulation,
+            "max_length": args.max_length,
+            "serialization": "raw",
+        }
+        updates = math.ceil(args.steps / args.accumulation)
+        stop_update = (
+            args.stop_after // args.accumulation if args.stop_after else updates
         )
-        print(
-            f"Encoded {len(train)} training and {len(validation)} validation examples; lengths {min(len(i['ids']) for i in train)}–{max(len(i['ids']) for i in train)} tokens",
-            flush=True,
+        if args.resume:
+            completed = load_resume(args.resume, metadata)
+            if stop_update <= completed:
+                raise ValueError("Stopping step must follow the resumed checkpoint")
+
+        tokenizer = AutoTokenizer.from_pretrained(args.base, local_files_only=True)
+        dataset = Dataset.from_list(
+            [
+                encode(record, tokenizer, args.max_length)
+                for record in read_jsonl(args.data / "train.jsonl")
+            ]
+        )
+        if not len(dataset):
+            raise ValueError("Training dataset must not be empty")
+        evaluation = validation_dataset(
+            read_jsonl(args.data / "validation.jsonl"),
+            tokenizer,
+            args.max_length,
+            args.eval_samples,
         )
         model = AutoModelForImageTextToText.from_pretrained(
             args.base,
@@ -156,148 +136,62 @@ def train(args):
             attn_implementation="sdpa",
             local_files_only=True,
         )
-        resume_state = (
-            load_resume(args.resume, args.data, args.accumulation) if args.resume else None
+        lora = LoraConfig(
+            r=8,
+            lora_alpha=16,
+            lora_dropout=0.0,
+            bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=r".*language_model\.layers\.\d+\.(?:self_attn\.(?:q_proj|v_proj|o_proj)|linear_attn\.(?:in_proj_qkv|out_proj))",
         )
-        model = (
-            PeftModel.from_pretrained(
-                model, args.resume or args.initialize_adapter, is_trainable=True
-            )
-            if args.resume or args.initialize_adapter
-            else get_peft_model(
-                model,
-                LoraConfig(
-                    r=8,
-                    lora_alpha=16,
-                    lora_dropout=0.0,
-                    bias="none",
-                    task_type="CAUSAL_LM",
-                    target_modules=r".*language_model\.layers\.\d+\.(?:self_attn\.(?:q_proj|v_proj|o_proj)|linear_attn\.(?:in_proj_qkv|out_proj))",
-                ),
-            )
-        )
-        model.to(args.device)
-        model.gradient_checkpointing_enable(
-            gradient_checkpointing_kwargs={"use_reentrant": False}
-        )
-        model.print_trainable_parameters()
-        baseline = (
-            resume_state["validation_loss_before"]
-            if resume_state
-            else evaluate_loss(model, validation)
-        )
-        print(f"Held-out loss before training: {baseline}", flush=True)
-        optimizer = torch.optim.AdamW(
-            (parameter for parameter in model.parameters() if parameter.requires_grad),
-            lr=args.learning_rate,
-            betas=(0.9, 0.95),
+        adapter = args.resume or args.initialize_adapter
+        if adapter:
+            model = PeftModel.from_pretrained(model, adapter, is_trainable=True)
+        config = SFTConfig(
+            output_dir=str(args.output),
+            use_cpu=args.device == "cpu",
+            bf16=False,
+            fp16=False,
+            tf32=False,
+            seed=713,
+            data_seed=713,
+            max_steps=updates,
+            max_length=None,
+            per_device_train_batch_size=1,
+            per_device_eval_batch_size=1,
+            gradient_accumulation_steps=args.accumulation,
+            gradient_checkpointing_kwargs={"use_reentrant": False},
+            learning_rate=args.learning_rate,
+            lr_scheduler_type="cosine_with_min_lr",
+            lr_scheduler_kwargs={"min_lr_rate": 0.1},
+            warmup_steps=min(10, max(1, updates // 10)),
+            optim="adamw_torch",
+            adam_beta2=0.95,
             weight_decay=0.01,
+            completion_only_loss=True,
+            prediction_loss_only=True,
+            eval_on_start=evaluation is not None,
+            eval_strategy="steps" if evaluation is not None else "no",
+            eval_steps=updates,
+            save_steps=max(1, math.ceil(100 / args.accumulation)),
+            logging_steps=1,
+            report_to="none",
+            dataloader_pin_memory=args.device == "cuda",
         )
-        optimizer_restored = False
-        if args.resume and (args.resume / "optimizer.pt").is_file():
-            optimizer.load_state_dict(
-                torch.load(
-                    args.resume / "optimizer.pt", weights_only=True, map_location="cpu"
-                )
-            )
-            optimizer_restored = True
-        for group in optimizer.param_groups:
-            group["initial_lr"] = args.learning_rate
-        scheduler = scheduler_for(
-            optimizer,
-            args.steps,
-            args.accumulation,
-            resume_state["updates"] if resume_state else 0,
+        checkpoints = Checkpoints(metadata, stop_update)
+        trainer = SFTTrainer(
+            model=model,
+            args=config,
+            processing_class=tokenizer,
+            train_dataset=dataset,
+            eval_dataset=evaluation,
+            peft_config=None if adapter else lora,
+            callbacks=[checkpoints],
         )
-        scheduler_restored = False
-        if (
-            args.resume
-            and (args.resume / "scheduler.pt").is_file()
-            and resume_state["steps"] == args.steps
-            and resume_state["learning_rate"] == args.learning_rate
-        ):
-            scheduler.load_state_dict(
-                torch.load(
-                    args.resume / "scheduler.pt", weights_only=True, map_location="cpu"
-                )
-            )
-            for group, rate in zip(optimizer.param_groups, scheduler.get_last_lr()):
-                group["lr"] = rate
-            scheduler_restored = True
-        started = time.monotonic()
-        resume_step = (
-            min(resume_state["updates"] * args.accumulation, args.steps)
-            if resume_state
-            else 0
-        )
-        prior_seconds = resume_state.get("training_seconds", 0) if resume_state else 0
-        stop_step = args.stop_after or args.steps
-        if stop_step <= resume_step:
-            raise ValueError("Stopping step must follow the resumed checkpoint")
-        status = {
-            "status": "running",
-            "base_model": "Qwen/Qwen3.5-0.8B",
-            "base_revision": "2fc06364715b967f1860aea9cf38778875588b17",
-            "device": args.device,
-            "dtype": "float32",
-            "torch_version": torch.__version__,
-            "cuda_version": torch.version.cuda,
-            "gpu": torch.cuda.get_device_name() if args.device == "cuda" else None,
-            "tf32": False,
-            "rank": model.peft_config["default"].r,
-            "learning_rate": args.learning_rate,
-            "steps": args.steps,
-            "stop_after": args.stop_after,
-            "accumulation": args.accumulation,
-            "validation_loss_before": baseline,
-            "train_sha256": sha256(args.data / "train.jsonl"),
-            "updates": resume_state["updates"] if resume_state else 0,
-            "completed_steps": resume_step,
-            "threads": args.threads,
-            "resumed_from": str(args.resume) if args.resume else None,
-            "initialized_from": str(args.initialize_adapter)
-            if args.initialize_adapter
-            else None,
-            "resumed_at_step": resume_step,
-            "optimizer_restored": optimizer_restored,
-            "scheduler_restored": scheduler_restored,
-            "serialization": "raw",
-            "serialization_format": FORMAT,
-        }
-
-        def checkpoint(name):
-            status["training_seconds"] = prior_seconds + time.monotonic() - started
-            save_checkpoint(
-                model, tokenizer, optimizer, status, args.output, name, scheduler=scheduler
-            )
-
-        try:
-            print(
-                f"Training with {torch.get_num_threads()} threads, starting at example {resume_step + 1}; optimizer restored: {optimizer_restored}",
-                flush=True,
-            )
-            with (args.output / "steps.jsonl").open("a") as file:
-                optimize(
-                    model,
-                    train,
-                    optimizer,
-                    scheduler,
-                    accumulation=args.accumulation,
-                    stop_step=stop_step,
-                    status=status,
-                    log=file,
-                    checkpoint=checkpoint,
-                )
-            status.update(
-                status="completed" if stop_step == args.steps else "paused",
-                validation_loss_after=evaluate_loss(model, validation),
-            )
-            checkpoint("final")
-            print(json.dumps(status, indent=2), flush=True)
-        except BaseException:
-            status["status"] = "interrupted"
-            checkpoint("interrupted")
-            raise
+        trainer.train(resume_from_checkpoint=str(args.resume) if args.resume else None)
+        trainer.save_model()
+        trainer.save_state()
+        checkpoints.write(args.output)
 
 
 def main(argv=None):

@@ -1,5 +1,3 @@
-"""Check shared runtime policy without CUDA or model loading."""
-
 import pytest
 from unittest.mock import call, patch
 from model.benchmark.src import runtime

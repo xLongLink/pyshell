@@ -1,5 +1,3 @@
-"""Entry point for worker benchmarks and execution-proof evaluation."""
-
 import argparse
 from importlib import import_module
 

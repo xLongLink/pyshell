@@ -1,5 +1,3 @@
-"""Exercise the worker protocol with the real execution shell."""
-
 import io
 import os
 import sys

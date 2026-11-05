@@ -1,5 +1,3 @@
-"""Serialize CPU training and proof evaluations instead of oversubscribing Torch."""
-
 import fcntl
 from pathlib import Path
 from contextlib import contextmanager

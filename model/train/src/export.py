@@ -1,5 +1,3 @@
-"""The pinned llama.cpp adapter export command."""
-
 import argparse
 import subprocess
 import sys

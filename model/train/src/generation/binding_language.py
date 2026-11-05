@@ -1,5 +1,3 @@
-"""Training-only wording variation for binding and stateful operations."""
-
 from model.benchmark.src.task_types import CONTRACT
 
 

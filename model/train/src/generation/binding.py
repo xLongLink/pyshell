@@ -1,5 +1,3 @@
-"""Construct API and schema binding tasks without split-dependent semantics."""
-
 import argparse
 import json
 import random
