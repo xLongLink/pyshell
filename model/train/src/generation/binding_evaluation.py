@@ -10,7 +10,6 @@ from pathlib import Path
 from model.benchmark.src.corpus import sha256, write_jsonl
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.proof_policy import acceptance_metadata
-from model.benchmark.src.reference import ReferenceSession
 from model.benchmark.src.task_families import FAMILIES
 from model.benchmark.src.task_types import CONTRACT
 from model.train.src.generation import binding
@@ -93,16 +92,9 @@ def prepare(output, seed=None):
                         seed + offset + family_index * 10000019,
                         split,
                     )
-                    session = ReferenceSession(
-                        record, worker, capture_rows=split == "dev"
+                    validation.extend(
+                        binding.reference_rows(record, worker, capture_rows=split == "dev")
                     )
-                    session.add(record["inspect"], record["id"] + "-inspect")
-                    session.add(record["code"], record["id"] + "-solve")
-                    session.check(record["check"])
-                    if record["followup"]:
-                        session.followup(record["followup"], record["id"] + "-followup")
-                    if split == "dev":
-                        validation.extend(session.rows)
                     if "negative_control" in record:
                         binding.verify_negative_control(record, worker)
                     record.pop("expected", None)

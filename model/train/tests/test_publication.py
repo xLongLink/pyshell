@@ -5,22 +5,31 @@ from pathlib import Path
 import pytest
 
 from model.benchmark.src.corpus import read_jsonl, sha256, write_jsonl
-from model.train.src.generation.publication import publish_curriculum, replay_curriculum
+from model.train.src.generation.publication import replay_curriculum
 
 
 @pytest.fixture
-def publication(tmp_path):
-    output, replay, evaluation = [tmp_path / name for name in ("out", "replay", "eval")]
-    for directory in (output, replay, evaluation):
-        directory.mkdir()
+def generated():
     rows = [
         {"id": "replayed", "family": "binding", "completion": "print('é')"},
         {"id": "new", "family": "join", "completion": "done('ok')"},
         {"id": "recovery", "family": "binding", "completion": "done('fixed')"},
     ]
-    records = [{"id": "train", "setup": "train = 1", "template_id": "train-template"}]
+    records = [
+        {"id": "train", "setup": "train = 1", "template_id": "train-template"},
+        {"id": "new", "setup": "new = 1", "template_id": "new-template"},
+    ]
+    return rows, records
+
+
+@pytest.fixture
+def publication(tmp_path, monkeypatch, generated):
+    output, replay, evaluation = [tmp_path / name for name in ("out", "replay", "eval")]
+    for directory in (replay, evaluation):
+        directory.mkdir()
+    rows, records = generated
     write_jsonl(replay / "train.jsonl", rows[:1])
-    write_jsonl(replay / "train-tasks.jsonl", records)
+    write_jsonl(replay / "train-tasks.jsonl", records[:1])
     (replay / "validation.jsonl").write_bytes(b'{"replay": true}\n')
     (replay / "manifest.json").write_text(
         json.dumps(
@@ -44,13 +53,20 @@ def publication(tmp_path):
     (evaluation / "validation.jsonl").write_bytes(b'{ "text": "caf\xc3\xa9" }\r\n\n')
     source = tmp_path / "original_generator.py"
     source.write_text("original generator source\n")
+
+    class Worker:
+        def close(self):
+            pass
+
+    def generate(worker):
+        yield {**records[1], "expected": "private supervision"}, rows[1:]
+
+    monkeypatch.setattr("model.train.src.generation.publication.Worker", Worker)
     return dict(
         output=output,
         replay=replay,
         evaluation=evaluation,
-        frozen=frozen,
-        rows=rows,
-        records=records,
+        generate=generate,
         generator_source=source,
         metadata={
             "seed": 17,
@@ -61,12 +77,13 @@ def publication(tmp_path):
 
 
 def test_publication_preserves_records_bytes_manifest_and_permissions(
-    publication, capsys
+    publication, generated, capsys
 ):
-    manifest = publish_curriculum(**publication)
+    manifest = replay_curriculum(**publication)
     output = publication["output"]
-    assert read_jsonl(output / "train.jsonl") == publication["rows"]
-    assert read_jsonl(output / "train-tasks.jsonl") == publication["records"]
+    rows, records = generated
+    assert read_jsonl(output / "train.jsonl") == rows
+    assert read_jsonl(output / "train-tasks.jsonl") == records
     assert (output / "validation.jsonl").read_bytes() == (
         publication["evaluation"] / "validation.jsonl"
     ).read_bytes()
@@ -79,7 +96,7 @@ def test_publication_preserves_records_bytes_manifest_and_permissions(
         "supervision_by_family": {"binding": 2, "join": 1},
         "training_records_sha256": sha256(output / "train.jsonl"),
         "validation_records_sha256": sha256(output / "validation.jsonl"),
-        "evaluation_test_sha256": publication["frozen"]["splits"]["test"]["sha256"],
+        "evaluation_test_sha256": sha256(publication["evaluation"] / "test-tasks.jsonl"),
         "replay_sha256": sha256(publication["replay"] / "train.jsonl"),
         "generator_sha256": sha256(publication["generator_source"]),
     }
@@ -96,10 +113,11 @@ def test_publication_preserves_records_bytes_manifest_and_permissions(
     assert all(stat.S_IMODE(path.stat().st_mode) == 0o444 for path in output.iterdir())
 
 
-def test_duplicate_row_ids_fail_before_writing(publication):
-    publication["rows"].append(dict(publication["rows"][0]))
+def test_duplicate_row_ids_fail_before_writing(publication, generated):
+    rows, _ = generated
+    rows.append(dict(rows[0]))
     with pytest.raises(AssertionError):
-        publish_curriculum(**publication)
+        replay_curriculum(**publication)
     assert list(publication["output"].iterdir()) == []
 
 
@@ -108,7 +126,7 @@ def test_frozen_task_tampering_fails_before_writing(publication, split):
     path = publication["evaluation"] / f"{split}-tasks.jsonl"
     path.write_bytes(path.read_bytes() + b"\n")
     with pytest.raises(AssertionError):
-        publish_curriculum(**publication)
+        replay_curriculum(**publication)
     assert list(publication["output"].iterdir()) == []
 
 
@@ -117,16 +135,17 @@ def test_frozen_task_tampering_fails_before_writing(publication, split):
     "field,value",
     [("setup", "{split} = 1"), ("template_id", "{split}-template")],
 )
-def test_evaluation_overlap_fails_before_writing(publication, split, field, value):
-    publication["records"][0][field] = value.format(split=split)
+def test_evaluation_overlap_fails_before_writing(publication, generated, split, field, value):
+    _, records = generated
+    records[1][field] = value.format(split=split)
     with pytest.raises(AssertionError):
-        publish_curriculum(**publication)
+        replay_curriculum(**publication)
     assert list(publication["output"].iterdir()) == []
 
 
 @pytest.mark.parametrize("curriculum", ["binding_curriculum", "join_curriculum"])
 def test_curricula_keep_generator_provenance_and_metadata(
-    publication, monkeypatch, curriculum
+    publication, generated, monkeypatch, curriculum
 ):
     from importlib import import_module
 
@@ -155,7 +174,7 @@ def test_curricula_keep_generator_provenance_and_metadata(
     assert manifest["generator_sha256"] == sha256(Path(module.__file__))
     assert manifest["replay_sha256"] == sha256(publication["replay"] / "train.jsonl")
     assert manifest["seed"] == 17
-    assert read_jsonl(output / "train.jsonl")[0] == publication["rows"][0]
+    assert read_jsonl(output / "train.jsonl")[0] == generated[0][0]
     if curriculum == "binding_curriculum":
         assert manifest["language_diversity"] is True
         assert manifest["pairs_per_target_family"] == 1

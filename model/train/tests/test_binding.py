@@ -10,7 +10,11 @@ import pytest
 from model.benchmark.src.reference import ReferenceWorkspace
 from model.benchmark.src.task_families import FAMILIES
 from model.train.src.generation import transfer
-from model.train.src.generation.binding import make_task, verify_negative_control
+from model.train.src.generation.binding import (
+    make_task,
+    reference_rows,
+    verify_negative_control,
+)
 from model.train.src.generation.binding_curriculum import binding_record, trajectories
 from model.train.src.generation.binding_evaluation import evaluation_task
 from model.train.src.generation.binding_language import (
@@ -78,6 +82,56 @@ class TestBinding:
             record["inspect"],
             *[record["code"] for _ in range(error_count + 1)],
         ]
+
+    @pytest.mark.parametrize("family", ["joined_totals", "stateful_followup"])
+    def test_reference_rows_preserve_ids_and_completion_order(self, family):
+        record = evaluation_task(family, 1, 0, 719, "dev")
+        workspace = ReferenceWorkspace()
+        rows = reference_rows(record, workspace)
+        ids = [record["id"] + "-inspect", record["id"] + "-solve"]
+        completions = [record["inspect"], record["code"]]
+        if record["followup"]:
+            ids.append(record["id"] + "-followup")
+            completions.append(record["followup"]["code"] + "\ndone(str(result))")
+        assert [row["id"] for row in rows] == ids
+        assert [row["completion"] for row in rows] == completions
+
+    @pytest.mark.parametrize("with_followup", [False, True])
+    def test_reference_rows_capture_disabled_executes_the_same_steps(self, with_followup):
+        record = {
+            "id": "reference",
+            "instruction": "Build a result list.",
+            "setup": "steps = ['setup']",
+            "inspect": "steps.append('inspect')",
+            "code": "steps.append('solve'); result = [1]",
+            "check": "steps.append('check'); assert result == [1]",
+            "followup": {
+                "instruction": "Update the same list.",
+                "code": "steps.append('followup'); result.append(2)",
+                "check": "steps.append('followup-check'); assert result is saved_result; assert result == [1, 2]",
+            }
+            if with_followup
+            else None,
+        }
+        expected_steps = ["setup", "inspect", "solve", "check"]
+        if with_followup:
+            expected_steps.extend(["followup", "followup-check"])
+        for capture_rows in (True, False):
+            workspace = ReferenceWorkspace()
+            rows = reference_rows(record, workspace, capture_rows=capture_rows)
+            assert len(rows) == (2 + int(with_followup) if capture_rows else 0)
+            assert workspace.namespace["steps"] == expected_steps
+            assert workspace.namespace["result"] == ([1, 2] if with_followup else [1])
+
+    @pytest.mark.parametrize("capture_rows", [True, False])
+    @pytest.mark.parametrize("phase", ["solve", "followup"])
+    def test_reference_rows_propagate_failed_checks(self, capture_rows, phase):
+        record = evaluation_task("stateful_followup", 1, 0, 719, "dev")
+        target = record if phase == "solve" else record["followup"]
+        target["check"] = "assert False, 'reference check failed'"
+        workspace = ReferenceWorkspace()
+        with pytest.raises(AssertionError, match="reference check failed"):
+            reference_rows(record, workspace, capture_rows=capture_rows)
 
     def test_negative_control_verifier_executes_in_a_fresh_workspace(self):
         record = {

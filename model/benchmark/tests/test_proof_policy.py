@@ -1,7 +1,7 @@
 """Protect selection thresholds while orchestration changes."""
 
 from model.benchmark.src.proof_policy import final_passed, development_ready, acceptance_metadata
-from model.benchmark.src.proof_report import execution_metrics
+from model.benchmark.src.cpu_evaluate import execution_metrics
 
 
 class TestProofPolicy:

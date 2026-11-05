@@ -23,7 +23,7 @@ class TestTransfer:
         from dataclasses import asdict
 
         from model.benchmark.src.task_families import FAMILIES
-        from model.train.src.generation.proof import build_task
+        from model.train.src.generation.transfer import build_task
 
         fixtures = []
         for family in FAMILIES:

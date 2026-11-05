@@ -26,50 +26,7 @@ def replay_curriculum(
             records.append(
                 {key: value for key, value in record.items() if key != "expected"}
             )
-    return publish_curriculum(
-        output,
-        replay,
-        evaluation,
-        frozen,
-        rows,
-        records,
-        generator_source=generator_source,
-        metadata=metadata,
-    )
 
-
-def write_corpus(output, evaluation, rows, records):
-    write_jsonl(output / "train-tasks.jsonl", records)
-    write_jsonl(output / "train.jsonl", rows)
-    (output / "validation.jsonl").write_bytes(
-        (evaluation / "validation.jsonl").read_bytes()
-    )
-    return {
-        "train_tasks_sha256": sha256(output / "train-tasks.jsonl"),
-        "training_records_sha256": sha256(output / "train.jsonl"),
-        "validation_records_sha256": sha256(output / "validation.jsonl"),
-    }
-
-
-def seal_corpus(output, manifest):
-    serialized = json.dumps(manifest, indent=2) + "\n"
-    (output / "manifest.json").write_text(serialized)
-    for path in output.iterdir():
-        path.chmod(0o444)
-    print(serialized, end="", flush=True)
-
-
-def publish_curriculum(
-    output,
-    replay,
-    evaluation,
-    frozen,
-    rows,
-    records,
-    *,
-    generator_source,
-    metadata,
-):
     # Validate against the frozen evaluation before writing any outputs.
     assert len({row["id"] for row in rows}) == len(rows)
     setups = {record["setup"] for record in records}
@@ -99,3 +56,24 @@ def publish_curriculum(
     # Seal the published corpus, including the manifest.
     seal_corpus(output, manifest)
     return manifest
+
+
+def write_corpus(output, evaluation, rows, records):
+    write_jsonl(output / "train-tasks.jsonl", records)
+    write_jsonl(output / "train.jsonl", rows)
+    (output / "validation.jsonl").write_bytes(
+        (evaluation / "validation.jsonl").read_bytes()
+    )
+    return {
+        "train_tasks_sha256": sha256(output / "train-tasks.jsonl"),
+        "training_records_sha256": sha256(output / "train.jsonl"),
+        "validation_records_sha256": sha256(output / "validation.jsonl"),
+    }
+
+
+def seal_corpus(output, manifest):
+    serialized = json.dumps(manifest, indent=2) + "\n"
+    (output / "manifest.json").write_text(serialized)
+    for path in output.iterdir():
+        path.chmod(0o444)
+    print(serialized, end="", flush=True)

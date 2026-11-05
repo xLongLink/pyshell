@@ -234,6 +234,16 @@ def make_task(family, pair, variant, seed, split) -> TaskRecord:
     return record
 
 
+def reference_rows(record, worker, capture_rows=True):
+    session = ReferenceSession(record, worker, capture_rows=capture_rows)
+    session.add(record["inspect"], record["id"] + "-inspect")
+    session.add(record["code"], record["id"] + "-solve")
+    session.check(record["check"])
+    if record["followup"]:
+        session.followup(record["followup"], record["id"] + "-followup")
+    return session.rows
+
+
 def verify_negative_control(record, worker):
     assert worker.execute(record["setup"], "reset")["exception"] is None
     assert worker.execute(record["negative_control"])["exception"] is None
@@ -253,11 +263,7 @@ def prepare_training(output, pairs, seed):
                     record = make_task(
                         family, pair, variant, seed + family_index * 10000019, "train"
                     )
-                    session = ReferenceSession(record, worker)
-                    session.add(record["inspect"], record["id"] + "-inspect")
-                    session.add(record["code"], record["id"] + "-solve")
-                    session.check(record["check"])
-                    rows.extend(session.rows)
+                    rows.extend(reference_rows(record, worker))
                     verify_negative_control(record, worker)
                     records.append(record)
     write_jsonl(output / "train-tasks.jsonl", records)

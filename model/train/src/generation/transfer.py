@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from model.benchmark.src import task_families
 from model.benchmark.src.corpus import sha256, write_jsonl
 from model.benchmark.src.proof_policy import acceptance_metadata
 from model.benchmark.src.reference import ReferenceSession
@@ -19,7 +20,6 @@ from model.benchmark.src.task_families import FAMILIES
 from model.benchmark.src.task_types import CONTRACT
 from model.benchmark.src.transfer_families import BUILDERS, BuildContext
 from model.train.src.generation.construction import TaskRecord
-from model.train.src.generation.proof import build_task
 from model.train.src.generation.publication import seal_corpus
 
 ROOT = Path(__file__).resolve().parents[3] / "benchmark"
@@ -188,6 +188,18 @@ TEMPLATES = {
         "Use {other} to identify priced items among {name}, and combine those orders into {spending_output} for each group.",
     ],
 }
+
+
+def build_task(family, index, seed, *, name):
+    builder = task_families.BUILDERS[family]
+    rng = random.Random(seed + index * 104729)
+    # Preserve the discarded name draw so existing datasets retain their values.
+    rng.randrange(100000, 999999)
+    count = rng.randint(4, 14)
+    values = rng.sample(range(-300, 501), count)
+    labels = [rng.choice(["copper", "silver", "gold"]) for _ in values]
+    fixture_seed = task_families.FixtureSeed(rng, name, values, labels)
+    return builder(fixture_seed)
 
 
 def make_task(family, pair, variant, seed, split, slot) -> TaskRecord:

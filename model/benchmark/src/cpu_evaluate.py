@@ -4,14 +4,32 @@ import json
 import argparse
 from pathlib import Path
 from contextlib import closing
+from collections import Counter
 from model.benchmark.src.corpus import adapter_weights, sha256, load_tasks
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.resources import exclusive_cpu
 from model.benchmark.src.proof_trial import trial
 from model.benchmark.src.proof_policy import final_passed
-from model.benchmark.src.proof_report import execution_metrics
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def execution_metrics(rows):
+    groups = {}
+    statuses = Counter()
+    for row in rows:
+        group = groups.setdefault(row["family"], {"tasks": 0, "passed": 0})
+        group["tasks"] += 1
+        group["passed"] += row["status"] == "passed"
+        statuses[row["status"]] += 1
+    passed = statuses["passed"]
+    return {
+        "tasks": len(rows),
+        "passed": passed,
+        "success_rate": passed / len(rows),
+        "by_family": dict(sorted(groups.items())),
+        "statuses": dict(statuses),
+    }
 
 
 def evaluate(args):
