@@ -62,3 +62,9 @@ def test_raw_text_fields_are_required(fields):
 def test_empty_prompt_is_rejected():
     with pytest.raises(ValueError, match="nonempty prompt"):
         encode({"id": "empty", "prompt": "", "completion": "code"}, Tokenizer(), 1024)
+
+
+def test_native_unlimited_length_keeps_the_entire_target():
+    record = {"prompt": "p", "completion": "c" * 2048}
+    item = encode(record, Tokenizer(), None)
+    assert item["input_ids"] == list(map(ord, "p" + "c" * 2048 + "\n" + END_CODE))

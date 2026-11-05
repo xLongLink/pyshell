@@ -72,8 +72,10 @@ class TestVerification:
         assert "saved_result" not in worker.namespace
 
     def artifacts(self, root, directory_adapter=True):
-        experiment, data = root / "experiment", root / "data"
-        (experiment / "test").mkdir(parents=True)
+        output, data = root / "test", root / "data"
+        output.mkdir(parents=True)
+        development = root / "dev"
+        development.mkdir()
         data.mkdir()
         adapter = root / "adapter"
         if directory_adapter:
@@ -97,25 +99,29 @@ class TestVerification:
         task_path = data / "test-tasks.jsonl"
         task_path.write_text("".join(json.dumps(task) + "\n" for task in tasks))
         digest = hashlib.sha256(task_path.read_bytes()).hexdigest()
-        (data / "manifest.json").write_text(json.dumps({"splits": {"test": {"sha256": digest}}}))
-        (experiment / "test/responses.jsonl").write_text("".join(json.dumps(row) + "\n" for row in predictions))
-        (experiment / "experiment.json").write_text(
+        dev_tasks = data / "dev-tasks.jsonl"
+        dev_tasks.write_text("".join(json.dumps({**task, "id": f"dev-{index}"}) + "\n" for index, task in enumerate(tasks[:60])))
+        dev_digest = hashlib.sha256(dev_tasks.read_bytes()).hexdigest()
+        (data / "manifest.json").write_text(json.dumps({"splits": {"test": {"sha256": digest}, "dev": {"sha256": dev_digest}}}))
+        (output / "responses.jsonl").write_text("".join(json.dumps(row) + "\n" for row in predictions))
+        (development / "summary.json").write_text(
             json.dumps(
                 {
-                    "status": "complete",
-                    "development": {
-                        "complete": True,
-                        "tasks": 60,
-                        "success_rate": 1.0,
-                        "by_family": {"synthetic": {"tasks": 60, "passed": 60}},
-                    },
+                    "split": "dev",
+                    "complete": True,
+                    "tasks": 60,
+                    "success_rate": 1.0,
+                    "by_family": {"synthetic": {"tasks": 60, "passed": 60}},
+                    "task_file_sha256": dev_digest,
+                    "adapter_sha256": hashlib.sha256(weights.read_bytes()).hexdigest(),
                 }
             )
         )
-        (experiment / "test/summary.json").write_text(
+        (output / "summary.json").write_text(
             json.dumps(
                 {
                     "complete": True,
+                    "split": "test",
                     "passed": 120,
                     "adapter": str(adapter),
                     "adapter_sha256": hashlib.sha256(weights.read_bytes()).hexdigest(),
@@ -124,7 +130,7 @@ class TestVerification:
                 }
             )
         )
-        return experiment, data, weights
+        return output, data, weights
 
     def test_valid_artifacts_replay_with_file_and_directory_adapters(self, subtests, tmp_path):
         for directory_adapter in (False, True):
@@ -132,8 +138,8 @@ class TestVerification:
                 experiment, data, _ = self.artifacts(tmp_path / str(directory_adapter), directory_adapter)
                 worker = ReplayWorkspace()
                 with patch("model.benchmark.src.verification.Worker", return_value=worker):
-                    verify(experiment, data)
-                report = json.loads((experiment / "test/verification.json").read_text())
+                    verify(experiment, data, experiment.parent / "dev")
+                report = json.loads((experiment / "verification.json").read_text())
                 assert report["objective_verified"]
                 assert report["replayed_passed"] == 120
                 assert report["status_mismatches"] == []
@@ -149,10 +155,10 @@ class TestVerification:
                     patch.object(worker, "execute", side_effect=error),
                     pytest.raises(type(error)) as raised,
                 ):
-                    verify(experiment, data)
+                    verify(experiment, data, experiment.parent / "dev")
                 assert raised.value is error
                 assert worker.closed
-                assert not (experiment / "test/verification.json").exists()
+                assert not (experiment / "verification.json").exists()
 
     def test_changed_tasks_or_weights_are_rejected_before_execution(self, subtests, tmp_path):
         for changed in ("tasks", "weights"):
@@ -162,33 +168,33 @@ class TestVerification:
                 path.write_bytes(path.read_bytes() + b"\n")
                 with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
                     with pytest.raises(ValueError, match="Adapter differs|Frozen evaluation tasks have changed"):
-                        verify(experiment, data)
+                        verify(experiment, data, experiment.parent / "dev")
 
     def test_summary_task_digest_must_match_even_when_manifest_is_valid(self, tmp_path):
         experiment, data, _ = self.artifacts(tmp_path)
-        path = experiment / "test/summary.json"
+        path = experiment / "summary.json"
         summary = json.loads(path.read_text())
         summary["task_file_sha256"] = "0" * 64
         path.write_text(json.dumps(summary))
         with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
             with pytest.raises(ValueError, match="Final tasks differ"):
-                verify(experiment, data)
+                verify(experiment, data, experiment.parent / "dev")
 
     def test_development_gate_precedes_loading_final_tasks(self, tmp_path):
         experiment, data, _ = self.artifacts(tmp_path)
-        path = experiment / "experiment.json"
+        path = experiment.parent / "dev/summary.json"
         state = json.loads(path.read_text())
-        state["development"]["success_rate"] = 0
+        state["success_rate"] = 0
         path.write_text(json.dumps(state))
         (data / "test-tasks.jsonl").unlink()
         with pytest.raises(ValueError, match="Development gate was not met"):
-            verify(experiment, data)
+            verify(experiment, data, experiment.parent / "dev")
 
     def test_predictions_must_cover_tasks_once_and_in_order(self, subtests, tmp_path):
         for invalid in ("missing", "duplicate", "reordered"):
             with subtests.test(invalid=invalid):
                 experiment, data, _ = self.artifacts(tmp_path / invalid)
-                path = experiment / "test/responses.jsonl"
+                path = experiment / "responses.jsonl"
                 rows = path.read_text().splitlines()
                 if invalid == "missing":
                     rows.pop()
@@ -199,12 +205,12 @@ class TestVerification:
                 path.write_text("\n".join(rows) + "\n")
                 with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
                     with pytest.raises(ValueError, match="exactly once"):
-                        verify(experiment, data)
+                        verify(experiment, data, experiment.parent / "dev")
 
     @pytest.mark.parametrize("blank_tasks", [False, True])
     def test_blank_jsonl_records_are_not_silently_ignored(self, blank_tasks, tmp_path):
         experiment, data, _ = self.artifacts(tmp_path)
-        path = data / "test-tasks.jsonl" if blank_tasks else experiment / "test/responses.jsonl"
+        path = data / "test-tasks.jsonl" if blank_tasks else experiment / "responses.jsonl"
         path.write_text("\n" + path.read_text())
         if blank_tasks:
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -212,26 +218,55 @@ class TestVerification:
             manifest = json.loads(manifest_path.read_text())
             manifest["splits"]["test"]["sha256"] = digest
             manifest_path.write_text(json.dumps(manifest))
-            summary_path = experiment / "test/summary.json"
+            summary_path = experiment / "summary.json"
             summary = json.loads(summary_path.read_text())
             summary["task_file_sha256"] = digest
             summary_path.write_text(json.dumps(summary))
         with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
             with pytest.raises(json.JSONDecodeError):
-                verify(experiment, data)
+                verify(experiment, data, experiment.parent / "dev")
 
     def test_failed_replay_publishes_mismatch_report_before_raising(self, tmp_path):
         experiment, data, _ = self.artifacts(tmp_path)
-        path = experiment / "test/responses.jsonl"
+        path = experiment / "responses.jsonl"
         rows = [json.loads(line) for line in path.read_text().splitlines()]
         rows[0]["steps"][0]["source"] = "result = value + 2\ndone('claimed success')"
         path.write_text("".join(json.dumps(row) + "\n" for row in rows))
         worker = ReplayWorkspace()
         with patch("model.benchmark.src.verification.Worker", return_value=worker):
             with pytest.raises(RuntimeError, match="independent replay"):
-                verify(experiment, data)
-        report = json.loads((experiment / "test/verification.json").read_text())
+                verify(experiment, data, experiment.parent / "dev")
+        report = json.loads((experiment / "verification.json").read_text())
         assert not report["objective_verified"]
         assert report["replayed_passed"] == 119
         assert report["status_mismatches"] == [{"id": "task-0", "original": "passed", "replay": "incorrect"}]
         assert worker.closed
+
+    @pytest.mark.parametrize(
+        "field,value,message",
+        [
+            ("task_file_sha256", "changed", "Development tasks differ"),
+            ("adapter_sha256", "different adapter", "different adapters"),
+            ("split", "train", "dev split"),
+        ],
+    )
+    def test_development_provenance_is_required(self, tmp_path, field, value, message):
+        output, data, _ = self.artifacts(tmp_path)
+        development = output.parent / "dev"
+        path = development / "summary.json"
+        summary = json.loads(path.read_text())
+        summary[field] = value
+        path.write_text(json.dumps(summary))
+        with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
+            with pytest.raises(ValueError, match=message):
+                verify(output, data, development)
+
+    @pytest.mark.parametrize("field,value", [("split", "dev"), ("complete", False)])
+    def test_final_evaluation_must_be_complete_and_use_test_split(self, tmp_path, field, value):
+        output, data, _ = self.artifacts(tmp_path)
+        path = output / "summary.json"
+        summary = json.loads(path.read_text())
+        summary[field] = value
+        path.write_text(json.dumps(summary))
+        with pytest.raises(ValueError, match="final evaluation has not finished"):
+            verify(output, data, output.parent / "dev")

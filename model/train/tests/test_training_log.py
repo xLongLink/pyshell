@@ -21,21 +21,15 @@ def test_library_logs_losses_and_saves_resumable_final_checkpoint(training_run):
     assert not (output / "steps.jsonl").exists()
 
 
-def test_pausing_keeps_original_schedule_and_saves_on_optimizer_boundary(training_run):
-    output = training_run("paused", "--stop-after", "4")
+def test_native_step_budget_counts_optimizer_updates(training_run):
+    output = training_run("updates", "--max_steps", "5")
     state = json.loads((output / "trainer_state.json").read_text())
-    assert state["global_step"] == 2
-    assert state["max_steps"] == 4
-    assert (output / "checkpoint-2" / "training.json").is_file()
-
-
-def test_nondivisible_budget_rounds_up_to_an_optimizer_update(training_run):
-    output = training_run("rounded", "--steps", "5")
-    state = json.loads((output / "trainer_state.json").read_text())
-    assert state["global_step"] == 3
+    assert state["global_step"] == 5
 
 
 def test_validation_can_be_disabled(training_run):
-    output = training_run("no-validation", "--eval-samples", "0")
+    output = training_run(
+        "no-validation", "--eval_strategy", "no", "--eval_on_start", "false"
+    )
     state = json.loads((output / "trainer_state.json").read_text())
     assert not any("eval_loss" in row for row in state["log_history"])

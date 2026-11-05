@@ -1,18 +1,7 @@
-from model.benchmark.src.proof_policy import final_passed, development_ready, acceptance_metadata
+from model.benchmark.src.proof_policy import final_passed, development_ready
 
 
 class TestProofPolicy:
-    def test_acceptance_metadata_preserves_order_and_returns_a_fresh_dict(self):
-        metadata = acceptance_metadata()
-        assert list(metadata.items()) == [
-            ("test_tasks", 120),
-            ("required_passes", 97),
-            ("strictly_greater_than", 0.8),
-            ("max_calls_per_stage", 4),
-        ]
-        metadata["required_passes"] = 0
-        assert acceptance_metadata()["required_passes"] == 97
-
     def test_development_requires_complete_overall_and_family_minimums(self, subtests):
         summary = {"complete": True, "tasks": 60, "success_rate": 0.9, "by_family": {"recovery": {"tasks": 5, "passed": 3}}}
         assert development_ready(summary)

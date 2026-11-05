@@ -1,6 +1,8 @@
 import json
+from pathlib import Path
 
 import pytest
+import torch
 from tokenizers import pre_tokenizers
 from transformers import (
     AutoModelForImageTextToText,
@@ -10,12 +12,13 @@ from transformers import (
     Qwen3_5VisionConfig,
 )
 
-from model.benchmark.src import runtime
 from model.train.src import training
 
 
 @pytest.fixture
-def training_run(tmp_path, monkeypatch):
+def training_run(tmp_path):
+    threads = torch.get_num_threads()
+    torch.set_num_threads(1)
     vocab = {"[UNK]": 0, "[PAD]": 1, "[EOS]": 2}
     vocab.update(
         {
@@ -68,29 +71,47 @@ def training_run(tmp_path, monkeypatch):
         (data / f"{split}.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in rows)
         )
-    monkeypatch.setattr(runtime.torch, "set_num_interop_threads", lambda threads: None)
 
     def run(name, *extra):
-        args = training.parse_args(
+        inputs, config = training.parse_args(
             [
                 "--base",
                 str(base),
                 "--data",
                 str(data),
-                "--output",
+                "--output_dir",
                 str(tmp_path / name),
-                "--device",
-                "cpu",
-                "--threads",
+                "--use_cpu",
+                "true",
+                "--bf16",
+                "false",
+                "--per_device_train_batch_size",
                 "1",
-                "--steps",
-                "8",
-                "--accumulation",
+                "--per_device_eval_batch_size",
+                "1",
+                "--max_steps",
+                "4",
+                "--gradient_accumulation_steps",
                 "2",
+                "--save_steps",
+                "2",
+                "--logging_steps",
+                "1",
+                "--eval_strategy",
+                "steps",
+                "--eval_steps",
+                "4",
+                "--eval_on_start",
+                "true",
+                "--learning_rate",
+                "0.001",
+                "--optim",
+                "adamw_torch",
                 *extra,
             ]
         )
-        training.train(args)
-        return args.output
+        training.train(inputs, config)
+        return Path(config.output_dir)
 
-    return run
+    yield run
+    torch.set_num_threads(threads)

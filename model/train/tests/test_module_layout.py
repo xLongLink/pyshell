@@ -36,19 +36,14 @@ class TestModuleLayout:
         for name in (
             "model.benchmark.main",
             "model.train.main",
-            "model.train.src.generation.cli",
         ):
             module = import_module(name)
             for command in module.COMMANDS:
-                handler = (
-                    command.replace("-", "_")
-                    if name == "model.train.src.generation.cli"
-                    else module.COMMANDS[command][0]
-                )
+                handler = module.COMMANDS[command][0]
                 with subtests.test(module=name, command=command):
                     received = []
 
-                    def handle(argv):
+                    def handle(argv, received=received):
                         received.extend(argv)
                         return 7
 
@@ -60,11 +55,7 @@ class TestModuleLayout:
                         result = module.main([command, "--help"])
                     assert received == ["--help"]
                     assert result == 7
-                    namespace = (
-                        "model.train.src.generation"
-                        if name == "model.train.src.generation.cli"
-                        else name.removesuffix(".main") + ".src"
-                    )
+                    namespace = name.removesuffix(".main") + ".src"
                     load.assert_called_once_with(f"{namespace}.{handler}")
 
     @pytest.mark.parametrize(
@@ -74,10 +65,9 @@ class TestModuleLayout:
                 "model.benchmark.main",
                 ("list", "run", "report", "evaluate", "audit", "syntax"),
             ),
-            ("model.train.main", ("pipeline", "checkpoint")),
             (
-                "model.train.src.generation.cli",
-                ("legacy", "expanded", "convert-chat", "proof", "curriculum"),
+                "model.train.main",
+                ("pipeline", "checkpoint", "generate", "iterate", "experiment"),
             ),
         ],
     )
@@ -93,7 +83,6 @@ class TestModuleLayout:
         for name in (
             "model.benchmark.main",
             "model.train.main",
-            "model.train.src.generation.cli",
         ):
             module = import_module(name)
             for command in module.COMMANDS:
@@ -116,8 +105,7 @@ class TestModuleLayout:
                     continue
                 assert not any(
                     name == "model.train"
-                    or name.startswith("model.train.")
                     or name == "train"
-                    or name.startswith("train.")
+                    or name.startswith(("model.train.", "train."))
                     for name in names
                 ), str(path)

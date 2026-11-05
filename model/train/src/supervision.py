@@ -13,9 +13,9 @@ def encode(record, tokenizer, max_length):
     ids = prompt_ids + target_ids
     if not prompt_ids:
         raise ValueError("Supervision requires a nonempty prompt")
-    if len(ids) > max_length:
+    if max_length is not None and len(ids) > max_length:
         raise ValueError(
-            f"{record['id']} needs {len(ids)} tokens, above {max_length}; refusing to truncate supervision"
+            f"{record.get('id', 'Example')} needs {len(ids)} tokens, above {max_length}; refusing to truncate supervision"
         )
     return {
         "input_ids": ids,

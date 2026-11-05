@@ -5,12 +5,9 @@ requires-python = ">=3.11"
 dependencies = [
     "pyshell",
     "transformers>=5.3,<6",
-    "accelerate>=1.5,<2",
     "peft>=0.18,<1",
     "trl>=1.17,<2",
     "datasets>=4,<6",
-    "numpy>=2,<3",
-    "pandas>=3,<4",
 ]
 
 [project.optional-dependencies]

@@ -7,8 +7,8 @@ from transformers import TrainerCallback
 def load_resume(path, metadata):
     if not (path / "trainer_state.json").is_file():
         raise ValueError(
-            "--resume requires a Trainer checkpoint directory; "
-            "use --initialize-adapter for older adapters"
+            "--resume_from_checkpoint requires a Trainer checkpoint directory; "
+            "use --initialize_adapter for older adapters"
         )
     saved = json.loads((path / "training.json").read_text())
     if saved != metadata:
@@ -23,18 +23,11 @@ def load_resume(path, metadata):
 
 
 class Checkpoints(TrainerCallback):
-    def __init__(self, metadata, stop_update):
+    def __init__(self, metadata):
         self.metadata = metadata
-        self.stop_update = stop_update
 
     def write(self, path):
         (path / "training.json").write_text(json.dumps(self.metadata, indent=2) + "\n")
-
-    def on_step_end(self, args, state, control, **kwargs):
-        if state.global_step >= self.stop_update:
-            control.should_training_stop = True
-            control.should_save = True
-            control.should_evaluate = args.eval_strategy != "no"
 
     def on_save(self, args, state, control, **kwargs):
         path = Path(args.output_dir) / f"checkpoint-{state.global_step}"

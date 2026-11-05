@@ -1,4 +1,4 @@
-.PHONY: up down logs train generate export benchmark test test\:train test\:benchmark format dataset\:download dataset\:upload model\:download model\:upload
+.PHONY: up down logs train export benchmark test test\:train test\:benchmark format dataset\:download dataset\:upload model\:download model\:upload
 
 up:
 	docker compose -f src/compose.yaml build pyshell && \
@@ -16,7 +16,7 @@ dataset\:download:
 	@mkdir -p model/train/data/raw
 	@for split in train validation; do \
 		if ! test -f model/train/data/raw/$$split.jsonl; then \
-			hf download LongLink/pyshell-worker-data data/$$split.jsonl --type dataset --local-dir model/train/.cache/dataset || exit $$?; \
+			hf download LongLink/pyshell-worker-data data/$$split.jsonl --type dataset --revision 1ed43ba23eff6438850921dca30665e5608fb8b7 --local-dir model/train/.cache/dataset || exit $$?; \
 			cp model/train/.cache/dataset/data/$$split.jsonl model/train/data/raw/$$split.jsonl || exit $$?; \
 		fi; \
 	done
@@ -32,9 +32,6 @@ model\:upload:
 
 train:
 	uv run --locked --project model/train --extra cpu python -m model.train.main train $(ARGS)
-
-generate:
-	uv run --locked --project model/train --extra cpu python -m model.train.main generate $(ARGS)
 
 export:
 	uv run --locked --project model/train --extra cpu python -m model.train.main export $(ARGS)

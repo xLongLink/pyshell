@@ -7,7 +7,6 @@ from model.benchmark.src.execution import Worker
 from model.benchmark.src.proof_policy import MAX_CALLS, FINAL_TASKS, final_passed, development_ready
 
 ROOT = Path(__file__).resolve().parents[1]
-REPO = ROOT.parents[1]
 
 
 def replay(worker, record, prediction):
@@ -40,14 +39,20 @@ def replay(worker, record, prediction):
     return "call_limit"
 
 
-def verify(experiment, data):
-    state = json.loads((experiment / "experiment.json").read_text())
-    summary = json.loads((experiment / "test/summary.json").read_text())
-    if state["status"] != "complete" or not summary["complete"]:
-        raise ValueError("The final experiment has not finished")
-    dev = state["development"]
+def verify(output, data, development):
+    summary = json.loads((output / "summary.json").read_text())
+    dev = json.loads((development / "summary.json").read_text())
+    if not summary["complete"] or summary["split"] != "test":
+        raise ValueError("The final evaluation has not finished")
+    if dev["split"] != "dev":
+        raise ValueError("Development results must use the dev split")
     if not development_ready(dev):
         raise ValueError("Development gate was not met")
+    _, dev_digest, _ = load_tasks(data, "dev")
+    if dev_digest != dev["task_file_sha256"]:
+        raise ValueError("Development tasks differ from the frozen manifest")
+    if dev["adapter_sha256"] != summary["adapter_sha256"]:
+        raise ValueError("Development and final results used different adapters")
     _, task_digest, tasks = load_tasks(data, "test", final=True)
     if task_digest != summary["task_file_sha256"]:
         raise ValueError("Final tasks differ from the frozen manifest")
@@ -55,7 +60,7 @@ def verify(experiment, data):
     adapter_digest = sha256(adapter)
     if adapter_digest != summary["adapter_sha256"]:
         raise ValueError("Adapter differs from the one evaluated")
-    predictions = read_jsonl(experiment / "test/responses.jsonl")
+    predictions = read_jsonl(output / "responses.jsonl")
     if len(tasks) != FINAL_TASKS or [row["id"] for row in predictions] != [row["id"] for row in tasks]:
         raise ValueError("Final predictions do not cover all 120 tasks exactly once")
     passed = 0
@@ -78,7 +83,7 @@ def verify(experiment, data):
         "backend": summary["backend"],
         "objective_verified": verified,
     }
-    (experiment / "test/verification.json").write_text(json.dumps(report, indent=2) + "\n")
+    (output / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2), flush=True)
     if not verified:
         raise RuntimeError("The CPU proof did not meet its independent replay checks")
@@ -86,7 +91,8 @@ def verify(experiment, data):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--experiment", type=Path, default=REPO / "model/train/artifacts/cpu-proof-curriculum600")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--development", type=Path, required=True)
     parser.add_argument("--data", type=Path, default=ROOT / "artifacts/cpu-proof-v1")
     args = parser.parse_args(argv)
-    verify(args.experiment, args.data)
+    verify(args.output, args.data, args.development)

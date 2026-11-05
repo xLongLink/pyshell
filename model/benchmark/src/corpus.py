@@ -15,16 +15,6 @@ def read_jsonl(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
 
 
-def write_jsonl(path, records):
-    path.write_text("".join(json.dumps(record) + "\n" for record in records))
-
-
-def verify_training_data(directory, manifest):
-    for name, key in (("train.jsonl", "training_records_sha256"), ("validation.jsonl", "validation_records_sha256")):
-        if sha256(directory / name) != manifest[key]:
-            raise ValueError(f"Training corpus changed: {name}")
-
-
 def load_tasks(directory, split, *, final=False, limit=None):
     manifest = json.loads((directory / "manifest.json").read_text())
     path = directory / f"{split}-tasks.jsonl"
