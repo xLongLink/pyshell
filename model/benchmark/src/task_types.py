@@ -1,5 +1,3 @@
-"""Task records shared by fixture builders and supervision generators."""
-
 from dataclasses import dataclass
 
 FAMILIES = (
@@ -24,18 +22,6 @@ CONTRACT = (
 
 
 @dataclass
-class TaskRecord:
-    id: str
-    family: str
-    setup: str
-    instruction: str
-    inspect: str
-    code: str
-    check: str
-    followup: dict | None
-
-
-@dataclass
 class ConverterSpec:
     gain: int
     offset: int
@@ -45,7 +31,7 @@ class ConverterSpec:
 
 @dataclass
 class TaskFixture:
-    record: TaskRecord
+    record: dict
     values: list[int]
     converter: ConverterSpec | None = None
     extra: int | None = None

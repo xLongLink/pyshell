@@ -77,7 +77,10 @@ class TestModuleLayout:
                 ("list", "run", "report", "evaluate", "audit", "syntax"),
             ),
             ("model.train.main", ("pipeline", "checkpoint")),
-            ("model.train.src.generation.cli", ("legacy", "expanded", "convert-chat")),
+            (
+                "model.train.src.generation.cli",
+                ("legacy", "expanded", "convert-chat", "proof", "curriculum"),
+            ),
         ],
     )
     def test_retired_commands_are_rejected(self, name, commands, subtests, capsys):

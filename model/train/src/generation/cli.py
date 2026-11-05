@@ -9,9 +9,7 @@ COMMANDS = {
     "binding-evaluation": "Freeze container-verified binding evaluation before training",
     "binding": "Build execution-verified API and schema binding supervision",
     "executed": "Build balanced training trajectories using real container feedback",
-    "proof": "Build independent CPU execution tasks",
     "transfer": "Build template-held-out contrastive tasks",
-    "curriculum": "Build a training-only recovery curriculum",
 }
 
 

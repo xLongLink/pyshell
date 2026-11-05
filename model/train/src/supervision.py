@@ -2,18 +2,14 @@
 
 import torch
 import torch.nn.functional as F
-from pyshell.serialization import serialize, target_text
+from pyshell.serialization import target_text
 
 
 def encode(record, tokenizer, max_length):
-    prefix = (
-        record["prompt"] if "prompt" in record else serialize(record["messages"][:-1])
-    )
-    target = target_text(
-        record["completion"]
-        if "completion" in record
-        else record["messages"][-1]["content"]
-    )
+    if "prompt" not in record or "completion" not in record:
+        raise ValueError("Supervision requires raw prompt and completion fields")
+    prefix = record["prompt"]
+    target = target_text(record["completion"])
     prompt_ids = tokenizer.encode(prefix, add_special_tokens=False)
     target_ids = tokenizer.encode(target, add_special_tokens=False)
     ids = prompt_ids + target_ids

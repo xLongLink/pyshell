@@ -3,8 +3,6 @@
 import argparse
 import json
 import math
-import os
-import select
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -44,20 +42,6 @@ def selection_score(summary):
 
 
 def run(args):
-    if args.wait_for_pid is not None:
-        try:
-            descriptor = os.pidfd_open(args.wait_for_pid)
-        except ProcessLookupError:
-            descriptor = None
-        if descriptor is not None:
-            print(
-                "Waiting for the training-set diagnostic using an OS process-exit event.",
-                flush=True,
-            )
-            try:
-                select.select([descriptor], [], [])
-            finally:
-                os.close(descriptor)
     diagnostic = json.loads(args.diagnostic.read_text())
     if not diagnostic["complete"]:
         raise ValueError("Training-set diagnostic did not complete")
@@ -91,8 +75,6 @@ def run(args):
                 device=args.device,
                 learning_rate=args.learning_rate / 2**index,
                 initialize_adapter=best,
-                backend="hf",
-                baseline_before_training=False,
                 final_if_ready=True,
             )
         )
@@ -161,7 +143,6 @@ def main(argv=None):
     parser.add_argument("--threads", type=int, default=16)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--learning-rate", type=float, default=5e-5)
-    parser.add_argument("--wait-for-pid", type=int)
     args = parser.parse_args(argv)
     if any(budget < 1 for budget in args.budgets):
         parser.error("Training budgets must be positive")

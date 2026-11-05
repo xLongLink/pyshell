@@ -4,6 +4,27 @@ from collections import Counter
 from model.benchmark.src.corpus import read_jsonl, sha256, write_jsonl
 
 
+def write_corpus(output, evaluation, rows, records):
+    write_jsonl(output / "train-tasks.jsonl", records)
+    write_jsonl(output / "train.jsonl", rows)
+    (output / "validation.jsonl").write_bytes(
+        (evaluation / "validation.jsonl").read_bytes()
+    )
+    return {
+        "train_tasks_sha256": sha256(output / "train-tasks.jsonl"),
+        "training_records_sha256": sha256(output / "train.jsonl"),
+        "validation_records_sha256": sha256(output / "validation.jsonl"),
+    }
+
+
+def seal_corpus(output, manifest):
+    serialized = json.dumps(manifest, indent=2) + "\n"
+    (output / "manifest.json").write_text(serialized)
+    for path in output.iterdir():
+        path.chmod(0o444)
+    print(serialized, end="", flush=True)
+
+
 def publish_curriculum(
     output,
     replay,
@@ -26,11 +47,7 @@ def publish_curriculum(
         assert not templates.intersection(frozen["splits"][split]["template_ids"])
 
     # Keep evaluation validation bytes unchanged.
-    write_jsonl(output / "train-tasks.jsonl", records)
-    write_jsonl(output / "train.jsonl", rows)
-    (output / "validation.jsonl").write_bytes(
-        (evaluation / "validation.jsonl").read_bytes()
-    )
+    hashes = write_corpus(output, evaluation, rows, records)
 
     # Attribute provenance to the calling generator, not this helper.
     manifest = {
@@ -38,16 +55,13 @@ def publish_curriculum(
         **metadata,
         "training_records": len(rows),
         "supervision_by_family": dict(Counter(row["family"] for row in rows)),
-        "training_records_sha256": sha256(output / "train.jsonl"),
-        "validation_records_sha256": sha256(output / "validation.jsonl"),
+        "training_records_sha256": hashes["training_records_sha256"],
+        "validation_records_sha256": hashes["validation_records_sha256"],
         "evaluation_test_sha256": frozen["splits"]["test"]["sha256"],
         "replay_sha256": sha256(replay / "train.jsonl"),
         "generator_sha256": sha256(generator_source),
     }
-    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     # Seal the published corpus, including the manifest.
-    for path in output.iterdir():
-        path.chmod(0o444)
-    print(json.dumps(manifest, indent=2))
+    seal_corpus(output, manifest)
     return manifest

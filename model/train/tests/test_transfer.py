@@ -1,5 +1,6 @@
 """Check template isolation and genuinely contrasting execution oracles."""
 
+import hashlib
 import io
 import json
 import statistics
@@ -18,32 +19,65 @@ AVAILABLE = find_spec("pandas") is not None
     not (AVAILABLE), reason="Install the benchmark project's data extra"
 )
 class TestTransfer:
-    def test_fixture_name_override_preserves_random_data_and_executes_in_every_split(
-        self, subtests
-    ):
+    def test_fixture_names_preserve_random_data_and_metadata(self, subtests):
         from dataclasses import asdict
 
-        from model.benchmark.src.reference import ReferenceSession
         from model.benchmark.src.task_types import FAMILIES
-        from model.train.src.generation.proof import build_task, task
+        from model.train.src.generation.proof import build_task
 
+        fixtures = []
         for family in FAMILIES:
-            for split in ("train", "dev", "test"):
-                with subtests.test(family=family, split=split):
-                    original = build_task(family, 1, 183731, split)
-                    renamed = build_task(family, 1, 183731, split, name="chosen_input")
+            for index, seed in ((0, 183731), (1, 813797), (5, 731971)):
+                with subtests.test(family=family, index=index, seed=seed):
+                    original = build_task(family, index, seed, name="original_input")
+                    renamed = build_task(family, index, seed, name="chosen_input")
                     assert renamed.values == original.values
                     assert renamed.converter == original.converter
                     assert renamed.extra == original.extra
-                    record = task(family, 1, 183731, split, name="chosen_input")
-                    assert record == asdict(renamed.record)
-                    assert "chosen_input" in record["instruction"]
-                    session = ReferenceSession(record)
-                    session.add(record["inspect"])
-                    session.add(record["code"])
-                    session.check(record["check"])
-                    if record["followup"]:
-                        session.followup(record["followup"], "followup")
+                    assert renamed.record == {
+                        **original.record,
+                        "setup": original.record["setup"].replace("original_input", "chosen_input"),
+                        "inspect": original.record["inspect"].replace("original_input", "chosen_input"),
+                    }
+                    assert renamed.record["followup"] is None
+                    fixtures.append(
+                        {
+                            **{key: renamed.record[key] for key in ("family", "setup", "inspect")},
+                            "values": renamed.values,
+                            "converter": asdict(renamed.converter) if renamed.converter else None,
+                            "extra": renamed.extra,
+                        }
+                    )
+        assert hashlib.sha256(json.dumps(fixtures, sort_keys=True).encode()).hexdigest() == (
+            "84e99f1f4d9963ea7b78bb0b04e337d56c5ba77416d6a9e550196b2cc1ab4557"
+        )
+
+    def test_transfer_records_preserve_frozen_output_and_execute_followups(self, subtests):
+        from model.benchmark.src.reference import ReferenceSession
+        from model.benchmark.src.task_types import FAMILIES
+        from model.train.src.generation.transfer import TEMPLATE_PARTITIONS, make_task
+
+        records = []
+        for family in FAMILIES:
+            for split, slots in TEMPLATE_PARTITIONS.items():
+                for slot in slots:
+                    for pair in (0, 1):
+                        for variant in (0, 1):
+                            records.append(make_task(family, pair, variant, 183731, split, slot))
+        assert hashlib.sha256(json.dumps(records).encode()).hexdigest() == (
+            "00bc2391482645a813775b451f8243620689c7589a4dd6daa6509fb091345d97"
+        )
+        for record in records:
+            with subtests.test(record=record["id"], template=record["template_id"]):
+                session = ReferenceSession(record)
+                session.add(record["inspect"])
+                session.add(record["code"])
+                session.check(record["check"])
+                if record["family"] == "stateful_followup":
+                    assert set(record["followup"]) == {"instruction", "code", "check"}
+                    session.followup(record["followup"], "followup")
+                else:
+                    assert record["followup"] is None
 
     def test_contrast_pair_retries_with_matching_seeds_in_variant_order(self, subtests):
         from model.train.src.generation.transfer import make_contrast_pair

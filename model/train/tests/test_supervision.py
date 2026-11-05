@@ -65,20 +65,20 @@ class TestSupervision:
                 3,
             )
 
-    def test_message_records_use_raw_framing_without_a_chat_template(self):
+    @pytest.mark.parametrize(
+        "raw_fields", [{}, {"prompt": "abc"}, {"completion": "def"}]
+    )
+    def test_message_records_cannot_replace_required_raw_fields(self, raw_fields):
         record = {
             "id": "messages",
             "messages": [
                 {"role": "user", "content": "Sum values."},
                 {"role": "assistant", "content": "result = sum(values)"},
             ],
+            **raw_fields,
         }
-        item = encode(record, Tokenizer(), 1024)
-        prefix = "<|task|>\nSum values.\n<|code|>\n"
-        assert item["prefix_length"] == len(prefix)
-        assert item["ids"] == [
-            ord(char) for char in prefix + "result = sum(values)\n" + END_CODE
-        ]
+        with pytest.raises(ValueError, match="requires raw prompt and completion"):
+            encode(record, Tokenizer(), 1024)
 
     @pytest.mark.skipif(not (torch.cuda.is_available()), reason="CUDA unavailable")
     def test_cuda_loss_and_backward_keep_tensors_on_model_device(self):

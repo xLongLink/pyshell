@@ -17,9 +17,7 @@ from model.train.src.experiment import main, run
 
 
 class TestExperiment:
-    def experiment(
-        self, directory, backend, ready, device="cpu", initialize_adapter="initial"
-    ):
+    def experiment(self, directory, ready, device="cpu", initialize_adapter="initial"):
         root = Path(directory)
         data = root / "data"
         data.mkdir()
@@ -47,8 +45,6 @@ class TestExperiment:
             initialize_adapter=root / initialize_adapter
             if initialize_adapter is not None
             else None,
-            backend=backend,
-            baseline_before_training=backend == "hf" and initialize_adapter is not None,
             final_if_ready=True,
         )
         calls = []
@@ -96,7 +92,7 @@ class TestExperiment:
                 tempfile.TemporaryDirectory(dir="/tmp/opencode") as directory,
             ):
                 output, calls = self.experiment(
-                    directory, "hf", False, initialize_adapter=adapter
+                    directory, False, initialize_adapter=adapter
                 )
                 metadata = json.loads((output / "experiment.json").read_text())
                 assert "fresh_adapter" not in metadata
@@ -125,10 +121,10 @@ class TestExperiment:
                 assert "--evaluate-every" not in training
                 assert "--resume" not in training
 
-    def test_hf_skips_unused_export_and_leaves_final_unopened_when_dev_fails(self):
+    def test_hf_evaluation_leaves_final_unopened_when_dev_fails(self):
         with tempfile.TemporaryDirectory() as directory:
-            output, calls = self.experiment(directory, "hf", False)
-            assert len(calls) == 3
+            output, calls = self.experiment(directory, False)
+            assert len(calls) == 2
             for command in calls:
                 assert command[command.index("--threads") + 1] == "1"
             assert all(
@@ -144,23 +140,24 @@ class TestExperiment:
                 == "needs_development"
             )
 
-    def test_gguf_exports_before_evaluation_and_opens_final_only_after_gate(self):
+    def test_final_opens_only_after_development_gate(self):
         with tempfile.TemporaryDirectory() as directory:
-            output, calls = self.experiment(directory, "gguf", True)
-            assert len(calls) == 4
-            assert "convert_lora_to_gguf.py" in calls[1][1]
-            assert "--final" not in calls[2]
-            assert "--final" in calls[3]
+            output, calls = self.experiment(directory, True)
+            assert len(calls) == 3
+            assert "train" in calls[0]
+            assert "--final" not in calls[1]
+            assert "--final" in calls[2]
+            assert not (output / "baseline-dev").exists()
             assert (
                 json.loads((output / "experiment.json").read_text())["status"]
                 == "complete"
             )
 
-    def test_baseline_and_development_share_evaluation_options(self):
+    def test_development_and_final_share_evaluation_options(self):
         with tempfile.TemporaryDirectory() as directory:
-            output, calls = self.experiment(directory, "hf", True)
-            baseline, _, development, final = calls
-            for command in (baseline, development, final):
+            output, calls = self.experiment(directory, True)
+            _, development, final = calls
+            for command in (development, final):
                 assert command[:5] == [
                     "uv",
                     "run",
@@ -168,18 +165,16 @@ class TestExperiment:
                     "--project",
                     str(Path(__file__).resolve().parents[2] / "benchmark"),
                 ]
-                assert command.count("--backend") == 1
+                assert "--backend" not in command
                 assert command.count("--device") == 1
                 assert command[command.index("--extra") + 1] == "local"
-                assert command[command.index("--backend") + 1] == "hf"
+                assert command[command.index("--base-model") + 1] == str(
+                    Path(__file__).resolve().parents[1] / "artifacts/base"
+                )
                 assert command[command.index("--threads") + 1] == "1"
                 assert command[command.index("--data") + 1] == str(
                     (output.parent / "data").resolve()
                 )
-            assert baseline[baseline.index("--adapter") + 1] == str(
-                (output.parent / "initial").resolve()
-            )
-            assert baseline[baseline.index("--label") + 1] == "run-baseline"
             assert development[development.index("--adapter") + 1] == str(
                 (output / "adapter").resolve()
             )
@@ -187,14 +182,21 @@ class TestExperiment:
 
     def test_cuda_reaches_training_and_every_hf_evaluation_phase(self):
         with tempfile.TemporaryDirectory() as directory:
-            _, calls = self.experiment(directory, "hf", True, "cuda")
-            assert len(calls) == 4
+            _, calls = self.experiment(directory, True, "cuda")
+            assert len(calls) == 3
             for command in calls:
                 assert command[command.index("--device") + 1] == "cuda"
                 if "model.benchmark.main" in command:
                     assert command[command.index("--extra") + 1] == "cuda"
 
-    def test_cuda_does_not_silently_use_cpu_gguf_evaluation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            with pytest.raises(ValueError, match="HF"):
-                self.experiment(directory, "gguf", True, "cuda")
+    @pytest.mark.parametrize(
+        "arguments",
+        [("--backend", "gguf"), ("--backend", "hf"), ("--baseline-before-training",)],
+    )
+    def test_retired_options_are_rejected(self, tmp_path, capsys, arguments):
+        output = tmp_path / "run"
+        with pytest.raises(SystemExit) as error:
+            main(["--output", str(output), *arguments])
+        assert error.value.code == 2
+        assert "unrecognized arguments" in capsys.readouterr().err
+        assert not output.exists()

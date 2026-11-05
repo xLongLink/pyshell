@@ -8,7 +8,6 @@ from pathlib import Path
 
 from model.benchmark.src.corpus import sha256, verify_training_data
 from model.benchmark.src.proof_policy import development_ready
-from model.train.src.export import export_command
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parents[1]
@@ -16,14 +15,6 @@ REPO = ROOT.parents[1]
 
 def run(args):
     device = args.device
-    if device != "cpu" and args.backend != "hf":
-        raise ValueError("CUDA experiments require the HF evaluation backend")
-    if args.baseline_before_training and (
-        not args.initialize_adapter or args.backend != "hf"
-    ):
-        raise ValueError(
-            "The baseline comparison requires an initial adapter and the HF backend"
-        )
     manifest = json.loads((args.data / "manifest.json").read_text())
     for split, metadata in manifest["splits"].items():
         actual = sha256(args.data / f"{split}-tasks.jsonl")
@@ -46,7 +37,7 @@ def run(args):
         if args.initialize_adapter
         else None,
         "training_manifest": training_manifest,
-        "evaluation_backend": args.backend,
+        "evaluation_backend": "hf",
         "device": device,
         "dtype": "float32",
         "steps": args.steps,
@@ -73,47 +64,22 @@ def run(args):
         "--locked",
         "--project",
         str(ROOT.parent / "benchmark"),
-        *(
-            ["--extra", "cuda" if device == "cuda" else "local"]
-            if args.backend == "hf"
-            else []
-        ),
+        "--extra",
+        "cuda" if device == "cuda" else "local",
         "python",
         "-u",
         "-m",
         "model.benchmark.main",
         "cpu",
-        "--backend",
-        args.backend,
         "--device",
         device,
         "--data",
         str(args.data.resolve()),
         "--threads",
         str(args.threads),
-        *(
-            ["--base-model", str(ROOT / "artifacts/base")]
-            if args.backend == "hf"
-            else []
-        ),
+        "--base-model",
+        str(ROOT / "artifacts/base"),
     ]
-    if args.baseline_before_training:
-        baseline = args.output / "baseline-dev"
-        command(
-            "baseline_development",
-            [
-                *evaluation,
-                "--adapter",
-                str(args.initialize_adapter.resolve()),
-                "--label",
-                args.output.name + "-baseline",
-                "--output",
-                str(baseline.resolve()),
-            ],
-        )
-        metadata["baseline_development"] = json.loads(
-            (baseline / "summary.json").read_text()
-        )
 
     adapter = args.output / "adapter"
     command(
@@ -145,14 +111,11 @@ def run(args):
             ),
         ],
     )
-    gguf = args.output / "adapter.gguf"
-    if args.backend == "gguf":
-        command("export", export_command(adapter.resolve(), gguf.resolve()))
     dev = args.output / "dev"
     evaluation = [
         *evaluation,
         "--adapter",
-        str(adapter.resolve()) if args.backend == "hf" else str(gguf.resolve()),
+        str(adapter.resolve()),
         "--label",
         args.output.name,
     ]
@@ -197,7 +160,5 @@ def main(argv=None):
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--training-data", type=Path)
     parser.add_argument("--initialize-adapter", type=Path)
-    parser.add_argument("--backend", choices=("gguf", "hf"), default="gguf")
     parser.add_argument("--final-if-ready", action="store_true")
-    parser.add_argument("--baseline-before-training", action="store_true")
     run(parser.parse_args(argv))

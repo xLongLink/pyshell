@@ -8,7 +8,6 @@ import re
 import secrets
 import statistics
 from collections import Counter
-from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -192,8 +191,8 @@ TEMPLATES = {
 def make_task(family, pair, variant, seed, split, slot):
     rng = random.Random(seed + pair * 65537)
     name = f"{rng.choice(NAMES)}_{rng.randrange(10000, 999999)}"
-    fixture = build_task(family, pair, seed, "dev", name=name)
-    record = asdict(fixture.record)
+    fixture = build_task(family, pair, seed, name=name)
+    record = fixture.record
     ns = {"np": np, "pd": pd, "statistics": statistics, "json": json}
     exec(record["setup"], ns)
     build = BuildContext(
@@ -211,18 +210,21 @@ def make_task(family, pair, variant, seed, split, slot):
     instruction = TEMPLATES[family][slot].format(
         name=build.name, other=build.other, **build.wording
     )
-    record.update(
-        id=f"{split}-{family}-{pair:04d}-v{variant}",
-        instruction=instruction + "\n" + CONTRACT,
-        template_id=f"{family}-t{slot}",
-        contrast_group=f"{split}-{family}-{pair:04d}",
-        variant=variant,
-        code=solution.code + "\ndone(str(result))",
-        check=solution.check,
-        recovery_code=solution.recovery_code,
-        expected=solution.expected,
-    )
-    return record
+    return {
+        "id": f"{split}-{family}-{pair:04d}-v{variant}",
+        "family": family,
+        "setup": record["setup"],
+        "instruction": instruction + "\n" + CONTRACT,
+        "inspect": record["inspect"],
+        "code": solution.code + "\ndone(str(result))",
+        "check": solution.check,
+        "followup": record["followup"],
+        "template_id": f"{family}-t{slot}",
+        "contrast_group": f"{split}-{family}-{pair:04d}",
+        "variant": variant,
+        "recovery_code": solution.recovery_code,
+        "expected": solution.expected,
+    }
 
 
 def make_contrast_pair(family, pair, seed, split, slot):

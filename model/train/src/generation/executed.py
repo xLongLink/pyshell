@@ -6,9 +6,10 @@ from collections import Counter
 from contextlib import closing
 from pathlib import Path
 
-from model.benchmark.src.corpus import sha256, write_jsonl
+from model.benchmark.src.corpus import sha256
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.task_types import FAMILIES
+from model.train.src.generation import publication
 from model.train.src.generation.transfer import (
     TEMPLATE_PARTITIONS,
     make_contrast_pair,
@@ -55,11 +56,7 @@ def prepare(output, evaluation, pairs=8, seed=917341):
     for split in ("dev", "test"):
         if template_ids & set(frozen["splits"][split]["template_ids"]):
             raise ValueError("Training templates overlap a held-out split")
-    write_jsonl(output / "train.jsonl", rows)
-    write_jsonl(output / "train-tasks.jsonl", records)
-    (output / "validation.jsonl").write_bytes(
-        (evaluation / "validation.jsonl").read_bytes()
-    )
+    hashes = publication.write_corpus(output, evaluation, rows, records)
     manifest = {
         "experiment": "executed-transfer-curriculum-v1",
         "training_only": True,
@@ -76,17 +73,14 @@ def prepare(output, evaluation, pairs=8, seed=917341):
         "splits": {
             "train": {
                 "tasks": len(records),
-                "sha256": sha256(output / "train-tasks.jsonl"),
+                "sha256": hashes["train_tasks_sha256"],
             }
         },
-        "training_records_sha256": sha256(output / "train.jsonl"),
-        "validation_records_sha256": sha256(output / "validation.jsonl"),
+        "training_records_sha256": hashes["training_records_sha256"],
+        "validation_records_sha256": hashes["validation_records_sha256"],
         "generator_sha256": sha256(Path(__file__)),
     }
-    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    for path in output.iterdir():
-        path.chmod(0o444)
-    print(json.dumps(manifest, indent=2), flush=True)
+    publication.seal_corpus(output, manifest)
 
 
 def main(argv=None):

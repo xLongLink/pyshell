@@ -12,7 +12,7 @@ import pytest
 
 from model.benchmark.src.proof_report import execution_metrics
 from model.benchmark.src.task_types import FAMILIES
-from model.train.src.iteration import run
+from model.train.src.iteration import main, run
 
 
 class TestIteration:
@@ -38,7 +38,6 @@ class TestIteration:
         diagnostic = root / "diagnostic.json"
         diagnostic.write_text(json.dumps({"complete": True, "tasks": 24, "passed": 14}))
         return SimpleNamespace(
-            wait_for_pid=None,
             diagnostic=diagnostic,
             output=root / "loop",
             initialize_adapter=root / "initial",
@@ -114,3 +113,32 @@ class TestIteration:
             state = json.loads((args.output / "loop.json").read_text())
             assert state["status"] == "final_failed"
             assert not state["objective_met"]
+
+    def test_incomplete_diagnostic_is_rejected_before_training(self, tmp_path):
+        args = self.args(tmp_path)
+        args.diagnostic.write_text(json.dumps({"complete": False}))
+        with patch("model.train.src.iteration.experiment") as train:
+            with pytest.raises(ValueError, match="diagnostic did not complete"):
+                run(args)
+        train.assert_not_called()
+        assert not args.output.exists()
+
+    def test_retired_pid_wait_option_is_rejected(self, tmp_path, capsys):
+        arguments = [
+            "--training-data",
+            "training",
+            "--initialize-adapter",
+            "initial",
+            "--baseline-dev",
+            "baseline",
+            "--diagnostic",
+            "diagnostic.json",
+            "--output",
+            str(tmp_path / "loop"),
+            "--wait-for-pid",
+            "123",
+        ]
+        with pytest.raises(SystemExit) as error:
+            main(arguments)
+        assert error.value.code == 2
+        assert "unrecognized arguments: --wait-for-pid" in capsys.readouterr().err

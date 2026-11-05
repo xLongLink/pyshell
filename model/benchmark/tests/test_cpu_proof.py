@@ -1,6 +1,5 @@
 """Keep the CPU experiment's grading independent of model-visible context."""
 
-import io
 import sys
 import json
 import pytest
@@ -12,9 +11,8 @@ from pathlib import Path
 from contextlib import nullcontext
 from unittest.mock import patch
 from model.benchmark.src import cpu_evaluate
-from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE
 from model.benchmark.src.resources import exclusive_cpu
-from model.benchmark.src.cpu_evaluate import trial, evaluate, generator, completion
+from model.benchmark.src.cpu_evaluate import trial, evaluate
 
 
 class Worker:
@@ -44,12 +42,12 @@ class TestCPUProof:
             split="dev",
             final=False,
             limit=None,
-            backend="gguf",
             device="cpu",
+            threads=3,
+            base_model=tmp_path / "base",
             adapter=None,
             output=tmp_path / "output",
             label="fixture",
-            gguf_base=tmp_path / "base.gguf",
         )
         rows = [
             {**record, "status": status, "steps": [{"source": "print('payload')", "feedback": {"stdout": "payload"}}]}
@@ -64,11 +62,13 @@ class TestCPUProof:
 
         with (
             patch.object(cpu_evaluate, "exclusive_cpu", return_value=nullcontext()),
-            patch.object(cpu_evaluate, "generator", return_value=nullcontext(None)),
+            patch("model.benchmark.src.inference.HFCompletion") as model,
             patch.object(cpu_evaluate, "Worker"),
             patch.object(cpu_evaluate, "trial", side_effect=run_trial),
         ):
+            model.return_value.runtime = {"fixture": True}
             evaluate(args)
+        model.assert_called_once_with(args.adapter, 3, "cpu", base_model=args.base_model)
         summaries.append(json.loads((args.output / "summary.json").read_text()))
         assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows
         assert [summary["tasks"] for summary in summaries] == [1, 2, 3]
@@ -77,27 +77,23 @@ class TestCPUProof:
         assert all(not summary["acceptance_met"] for summary in summaries)
         summary = summaries[-1]
         assert summary["task_file_sha256"] == digest
+        assert summary["backend"] == "hf"
+        assert summary["dtype"] == "float32"
+        assert summary["runtime"] == {"fixture": True}
+        assert "gguf_base" not in summary
         assert summary["success_rate"] == 1 / 3
         assert summary["by_family"] == {"join": {"tasks": 2, "passed": 1}, "recovery": {"tasks": 1, "passed": 0}}
         assert summary["statuses"] == {"passed": 1, "call_limit": 1, "incorrect": 1}
         assert "fixture dev 3/3: 1 passed; join=incorrect" in capsys.readouterr().out
 
-    def test_hf_generator_passes_the_explicit_base_model(self, tmp_path):
-        args = SimpleNamespace(backend="hf", adapter=tmp_path / "adapter", threads=3, device="cpu", base_model=tmp_path / "base")
-        with patch("model.benchmark.src.inference.HFCompletion") as model:
-            with generator(args) as generate:
-                assert generate is model.return_value
-        model.assert_called_once_with(args.adapter, 3, "cpu", base_model=args.base_model)
-
-    def test_completion_preserves_stop_order_and_end_marker_requirement(self, subtests):
-        for stopping_word in (END_CODE, TASK, CONSOLE, CODE, ""):
-            with subtests.test(stopping_word=stopping_word):
-                response = io.StringIO(json.dumps({"content": "result = 11", "stopping_word": stopping_word}))
-                with patch("model.benchmark.src.cpu_evaluate.urllib.request.urlopen", return_value=response) as urlopen:
-                    assert completion("Sum values") == ("result = 11", stopping_word == END_CODE)
-                payload = json.loads(urlopen.call_args.args[0].data)
-                assert payload["stop"] == [END_CODE, TASK, CONSOLE, CODE]
-                assert payload["prompt"] == "Sum values"
+    @pytest.mark.parametrize("arguments", [("--backend", "gguf"), ("--backend", "hf"), ("--gguf-base", "base.gguf")])
+    def test_retired_backend_options_are_rejected(self, tmp_path, capsys, arguments):
+        output = tmp_path / "output"
+        with pytest.raises(SystemExit) as error:
+            cpu_evaluate.main(["--label", "fixture", "--output", str(output), *arguments])
+        assert error.value.code == 2
+        assert "unrecognized arguments" in capsys.readouterr().err
+        assert not output.exists()
 
     def record(self):
         return {

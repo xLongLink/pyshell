@@ -70,10 +70,11 @@ def test_publication_preserves_records_bytes_manifest_and_permissions(
     assert (output / "validation.jsonl").read_bytes() == (
         publication["evaluation"] / "validation.jsonl"
     ).read_bytes()
-    assert manifest == {
+    expected_manifest = {
         "training_only": True,
         "seed": 17,
         "new_join_pairs": 2,
+        "intervention": "original intervention",
         "training_records": 3,
         "supervision_by_family": {"binding": 2, "join": 1},
         "training_records_sha256": sha256(output / "train.jsonl"),
@@ -81,10 +82,10 @@ def test_publication_preserves_records_bytes_manifest_and_permissions(
         "evaluation_test_sha256": publication["frozen"]["splits"]["test"]["sha256"],
         "replay_sha256": sha256(publication["replay"] / "train.jsonl"),
         "generator_sha256": sha256(publication["generator_source"]),
-        "intervention": "original intervention",
     }
-    expected = json.dumps(manifest, indent=2) + "\n"
-    assert (output / "manifest.json").read_text() == expected
+    assert manifest == expected_manifest
+    expected = json.dumps(expected_manifest, indent=2) + "\n"
+    assert (output / "manifest.json").read_bytes() == expected.encode()
     assert capsys.readouterr().out == expected
     assert {path.name for path in output.iterdir()} == {
         "train.jsonl",
