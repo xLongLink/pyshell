@@ -18,7 +18,6 @@ from transformers import AutoModelForImageTextToText, AutoTokenizer
 from model.benchmark.src.corpus import default_training_data, read_jsonl, sha256
 from model.benchmark.src.resources import exclusive_cpu
 from model.benchmark.src.runtime import configure_device, configure_threads
-from model.train.src.checkpoint_evaluation import evaluate_checkpoint
 from model.train.src.checkpoints import load_resume, save_checkpoint
 from model.train.src.supervision import encode, evaluate_loss, loss_for
 
@@ -41,7 +40,6 @@ def parse_args(argv=None):
     initialization = parser.add_mutually_exclusive_group()
     initialization.add_argument("--resume", type=Path)
     initialization.add_argument("--initialize-adapter", type=Path)
-    parser.add_argument("--evaluate-every", type=int, default=0)
     args = parser.parse_args(argv)
     args.data = args.data or default_training_data("raw")
     if args.stop_after is not None and (
@@ -49,10 +47,6 @@ def parse_args(argv=None):
     ):
         parser.error(
             "--stop-after must be within --steps and on an accumulation boundary"
-        )
-    if args.evaluate_every < 0 or args.evaluate_every % args.accumulation:
-        parser.error(
-            "--evaluate-every must be zero or a positive multiple of gradient accumulation"
         )
     return args
 
@@ -178,7 +172,6 @@ def train(args):
         "optimizer_restored": optimizer_restored,
         "serialization": "raw",
         "serialization_format": FORMAT,
-        "evaluate_every": args.evaluate_every,
     }
 
     try:
@@ -240,12 +233,7 @@ def train(args):
                         f"Step {step + 1}/{args.steps}: loss={row['loss']:.4f}, step={row['seconds']:.2f}s, RAM={row['rss_gib']:.2f}GiB, ETA={(args.steps - step - 1) * elapsed / (step - resume_step + 1) / 60:.1f}min",
                         flush=True,
                     )
-                evaluate_now = (
-                    args.evaluate_every
-                    and (step + 1) % args.evaluate_every == 0
-                    and step + 1 < args.steps
-                )
-                if (step + 1) % 100 == 0 or evaluate_now:
+                if (step + 1) % 100 == 0:
                     status["training_seconds"] = (
                         prior_seconds + time.monotonic() - started
                     )
@@ -256,32 +244,6 @@ def train(args):
                         status,
                         args.output,
                         f"checkpoint-{step + 1}",
-                    )
-                if evaluate_now:
-                    print(
-                        f"Pausing training for checkpoint {step + 1} evaluation.",
-                        flush=True,
-                    )
-                    status.update(status="evaluating", evaluation_step=step + 1)
-                    (args.output / "training.json").write_text(
-                        json.dumps(status, indent=2) + "\n"
-                    )
-                    returncode = evaluate_checkpoint(
-                        (args.output / f"checkpoint-{step + 1}").resolve(),
-                        step + 1,
-                        (args.output / "evaluations.jsonl").resolve(),
-                    )
-                    print(
-                        f"Resuming training; checkpoint evaluation exit code: {returncode}.",
-                        flush=True,
-                    )
-                    status.update(
-                        status="running",
-                        last_evaluation_step=step + 1,
-                        last_evaluation_returncode=returncode,
-                    )
-                    (args.output / "training.json").write_text(
-                        json.dumps(status, indent=2) + "\n"
                     )
         status.update(
             status="completed" if stop_step == args.steps else "paused",

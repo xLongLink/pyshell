@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[3]
 MODULES = ("model.benchmark", "model.train")
 
@@ -53,12 +55,7 @@ class TestModuleLayout:
                         return_value=SimpleNamespace(main=handle),
                     ) as load:
                         result = module.main([command, "--help"])
-                    prefix = (
-                        [command]
-                        if name == "model.benchmark.main" and handler == "cli"
-                        else []
-                    )
-                    assert received == [*prefix, "--help"]
+                    assert received == ["--help"]
                     assert result == 7
                     namespace = (
                         "model.train.src.generation"
@@ -66,6 +63,41 @@ class TestModuleLayout:
                         else name.removesuffix(".main") + ".src"
                     )
                     load.assert_called_once_with(f"{namespace}.{handler}")
+
+    @pytest.mark.parametrize(
+        "name,commands",
+        [
+            (
+                "model.benchmark.main",
+                ("list", "run", "report", "evaluate", "audit", "syntax"),
+            ),
+            ("model.train.main", ("pipeline", "checkpoint")),
+            ("model.train.src.generation.cli", ("legacy", "expanded", "convert-chat")),
+        ],
+    )
+    def test_retired_commands_are_rejected(self, name, commands, subtests, capsys):
+        module = import_module(name)
+        for command in commands:
+            with subtests.test(command=command), pytest.raises(SystemExit) as error:
+                module.main([command])
+            assert error.value.code == 2
+            assert "invalid choice" in capsys.readouterr().err
+
+    def test_retained_commands_load_real_handlers(self, subtests, capsys):
+        for name in (
+            "model.benchmark.main",
+            "model.train.main",
+            "model.train.src.generation.cli",
+        ):
+            module = import_module(name)
+            for command in module.COMMANDS:
+                with (
+                    subtests.test(module=name, command=command),
+                    pytest.raises(SystemExit) as error,
+                ):
+                    module.main([command, "--help"])
+                assert error.value.code == 0
+                assert "usage:" in capsys.readouterr().out
 
     def test_benchmark_has_no_training_implementation_dependency(self):
         for path in (ROOT / "model/benchmark/src").rglob("*.py"):

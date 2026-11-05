@@ -1,9 +1,9 @@
-"""Keep each evaluation workflow's server settings while sharing its launch builder."""
+"""Preserve frozen CPU evaluation's GGUF server settings."""
 
 import pytest
 from types import SimpleNamespace
 from unittest.mock import patch
-from model.benchmark.src import evaluate, cpu_evaluate
+from model.benchmark.src import cpu_evaluate
 from model.benchmark.src.inference_server import gguf_command
 
 
@@ -29,28 +29,6 @@ def test_gguf_command_preserves_cpu_runtime_options(tmp_path, port, context_size
         "--n-gpu-layers",
         "0",
     ]
-
-
-def test_worker_evaluation_keeps_chat_server_options(tmp_path):
-    adapter = tmp_path / "adapter.gguf"
-    adapter.touch()
-    with (
-        patch.object(evaluate, "ROOT", tmp_path),
-        patch.object(evaluate, "inference_server") as server,
-        patch.object(evaluate.subprocess, "run", return_value=SimpleNamespace(returncode=0)),
-    ):
-        assert evaluate.main(["--adapter", str(adapter), "--label", "pilot"]) == 0
-    command = server.call_args.args[0]
-    assert command[command.index("--model") + 1] == str(tmp_path / "local/Qwen3.5-0.8B-Q4_K_M.gguf")
-    assert command[command.index("--port") + 1] == "8030"
-    assert command[command.index("--ctx-size") + 1] == "8192"
-    assert command[command.index("--threads-batch") + 1] == "12"
-    assert command[command.index("--alias") + 1] == "pilot"
-    assert command[command.index("--lora") + 1] == str(adapter)
-    assert "--jinja" in command
-    assert command[command.index("--reasoning") + 1] == "off"
-    assert command[command.index("--reasoning-budget") + 1] == "0"
-    assert command[command.index("--api-key") + 1] == "local-only"
 
 
 @pytest.mark.parametrize("with_adapter", [False, True])

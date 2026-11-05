@@ -27,12 +27,6 @@ COMMANDS = {
     "proof": ("proof", "Build independent CPU execution tasks"),
     "transfer": ("transfer", "Build template-held-out contrastive tasks"),
     "curriculum": ("curriculum", "Build a training-only recovery curriculum"),
-    "legacy": ("legacy", "Reproduce the original chat corpus"),
-    "expanded": ("expanded", "Build expanded raw supervision"),
-    "convert-chat": (
-        "convert_chat",
-        "Convert validated chat records to the raw protocol",
-    ),
 }
 
 

@@ -2,12 +2,7 @@
 name = "pyshell-benchmark"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = [
-    "pyshell",
-    "httpx2>=2.16,<3",
-    "pydantic-ai-slim[openai]>=2.64,<3",
-    "python-dotenv>=1,<2",
-]
+dependencies = ["pyshell"]
 
 [project.optional-dependencies]
 data = ["numpy>=2,<3", "pandas>=3,<4"]
@@ -19,7 +14,7 @@ local = [
 cuda = ["torch>=2.10,<3", "transformers>=5.3,<6", "peft>=0.18,<1"]
 
 [dependency-groups]
-dev = ["anyio>=4,<5", "pytest>=9,<10"]
+dev = ["pytest>=9,<10"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -37,6 +37,12 @@ class TestTrainingArguments:
     def test_cpu_remains_default(self):
         assert parse_args([]).device == "cpu"
 
+    def test_periodic_worker_evaluation_is_no_longer_supported(self, capsys):
+        with pytest.raises(SystemExit) as error:
+            parse_args(["--evaluate-every", "100"])
+        assert error.value.code == 2
+        assert "unrecognized arguments: --evaluate-every" in capsys.readouterr().err
+
     def test_resume_and_initialization_are_individually_accepted(self, subtests):
         for option, attribute in (
             ("--resume", "resume"),

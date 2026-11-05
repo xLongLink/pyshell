@@ -49,7 +49,6 @@ class TestTrainingLog:
             self.loss = Mock(
                 side_effect=lambda model, item: model.weight.square().mean()
             )
-            self.evaluation = Mock(return_value=0)
             stack.enter_context(
                 patch.multiple(
                     training,
@@ -61,7 +60,6 @@ class TestTrainingLog:
                     encode=Mock(return_value={"id": "example", "ids": [1, 2]}),
                     loss_for=self.loss,
                     evaluate_loss=Mock(return_value=None),
-                    evaluate_checkpoint=self.evaluation,
                     save_checkpoint=Mock(side_effect=self.check_checkpoint),
                 )
             )
@@ -99,27 +97,17 @@ class TestTrainingLog:
         assert self.checkpoints == ["checkpoint-100", "final"]
         assert self.handles[0].closed
 
-    def test_each_row_is_visible_before_the_next_step_and_evaluation(self):
-        self.args.evaluate_every = 2
+    def test_each_row_is_visible_before_the_next_step(self):
         completed_steps = []
-        evaluated_steps = []
 
         def loss_for(model, item):
             assert self.logged_steps() == completed_steps
             completed_steps.append(len(completed_steps) + 1)
             return model.weight.square().mean()
 
-        def evaluate_checkpoint(checkpoint, step, evaluations):
-            assert self.logged_steps() == list(range(1, step + 1))
-            assert not self.handles[0].closed
-            evaluated_steps.append(step)
-            return 0
-
         self.loss.side_effect = loss_for
-        self.evaluation.side_effect = evaluate_checkpoint
         training.train(self.args)
-        assert self.checkpoints == ["checkpoint-2", "final"]
-        assert evaluated_steps == [2]
+        assert self.checkpoints == ["final"]
         assert self.logged_steps() == [1, 2, 3, 4]
 
     def assert_loss_failure(self, error):
@@ -137,28 +125,18 @@ class TestTrainingLog:
     def test_keyboard_interrupt_closes_log_before_interrupted_checkpoint(self):
         self.assert_loss_failure(KeyboardInterrupt())
 
-    def test_evaluation_failure_closes_log_and_propagates_original_exception(self):
-        self.args.evaluate_every = 2
-        error = RuntimeError("evaluation failed")
-        self.evaluation.side_effect = error
-        with pytest.raises(RuntimeError) as raised:
-            training.train(self.args)
-        assert raised.value is error
-        assert self.checkpoints == ["checkpoint-2", "interrupted"]
-        assert self.handles[0].closed
-
     def test_checkpoint_failure_closes_log_and_propagates_original_exception(self):
-        self.args.evaluate_every = 2
+        self.args.steps = 100
         error = OSError("checkpoint failed")
 
         def save_checkpoint(*args):
             self.check_checkpoint(*args)
-            if args[-1] == "checkpoint-2":
+            if args[-1] == "checkpoint-100":
                 raise error
 
         training.save_checkpoint.side_effect = save_checkpoint
         with pytest.raises(OSError, match="checkpoint failed") as raised:
             training.train(self.args)
         assert raised.value is error
-        assert self.checkpoints == ["checkpoint-2", "interrupted"]
+        assert self.checkpoints == ["checkpoint-100", "interrupted"]
         assert self.handles[0].closed
