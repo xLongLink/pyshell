@@ -19,7 +19,7 @@ from transformers import (
     get_cosine_with_min_lr_schedule_with_warmup,
 )
 
-from model.benchmark.src.corpus import default_training_data, read_jsonl, sha256
+from model.benchmark.src.corpus import read_jsonl, sha256
 from model.benchmark.src.resources import exclusive_cpu
 from model.benchmark.src.runtime import configure_device, configure_threads
 from model.train.src.checkpoints import load_resume, save_checkpoint
@@ -97,7 +97,7 @@ class ResponseTrainer(Trainer):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", type=Path, default=ROOT / "artifacts/base")
-    parser.add_argument("--data", type=Path)
+    parser.add_argument("--data", type=Path, default=ROOT / "data/raw")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/adapter")
     parser.add_argument("--steps", type=int, default=500)
     parser.add_argument("--stop-after", type=int)
@@ -111,7 +111,6 @@ def parse_args(argv=None):
     initialization.add_argument("--resume", type=Path)
     initialization.add_argument("--initialize-adapter", type=Path)
     args = parser.parse_args(argv)
-    args.data = args.data or default_training_data("raw")
     if args.steps < 1 or args.accumulation < 1:
         parser.error("--steps and --accumulation must be positive")
     if args.stop_after is not None and (
@@ -324,16 +323,12 @@ def train(args):
             trainer.train()
         status.update(
             status="completed" if stop_step == args.steps else "paused",
-            training_seconds=prior_seconds + time.monotonic() - started,
             validation_loss_after=evaluate_loss(model, validation),
         )
         checkpoint("final")
         print(json.dumps(status, indent=2), flush=True)
     except BaseException:
-        status.update(
-            status="interrupted",
-            training_seconds=prior_seconds + time.monotonic() - started,
-        )
+        status["status"] = "interrupted"
         checkpoint("interrupted")
         raise
 

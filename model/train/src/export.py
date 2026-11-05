@@ -10,23 +10,20 @@ BASE = ROOT / "artifacts/base"
 CONVERTER = ROOT / "artifacts/llama.cpp-b12038/convert_lora_to_gguf.py"
 
 
-def export_command(adapter, output):
-    return [
-        sys.executable,
-        str(CONVERTER),
-        "--base",
-        str(BASE),
-        "--outfile",
-        str(output),
-        str(adapter),
-    ]
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     return subprocess.run(
-        export_command(args.adapter.resolve(), args.output.resolve()), check=False
+        [
+            sys.executable,
+            str(CONVERTER),
+            "--base",
+            str(BASE),
+            "--outfile",
+            str(args.output.resolve()),
+            str(args.adapter.resolve()),
+        ],
+        check=False,
     ).returncode

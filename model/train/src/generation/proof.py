@@ -14,7 +14,6 @@ def build_task(family, index, seed, *, name):
     labels = [rng.choice(["copper", "silver", "gold"]) for _ in values]
     content = builder(FixtureSeed(rng, name, values, labels))
     record = {
-        "family": family,
         "setup": content.setup,
         "inspect": content.inspection,
         "followup": None,

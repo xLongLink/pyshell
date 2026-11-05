@@ -197,6 +197,7 @@ class TestTrainingProgress:
                     return_value={
                         "updates": resume_updates,
                         "validation_loss_before": None,
+                        "training_seconds": 600,
                     },
                 ),
                 patch.object(training, "loss_for", side_effect=loss_for),
@@ -252,6 +253,9 @@ class TestTrainingProgress:
                 ] == expected
                 for _, status in checkpoints:
                     assert status["validation_loss_before"] is None
+                    assert status["training_seconds"] >= (600 if resume_updates else 0)
+                durations = [status["training_seconds"] for _, status in checkpoints]
+                assert durations == sorted(durations)
                 if fail_at is None:
                     assert checkpoints[-1][1]["validation_loss_after"] is None
 

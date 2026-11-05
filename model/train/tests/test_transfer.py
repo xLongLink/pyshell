@@ -42,7 +42,8 @@ class TestTransfer:
                     assert renamed.record["followup"] is None
                     fixtures.append(
                         {
-                            **{key: renamed.record[key] for key in ("family", "setup", "inspect")},
+                            "family": family,
+                            **{key: renamed.record[key] for key in ("setup", "inspect")},
                             "values": renamed.values,
                             "converter": asdict(renamed.converter) if renamed.converter else None,
                             "extra": renamed.extra,

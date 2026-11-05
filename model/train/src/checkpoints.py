@@ -25,7 +25,7 @@ def load_resume(adapter, data, accumulation):
 
 
 def save_checkpoint(
-    model, tokenizer, optimizer, status, output, name, *, scheduler=None
+    model, tokenizer, optimizer, status, output, name, *, scheduler
 ):
     path = output if name == "final" else output / name
     output.mkdir(parents=True, exist_ok=True)
@@ -37,8 +37,7 @@ def save_checkpoint(
         model.save_pretrained(staged)
         tokenizer.save_pretrained(staged)
         torch.save(optimizer.state_dict(), staged / "optimizer.pt")
-        if scheduler is not None:
-            torch.save(scheduler.state_dict(), staged / "scheduler.pt")
+        torch.save(scheduler.state_dict(), staged / "scheduler.pt")
         metadata = staged / "training.json"
         metadata.write_text(state)
         if path == output:

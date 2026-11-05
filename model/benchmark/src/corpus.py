@@ -2,12 +2,6 @@
 
 import json
 import hashlib
-from pathlib import Path
-
-
-def default_training_data(serialization):
-    repo = Path(__file__).resolve().parents[3]
-    return repo / "model/train/data" / serialization
 
 
 def sha256(path):

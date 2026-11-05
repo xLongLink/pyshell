@@ -42,15 +42,26 @@ class TestCheckpoint:
             (checkpoint / "training.json").write_text(json.dumps(state))
             assert load_resume(checkpoint, root, 4) == state
 
-    def test_failed_save_never_publishes_a_checkpoint_or_advances_state(self):
+    @pytest.mark.parametrize("failed_file", ["optimizer.pt", "scheduler.pt"])
+    def test_failed_save_never_publishes_a_checkpoint_or_advances_state(
+        self, failed_file
+    ):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
             previous = '{"updates": 1}\n'
             (output / "training.json").write_text(previous)
             optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.tensor(2.0))])
+            scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, total_iters=4)
+            torch_save = torch.save
+
+            def fail_save(state, path):
+                if path.name == failed_file:
+                    raise OSError("disk failure")
+                torch_save(state, path)
+
             with patch(
                 "model.train.src.checkpoints.torch.save",
-                side_effect=OSError("disk failure"),
+                side_effect=fail_save,
             ):
                 with pytest.raises(OSError, match="disk failure"):
                     save_checkpoint(
@@ -60,6 +71,7 @@ class TestCheckpoint:
                         {"updates": 2},
                         output,
                         "checkpoint-8",
+                        scheduler=scheduler,
                     )
             assert not (output / "checkpoint-8").exists()
             assert (output / "training.json").read_text() == previous
@@ -71,8 +83,15 @@ class TestCheckpoint:
             previous = '{"updates": 0}\n'
             (output / "training.json").write_text(previous)
             optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.tensor(2.0))])
+            scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, total_iters=4)
             state = {"updates": 1}
             operations = Mock()
+            flushed_inodes = set()
+            os_fsync = os.fsync
+
+            def flush_file(descriptor):
+                os_fsync(descriptor)
+                flushed_inodes.add(os.fstat(descriptor).st_ino)
 
             def publish(source, destination):
                 if destination == output / "training.json":
@@ -80,11 +99,17 @@ class TestCheckpoint:
                     assert json.loads(source.read_text()) == state
                     assert (output / "training.json").read_text() == previous
                     assert (output / "optimizer.pt").is_file()
+                    assert torch.load(
+                        output / "scheduler.pt", weights_only=True
+                    ) == scheduler.state_dict()
+                    assert (output / "scheduler.pt").stat().st_ino in flushed_inodes
                 os_replace(source, destination)
 
             os_replace = os.replace
             with (
-                patch("model.train.src.checkpoints.os.fsync", wraps=os.fsync) as flush,
+                patch(
+                    "model.train.src.checkpoints.os.fsync", side_effect=flush_file
+                ) as flush,
                 patch(
                     "model.train.src.checkpoints.os.replace", side_effect=publish
                 ) as replace,
@@ -99,13 +124,24 @@ class TestCheckpoint:
                 operations.attach_mock(replace, "replace")
                 operations.attach_mock(sync, "sync")
                 save_checkpoint(
-                    Artifact(), Artifact(), optimizer, state, output, "final"
+                    Artifact(),
+                    Artifact(),
+                    optimizer,
+                    state,
+                    output,
+                    "final",
+                    scheduler=scheduler,
                 )
-            assert flush.call_count >= 5
+            assert flush.call_count >= 6
             staged = replace.call_args_list[-1].args[0].parent
-            assert operations.mock_calls == [
-                call.sync(staged),
+            assert operations.mock_calls[0] == call.sync(staged)
+            assert sorted(
+                operations.mock_calls[1:3], key=lambda operation: operation.args[0].name
+            ) == [
                 call.replace(staged / "optimizer.pt", output / "optimizer.pt"),
+                call.replace(staged / "scheduler.pt", output / "scheduler.pt"),
+            ]
+            assert operations.mock_calls[3:] == [
                 call.sync(output),
                 call.replace(staged / "training.json", output / "training.json"),
                 call.sync(output),
@@ -115,6 +151,7 @@ class TestCheckpoint:
             assert stat.S_IMODE((output / "training.json").stat().st_mode) == 384
             assert sorted((p.name for p in output.iterdir())) == [
                 "optimizer.pt",
+                "scheduler.pt",
                 "training.json",
             ]
 
@@ -124,11 +161,15 @@ class TestCheckpoint:
             previous = '{"updates": 1}\n'
             (output / "training.json").write_text(previous)
             optimizer = torch.optim.AdamW([torch.nn.Parameter(torch.tensor(2.0))])
+            scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, total_iters=4)
             os_replace = os.replace
 
             def fail_publication(source, destination):
                 if destination == output / "training.json":
                     assert (output / "optimizer.pt").is_file()
+                    assert torch.load(
+                        output / "scheduler.pt", weights_only=True
+                    ) == scheduler.state_dict()
                     assert json.loads(source.read_text()) == {"updates": 2}
                     raise OSError("metadata publication failed")
                 os_replace(source, destination)
@@ -144,10 +185,12 @@ class TestCheckpoint:
                         {"updates": 2},
                         output,
                         "final",
+                        scheduler=scheduler,
                     )
             assert (output / "training.json").read_text() == previous
             assert sorted((p.name for p in output.iterdir())) == [
                 "optimizer.pt",
+                "scheduler.pt",
                 "training.json",
             ]
 
@@ -163,11 +206,19 @@ class TestCheckpoint:
             }
             parameter = torch.nn.Parameter(torch.tensor(2.0))
             optimizer = torch.optim.AdamW([parameter])
+            scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, total_iters=4)
             parameter.square().backward()
             optimizer.step()
+            scheduler.step()
             output = root / "adapter"
             save_checkpoint(
-                Artifact(), Artifact(), optimizer, state, output, "checkpoint-4"
+                Artifact(),
+                Artifact(),
+                optimizer,
+                state,
+                output,
+                "checkpoint-4",
+                scheduler=scheduler,
             )
             checkpoint = output / "checkpoint-4"
             assert load_resume(checkpoint, root, 4) == state
@@ -183,8 +234,9 @@ class TestCheckpoint:
             with pytest.raises(ValueError, match="dataset"):
                 load_resume(checkpoint, root, 4)
 
+    @pytest.mark.parametrize("name", ["checkpoint-4", "final"])
     def test_checkpoint_preserves_scheduler_position_and_next_learning_rate(
-        self, tmp_path
+        self, tmp_path, name
     ):
         parameter = torch.nn.Parameter(torch.tensor(2.0))
         optimizer = torch.optim.AdamW([parameter], lr=0.01)
@@ -198,9 +250,10 @@ class TestCheckpoint:
             optimizer,
             {"updates": 1},
             tmp_path,
-            "checkpoint-4",
+            name,
             scheduler=scheduler,
         )
+        checkpoint = tmp_path if name == "final" else tmp_path / name
         restored_optimizer = torch.optim.AdamW(
             [torch.nn.Parameter(torch.tensor(0.0))], lr=0.01
         )
@@ -208,10 +261,10 @@ class TestCheckpoint:
             restored_optimizer, total_iters=4
         )
         restored_optimizer.load_state_dict(
-            torch.load(tmp_path / "checkpoint-4/optimizer.pt", weights_only=True)
+            torch.load(checkpoint / "optimizer.pt", weights_only=True)
         )
         restored_scheduler.load_state_dict(
-            torch.load(tmp_path / "checkpoint-4/scheduler.pt", weights_only=True)
+            torch.load(checkpoint / "scheduler.pt", weights_only=True)
         )
         assert restored_scheduler.state_dict() == scheduler.state_dict()
         optimizer.step()
