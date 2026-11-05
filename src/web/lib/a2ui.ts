@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { geojsonSchema } from "./geojson";
+import { mapTraceSchema } from "./map";
 
 export const identifier = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const text = z.string().max(10000);
@@ -13,6 +14,7 @@ const coordinates = {
     y: z.array(number.nullable()).min(1).max(200),
 };
 export const traceSchema = z.discriminatedUnion("type", [
+    mapTraceSchema,
     z.strictObject({
         type: z.literal("scatter"),
         ...coordinates,
@@ -59,7 +61,10 @@ function validateFigure(
     let count = 0;
     const coordinateTypes = new Set<string>();
     for (const trace of figure.data) {
-        if (trace.type === "pie") {
+        if (trace.type === "map") {
+            if (figure.data.length !== 1)
+                fail("An interactive map requires exactly one map trace");
+        } else if (trace.type === "pie") {
             if (figure.data.length !== 1)
                 fail("A pie figure requires exactly one pie trace");
             if (trace.labels.length !== trace.values.length)

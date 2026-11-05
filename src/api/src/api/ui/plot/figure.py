@@ -3,6 +3,7 @@ from pydantic import Field, PrivateAttr, model_validator
 from api.ui.model import UIModel
 from api.ui.types import ImmutableList
 from api.ui.plot.bar import Bar
+from api.ui.plot.map import Map, MapView
 from api.ui.plot.pie import Pie
 from api.ui.plot.area import Area
 from api.ui.plot.layout import Layout
@@ -12,7 +13,7 @@ from api.ui.plot.choropleth import Choropleth
 if TYPE_CHECKING:
     from api.ui.session import UI
 
-Trace = Annotated[Scatter | Area | Bar | Pie | Choropleth, Field(discriminator="type")]
+Trace = Annotated[Scatter | Area | Bar | Pie | Choropleth | Map, Field(discriminator="type")]
 
 
 class Figure(UIModel):
@@ -69,6 +70,21 @@ class Figure(UIModel):
         """Move this figure into the center, which holds up to four widgets."""
         self._publisher().action(self, "focus")
 
+    def set_view(self, **attributes: object) -> None:
+        """Navigate an interactive map without replacing its layers.
+
+        Pass country="CHE", bounds=[[west, south], [east, north]], or
+        center=[longitude, latitude] with optional zoom=12. Coordinates use WGS84.
+        Each call navigates even when repeating a previous destination after a
+        manual pan. Country navigation uses downloaded built-in world boundaries.
+        """
+        trace = self.data[0]
+        if not isinstance(trace, Map):
+            raise ValueError("set_view() requires an interactive map")
+        revision = trace.view.revision + 1 if trace.view is not None else 1
+        view = MapView.model_validate({**attributes, "revision": revision})
+        self.update(data=[{**trace.model_dump(mode="json"), "view": view.model_dump(mode="json")}])
+
     def pin(self) -> None:
         """Move this figure into the sidebar."""
         self._publisher().action(self, "pin")
@@ -80,8 +96,10 @@ class Figure(UIModel):
     @model_validator(mode="after")
     def traces(self) -> "Figure":
         """Require compatible traces on one coordinate system."""
-        if any(isinstance(trace, (Pie, Choropleth)) for trace in self.data):
+        if any(isinstance(trace, (Pie, Choropleth, Map)) for trace in self.data):
             if len(self.data) != 1:
+                if any(isinstance(trace, Map) for trace in self.data):
+                    raise ValueError("An interactive map requires exactly one map trace")
                 if any(isinstance(trace, Choropleth) for trace in self.data):
                     raise ValueError("A map figure requires exactly one choropleth trace")
                 raise ValueError("A pie figure requires exactly one pie trace")
