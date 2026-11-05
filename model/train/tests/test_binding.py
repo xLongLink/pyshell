@@ -6,7 +6,7 @@ import pytest
 
 from model.benchmark.src.reference import ReferenceWorkspace
 from model.benchmark.src.task_types import FAMILIES
-from model.train.src.generation.binding import make_task
+from model.train.src.generation.binding import make_task, verify_negative_control
 from model.train.src.generation.binding_curriculum import binding_record, trajectories
 from model.train.src.generation.binding_evaluation import evaluation_task
 from model.train.src.generation.binding_language import (
@@ -18,6 +18,57 @@ from model.train.src.generation.transfer import make_contrast_pair, supervision
 
 
 class TestBinding:
+    @pytest.mark.parametrize("error_count", [0, 1, 2])
+    def test_trajectory_ids_and_targets_preserve_direct_and_recovery_order(
+        self, error_count
+    ):
+        record, errors = binding_record("joined_totals", 0, 0, 719)
+        workspace = ReferenceWorkspace()
+        rows = trajectories(record, errors[:error_count], workspace)
+        assert [row["id"] for row in rows] == [
+            record["id"] + "-inspect",
+            record["id"] + "-solve",
+            *[record["id"] + f"-recover-{index}" for index in range(error_count)],
+        ]
+        assert [row["completion"] for row in rows] == [
+            record["inspect"],
+            *[record["code"] for _ in range(error_count + 1)],
+        ]
+
+    def test_negative_control_verifier_executes_in_a_fresh_workspace(self):
+        record = {
+            "id": "negative-control",
+            "setup": "value = 7",
+            "negative_control": "result = 0",
+            "check": "assert result == value",
+        }
+        workspace = ReferenceWorkspace()
+        workspace.execute("value = 99", "reset")
+        verify_negative_control(record, workspace)
+        assert workspace.namespace["value"] == 7
+        assert workspace.namespace["result"] == 0
+
+    @pytest.mark.parametrize(
+        "field,source",
+        [
+            ("setup", "raise ValueError('fixture failed')"),
+            ("negative_control", "raise ValueError('control failed')"),
+            ("negative_control", "result = value"),
+            ("check", "pass"),
+        ],
+    )
+    def test_negative_control_verifier_rejects_invalid_controls(self, field, source):
+        record = {
+            "id": "negative-control",
+            "setup": "value = 7",
+            "negative_control": "result = 0",
+            "check": "assert result == value",
+            field: source,
+        }
+        workspace = ReferenceWorkspace()
+        with pytest.raises(AssertionError):
+            verify_negative_control(record, workspace)
+
     def test_explicit_join_selection_preserves_contrast_and_order(self):
         workspace = ReferenceWorkspace()
         for pair in range(12):

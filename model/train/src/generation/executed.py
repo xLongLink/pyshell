@@ -38,14 +38,14 @@ def prepare(output, evaluation, pairs=8, seed=917341):
     records = []
     with closing(Worker()) as worker:
         for record in training_tasks(pairs, seed):
-            for mode in ("direct", "retry") if record["recovery_code"] else ("direct",):
+            for retry in (False, True) if record["recovery_code"] else (False,):
                 rows.extend(
                     supervision(
                         record,
                         include_inspection=True,
                         workspace=worker,
-                        retry=mode == "retry",
-                        id_prefix=f"{record['id']}-{mode}",
+                        retry=retry,
+                        id_prefix=f"{record['id']}-{'retry' if retry else 'direct'}",
                     )
                 )
             records.append(

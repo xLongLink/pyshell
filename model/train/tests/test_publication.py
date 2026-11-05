@@ -52,8 +52,11 @@ def publication(tmp_path):
         rows=rows,
         records=records,
         generator_source=source,
-        metadata={"seed": 17, "new_join_pairs": 2},
-        details={"intervention": "original intervention"},
+        metadata={
+            "seed": 17,
+            "new_join_pairs": 2,
+            "intervention": "original intervention",
+        },
     )
 
 

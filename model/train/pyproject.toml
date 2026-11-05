@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pyshell",
     "transformers>=5.3,<6",
+    "accelerate>=1.5,<2",
     "peft>=0.18,<1",
     "psutil>=7,<8",
     "numpy>=2,<3",

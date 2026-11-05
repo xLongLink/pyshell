@@ -41,7 +41,12 @@ class TestModuleLayout:
             "model.train.src.generation.cli",
         ):
             module = import_module(name)
-            for command, (handler, _) in module.COMMANDS.items():
+            for command in module.COMMANDS:
+                handler = (
+                    command.replace("-", "_")
+                    if name == "model.train.src.generation.cli"
+                    else module.COMMANDS[command][0]
+                )
                 with subtests.test(module=name, command=command):
                     received = []
 

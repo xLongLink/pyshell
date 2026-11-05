@@ -1,19 +1,23 @@
-"""LoRA pilot with loss restricted to the final executable response."""
-
 import argparse
-import ctypes
-import gc
 import json
 import math
 import random
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import psutil
 import torch
 from peft import LoraConfig, PeftModel, get_peft_model
 from pyshell.serialization import FORMAT
-from transformers import AutoModelForImageTextToText, AutoTokenizer
+from transformers import (
+    AutoModelForImageTextToText,
+    AutoTokenizer,
+    Trainer,
+    TrainerCallback,
+    TrainingArguments,
+    get_cosine_with_min_lr_schedule_with_warmup,
+)
 
 from model.benchmark.src.corpus import default_training_data, read_jsonl, sha256
 from model.benchmark.src.resources import exclusive_cpu
@@ -22,6 +26,72 @@ from model.train.src.checkpoints import load_resume, save_checkpoint
 from model.train.src.supervision import encode, evaluate_loss, loss_for
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def scheduler_for(optimizer, steps, accumulation, completed_updates=0):
+    updates = math.ceil(steps / accumulation)
+    warmup = min(10, max(1, updates // 10))
+
+    for group in optimizer.param_groups:
+        group.setdefault("initial_lr", group["lr"])
+    return get_cosine_with_min_lr_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=warmup,
+        num_training_steps=updates,
+        min_lr_rate=0.1,
+        last_epoch=completed_updates,
+    )
+
+
+def single_example(items):
+    return items[0]
+
+
+class ResponseTrainer(Trainer):
+    def __init__(self, *args, status, log, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.args.world_size != 1 or self.args.n_gpu > 1:
+            raise ValueError("Training requires one process and one CPU or CUDA device")
+        if self.accelerator.mixed_precision != "no":
+            raise ValueError(
+                "Training requires float32 without Accelerate mixed precision"
+            )
+        self.status = status
+        self.step_log = log
+        self.model_accepts_loss_kwargs = False
+
+    def _get_train_sampler(self, train_dataset=None):
+        return torch.utils.data.SequentialSampler(
+            self.train_dataset if train_dataset is None else train_dataset
+        )
+
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
+        loss = loss_for(model, inputs)
+        if not torch.isfinite(loss):
+            raise RuntimeError(
+                f"Nonfinite loss at step {self.status['completed_steps'] + 1}"
+            )
+        self.response_loss = float(loss.detach())
+        return loss
+
+    def training_step(self, model, inputs, num_items_in_batch=None):
+        started = time.monotonic()
+        loss = super().training_step(model, inputs, num_items_in_batch)
+        self.status["completed_steps"] += 1
+        row = {
+            "step": self.status["completed_steps"],
+            "id": inputs["id"],
+            "loss": self.response_loss,
+            "seconds": time.monotonic() - started,
+            "rss_gib": psutil.Process().memory_info().rss / 2**30,
+        }
+        if self.args.device.type == "cuda":
+            row["peak_cuda_gib"] = torch.cuda.max_memory_allocated() / 2**30
+        self.step_log.write(json.dumps(row) + "\n")
+        self.step_log.flush()
+        return loss
 
 
 def parse_args(argv=None):
@@ -34,7 +104,7 @@ def parse_args(argv=None):
     parser.add_argument("--accumulation", type=int, default=4)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--threads", type=int, default=8)
-    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--max-length", type=int, default=2048)
     parser.add_argument("--eval-samples", type=int, default=60)
     initialization = parser.add_mutually_exclusive_group()
@@ -42,6 +112,8 @@ def parse_args(argv=None):
     initialization.add_argument("--initialize-adapter", type=Path)
     args = parser.parse_args(argv)
     args.data = args.data or default_training_data("raw")
+    if args.steps < 1 or args.accumulation < 1:
+        parser.error("--steps and --accumulation must be positive")
     if args.stop_after is not None and (
         not 0 < args.stop_after <= args.steps or args.stop_after % args.accumulation
     ):
@@ -52,7 +124,7 @@ def parse_args(argv=None):
 
 
 def train(args):
-    configure_device(args.device)
+    args.device = configure_device(args.device)
     if args.output.exists():
         raise FileExistsError(
             f"Refusing to overwrite existing training artifacts: {args.output}"
@@ -61,7 +133,6 @@ def train(args):
     configure_threads(args.threads)
     torch.manual_seed(713)
     random.seed(713)
-    libc = ctypes.CDLL(None)
     tokenizer = AutoTokenizer.from_pretrained(args.base, local_files_only=True)
     train = [
         encode(record, tokenizer, args.max_length)
@@ -131,9 +202,29 @@ def train(args):
         optimizer_restored = True
     indices = list(range(len(train)))
     random.Random(713).shuffle(indices)
-    updates = math.ceil(args.steps / args.accumulation)
-    warmup = min(10, max(1, updates // 10))
-    optimizer.zero_grad(set_to_none=True)
+    for group in optimizer.param_groups:
+        group["initial_lr"] = args.learning_rate
+    scheduler = scheduler_for(
+        optimizer,
+        args.steps,
+        args.accumulation,
+        resume_state["updates"] if resume_state else 0,
+    )
+    scheduler_restored = False
+    if (
+        args.resume
+        and (args.resume / "scheduler.pt").is_file()
+        and resume_state["steps"] == args.steps
+        and resume_state["learning_rate"] == args.learning_rate
+    ):
+        scheduler.load_state_dict(
+            torch.load(
+                args.resume / "scheduler.pt", weights_only=True, map_location="cpu"
+            )
+        )
+        for group, rate in zip(optimizer.param_groups, scheduler.get_last_lr()):
+            group["lr"] = rate
+        scheduler_restored = True
     started = time.monotonic()
     resume_step = (
         min(resume_state["updates"] * args.accumulation, args.steps)
@@ -170,9 +261,25 @@ def train(args):
         else None,
         "resumed_at_step": resume_step,
         "optimizer_restored": optimizer_restored,
+        "scheduler_restored": scheduler_restored,
         "serialization": "raw",
         "serialization_format": FORMAT,
     }
+
+    def checkpoint(name):
+        status["training_seconds"] = prior_seconds + time.monotonic() - started
+        save_checkpoint(
+            model, tokenizer, optimizer, status, args.output, name, scheduler=scheduler
+        )
+
+    class CheckpointCallback(TrainerCallback):
+        def on_substep_end(self, args, state, control, **kwargs):
+            if status["completed_steps"] % 100 == 0:
+                checkpoint(f"checkpoint-{status['completed_steps']}")
+
+        def on_step_end(self, args, state, control, **kwargs):
+            status["updates"] += 1
+            self.on_substep_end(args, state, control, **kwargs)
 
     try:
         print(
@@ -180,88 +287,59 @@ def train(args):
             flush=True,
         )
         with (args.output / "steps.jsonl").open("a") as file:
-            for step in range(resume_step, stop_step):
-                item = train[indices[step % len(indices)]]
-                step_started = time.monotonic()
-                group_start = (step // args.accumulation) * args.accumulation
-                group_size = min(args.accumulation, args.steps - group_start)
-                loss = loss_for(model, item)
-                if not torch.isfinite(loss):
-                    raise RuntimeError(f"Nonfinite loss at step {step + 1}")
-                (loss / group_size).backward()
-                if (step + 1) % args.accumulation == 0 or step + 1 == args.steps:
-                    torch.nn.utils.clip_grad_norm_(parameters, 1.0)
-                    update = status["updates"] + 1
-                    multiplier = (
-                        update / warmup
-                        if update <= warmup
-                        else 0.1
-                        + 0.9
-                        * (
-                            1
-                            + math.cos(
-                                math.pi * (update - warmup) / max(1, updates - warmup)
-                            )
-                        )
-                        / 2
-                    )
-                    for group in optimizer.param_groups:
-                        group["lr"] = args.learning_rate * multiplier
-                    optimizer.step()
-                    optimizer.zero_grad(set_to_none=True)
-                    status["updates"] = update
-                loss_value = float(loss.detach())
-                del loss
-                gc.collect()
-                if hasattr(libc, "malloc_trim"):
-                    libc.malloc_trim(0)
-                row = {
-                    "step": step + 1,
-                    "id": item["id"],
-                    "loss": loss_value,
-                    "seconds": time.monotonic() - step_started,
-                    "rss_gib": psutil.Process().memory_info().rss / 2**30,
-                }
-                if args.device == "cuda":
-                    row["peak_cuda_gib"] = torch.cuda.max_memory_allocated() / 2**30
-                status["completed_steps"] = step + 1
-                file.write(json.dumps(row) + "\n")
-                file.flush()
-                if step - resume_step < 3 or (step + 1) % 10 == 0:
-                    elapsed = time.monotonic() - started
-                    print(
-                        f"Step {step + 1}/{args.steps}: loss={row['loss']:.4f}, step={row['seconds']:.2f}s, RAM={row['rss_gib']:.2f}GiB, ETA={(args.steps - step - 1) * elapsed / (step - resume_step + 1) / 60:.1f}min",
-                        flush=True,
-                    )
-                if (step + 1) % 100 == 0:
-                    status["training_seconds"] = (
-                        prior_seconds + time.monotonic() - started
-                    )
-                    save_checkpoint(
-                        model,
-                        tokenizer,
-                        optimizer,
-                        status,
-                        args.output,
-                        f"checkpoint-{step + 1}",
-                    )
+            trainer = ResponseTrainer(
+                model=model,
+                args=TrainingArguments(
+                    output_dir=str(args.output),
+                    use_cpu=args.device == "cpu",
+                    per_device_train_batch_size=1,
+                    gradient_accumulation_steps=args.accumulation,
+                    max_steps=math.ceil((stop_step - resume_step) / args.accumulation),
+                    seed=713,
+                    data_seed=713,
+                    fp16=False,
+                    bf16=False,
+                    tf32=False if args.device == "cuda" else None,
+                    remove_unused_columns=False,
+                    dataloader_pin_memory=args.device == "cuda",
+                    save_strategy="no",
+                    logging_strategy="no",
+                    report_to="none",
+                    push_to_hub=False,
+                    disable_tqdm=True,
+                ),
+                train_dataset=torch.utils.data.Subset(
+                    train,
+                    [
+                        indices[step % len(indices)]
+                        for step in range(resume_step, stop_step)
+                    ],
+                ),
+                data_collator=single_example,
+                optimizers=(optimizer, scheduler),
+                callbacks=[CheckpointCallback()],
+                status=status,
+                log=file,
+            )
+            trainer.train()
         status.update(
             status="completed" if stop_step == args.steps else "paused",
             training_seconds=prior_seconds + time.monotonic() - started,
             validation_loss_after=evaluate_loss(model, validation),
         )
-        save_checkpoint(model, tokenizer, optimizer, status, args.output, "final")
+        checkpoint("final")
         print(json.dumps(status, indent=2), flush=True)
     except BaseException:
         status.update(
             status="interrupted",
             training_seconds=prior_seconds + time.monotonic() - started,
         )
-        save_checkpoint(model, tokenizer, optimizer, status, args.output, "interrupted")
+        checkpoint("interrupted")
         raise
 
 
 def main(argv=None):
     args = parse_args(argv)
-    with exclusive_cpu():
+    args.device = configure_device(args.device)
+    with exclusive_cpu() if args.device == "cpu" else nullcontext():
         train(args)

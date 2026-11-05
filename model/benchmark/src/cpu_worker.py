@@ -22,6 +22,11 @@ def main(argv=None):
     protocol = sys.stdout
     shell = None
     signal.signal(signal.SIGALRM, deadline)
+
+    def publish(result):
+        protocol.write(json.dumps(result, default=str) + "\n")
+        protocol.flush()
+
     with open(os.devnull, "w") as sink:
         for line in sys.stdin:
             try:
@@ -33,11 +38,7 @@ def main(argv=None):
                         shell.namespace.update(np=np, pd=pd, statistics=statistics, json=json)
                     result = shell.execute(request["source"])
                 signal.alarm(0)
-                protocol.write(json.dumps(result, default=str) + "\n")
-                protocol.flush()
+                publish(result)
             except BaseException as error:
                 signal.alarm(0)
-                protocol.write(
-                    json.dumps({"stdout": "", "stderr": "", "exception": f"{type(error).__name__}: {error}", "done": None}) + "\n"
-                )
-                protocol.flush()
+                publish({"stdout": "", "stderr": "", "exception": f"{type(error).__name__}: {error}", "done": None})

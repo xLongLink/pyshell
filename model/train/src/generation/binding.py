@@ -219,6 +219,13 @@ def make_task(family, pair, variant, seed, split):
     return record
 
 
+def verify_negative_control(record, worker):
+    assert worker.execute(record["setup"], "reset")["exception"] is None
+    assert worker.execute(record["negative_control"])["exception"] is None
+    if worker.execute(record["check"])["exception"] is None:
+        raise AssertionError(f"Negative control unexpectedly passed: {record['id']}")
+
+
 def prepare_training(output, pairs, seed):
     if pairs < 1:
         raise ValueError("pairs must be positive")
@@ -236,12 +243,7 @@ def prepare_training(output, pairs, seed):
                     session.add(record["code"], record["id"] + "-solve")
                     session.check(record["check"])
                     rows.extend(session.rows)
-                    assert worker.execute(record["setup"], "reset")["exception"] is None
-                    assert (
-                        worker.execute(record["negative_control"])["exception"] is None
-                    )
-                    if worker.execute(record["check"])["exception"] is None:
-                        raise AssertionError("Negative control unexpectedly passed")
+                    verify_negative_control(record, worker)
                     records.append(record)
     write_jsonl(output / "train-tasks.jsonl", records)
     write_jsonl(output / "train.jsonl", rows)

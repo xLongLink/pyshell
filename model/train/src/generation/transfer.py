@@ -14,12 +14,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from model.benchmark.src.corpus import write_jsonl
+from model.benchmark.src.corpus import sha256, write_jsonl
 from model.benchmark.src.proof_policy import acceptance_metadata
 from model.benchmark.src.reference import ReferenceSession
 from model.benchmark.src.task_types import CONTRACT, FAMILIES
 from model.benchmark.src.transfer_families import BUILDERS, BuildContext
-from model.train.src.generation.proof import build_task, digest
+from model.train.src.generation.proof import build_task
 
 ROOT = Path(__file__).resolve().parents[3] / "benchmark"
 TEMPLATE_PARTITIONS = {
@@ -194,10 +194,8 @@ def make_task(family, pair, variant, seed, split, slot):
     name = f"{rng.choice(NAMES)}_{rng.randrange(10000, 999999)}"
     fixture = build_task(family, pair, seed, "dev", name=name)
     record = asdict(fixture.record)
-    other = name + "_other"
     ns = {"np": np, "pd": pd, "statistics": statistics, "json": json}
     exec(record["setup"], ns)
-    context = {"name": name, "other": other}
     build = BuildContext(
         fixture=fixture,
         record=record,
@@ -207,12 +205,15 @@ def make_task(family, pair, variant, seed, split, slot):
         variant=variant,
         slot=slot,
         split=split,
-        wording=context,
+        wording={},
     )
     solution = BUILDERS[family](build)
+    instruction = TEMPLATES[family][slot].format(
+        name=build.name, other=build.other, **build.wording
+    )
     record.update(
         id=f"{split}-{family}-{pair:04d}-v{variant}",
-        instruction=TEMPLATES[family][slot].format(**context) + "\n" + CONTRACT,
+        instruction=instruction + "\n" + CONTRACT,
         template_id=f"{family}-t{slot}",
         contrast_group=f"{split}-{family}-{pair:04d}",
         variant=variant,
@@ -309,7 +310,7 @@ def prepare(output):
         write_jsonl(path, records)
         splits[split] = {
             "tasks": len(records),
-            "sha256": digest(path),
+            "sha256": sha256(path),
             "template_ids": sorted({record["template_id"] for record in records}),
             "families": dict(Counter(record["family"] for record in records)),
             "contrast_pairs": contrast_pairs,
@@ -335,9 +336,9 @@ def prepare(output):
         ),
         "selection_split": "dev",
         "old_test_reused": False,
-        "training_records_sha256": digest(output / "train.jsonl"),
-        "validation_records_sha256": digest(output / "validation.jsonl"),
-        "generator_sha256": digest(Path(__file__)),
+        "training_records_sha256": sha256(output / "train.jsonl"),
+        "validation_records_sha256": sha256(output / "validation.jsonl"),
+        "generator_sha256": sha256(Path(__file__)),
         "instruction_template_sha256": hashlib.sha256(
             json.dumps(TEMPLATES, sort_keys=True).encode()
         ).hexdigest(),

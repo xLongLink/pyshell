@@ -62,8 +62,9 @@ def prepare(output, replay, evaluation, pairs=256, seed=20261119):
         rows,
         records,
         generator_source=Path(__file__),
-        metadata={"seed": seed, "new_join_pairs": pairs},
-        details={
+        metadata={
+            "seed": seed,
+            "new_join_pairs": pairs,
             "intervention": "Keep-all versus matched-only selection is an explicit filter before a common merge; independent original list-of-records oracle verifies every result",
         },
     )

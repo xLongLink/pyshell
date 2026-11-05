@@ -3,12 +3,12 @@
 import argparse
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 from model.benchmark.src.corpus import sha256, verify_training_data
 from model.benchmark.src.proof_policy import development_ready
 from model.train.src.export import export_command
-from model.train.src.processes import benchmark_command, training_command
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parents[1]
@@ -67,8 +67,26 @@ def run(args):
                 arguments, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, check=True
             )
 
-    evaluation = benchmark_command(
+    evaluation = [
+        "uv",
+        "run",
+        "--locked",
+        "--project",
+        str(ROOT.parent / "benchmark"),
+        *(
+            ["--extra", "cuda" if device == "cuda" else "local"]
+            if args.backend == "hf"
+            else []
+        ),
+        "python",
+        "-u",
+        "-m",
+        "model.benchmark.main",
         "cpu",
+        "--backend",
+        args.backend,
+        "--device",
+        device,
         "--data",
         str(args.data.resolve()),
         "--threads",
@@ -78,9 +96,7 @@ def run(args):
             if args.backend == "hf"
             else []
         ),
-        backend=args.backend,
-        device=device,
-    )
+    ]
     if args.baseline_before_training:
         baseline = args.output / "baseline-dev"
         command(
@@ -102,18 +118,32 @@ def run(args):
     adapter = args.output / "adapter"
     command(
         "training",
-        training_command(
-            data=training_data.resolve(),
-            output=adapter.resolve(),
-            steps=args.steps,
-            threads=args.threads,
-            device=device,
-            learning_rate=args.learning_rate,
-            eval_samples=12,
-            initialize_adapter=args.initialize_adapter.resolve()
-            if args.initialize_adapter
-            else None,
-        ),
+        [
+            sys.executable,
+            "-u",
+            "-m",
+            "model.train.main",
+            "train",
+            "--data",
+            str(training_data.resolve()),
+            "--output",
+            str(adapter.resolve()),
+            "--steps",
+            str(args.steps),
+            "--threads",
+            str(args.threads),
+            "--learning-rate",
+            str(args.learning_rate),
+            "--device",
+            device,
+            "--eval-samples",
+            "12",
+            *(
+                ["--initialize-adapter", str(args.initialize_adapter.resolve())]
+                if args.initialize_adapter
+                else []
+            ),
+        ],
     )
     gguf = args.output / "adapter.gguf"
     if args.backend == "gguf":

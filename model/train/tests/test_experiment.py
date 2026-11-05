@@ -2,6 +2,7 @@
 
 import io
 import json
+import sys
 import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -103,6 +104,15 @@ class TestExperiment:
                     str(Path(directory) / adapter) if adapter else None
                 )
                 training = next(command for command in calls if "train" in command)
+                assert training[:5] == [
+                    sys.executable,
+                    "-u",
+                    "-m",
+                    "model.train.main",
+                    "train",
+                ]
+                assert training[training.index("--steps") + 1] == "4"
+                assert training[training.index("--learning-rate") + 1] == "0.0001"
                 assert ("--initialize-adapter" in training) == (adapter is not None)
                 assert training[training.index("--device") + 1] == "cpu"
                 assert training[training.index("--eval-samples") + 1] == "12"
@@ -151,6 +161,13 @@ class TestExperiment:
             output, calls = self.experiment(directory, "hf", True)
             baseline, _, development, final = calls
             for command in (baseline, development, final):
+                assert command[:5] == [
+                    "uv",
+                    "run",
+                    "--locked",
+                    "--project",
+                    str(Path(__file__).resolve().parents[2] / "benchmark"),
+                ]
                 assert command.count("--backend") == 1
                 assert command.count("--device") == 1
                 assert command[command.index("--extra") + 1] == "local"

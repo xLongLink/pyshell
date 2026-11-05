@@ -2,31 +2,7 @@
 
 import threading
 import subprocess
-from pathlib import Path
 from contextlib import contextmanager
-
-
-def gguf_command(local: Path, model: Path, *, port: int, context_size: int, batch_threads: int) -> list[str]:
-    """Build the shared CPU-only llama.cpp launch command."""
-    return [
-        str(local / "llama-b12038/llama-b12038/llama-server"),
-        "--model",
-        str(model),
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(port),
-        "--ctx-size",
-        str(context_size),
-        "--parallel",
-        "1",
-        "--threads",
-        "8",
-        "--threads-batch",
-        str(batch_threads),
-        "--n-gpu-layers",
-        "0",
-    ]
 
 
 @contextmanager

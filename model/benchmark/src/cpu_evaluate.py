@@ -12,7 +12,7 @@ from model.benchmark.src.resources import exclusive_cpu
 from model.benchmark.src.proof_trial import trial
 from model.benchmark.src.proof_policy import final_passed
 from model.benchmark.src.proof_report import execution_metrics
-from model.benchmark.src.inference_server import gguf_command, inference_server
+from model.benchmark.src.inference_server import inference_server
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -42,7 +42,25 @@ def generator(args):
 
         yield HFCompletion(args.adapter, args.threads, args.device, base_model=args.base_model)
         return
-    command = gguf_command(ROOT / "local", args.gguf_base.resolve(), port=8032, context_size=4096, batch_threads=8)
+    command = [
+        str(ROOT / "local/llama-b12038/llama-b12038/llama-server"),
+        "--model",
+        str(args.gguf_base.resolve()),
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8032",
+        "--ctx-size",
+        "4096",
+        "--parallel",
+        "1",
+        "--threads",
+        "8",
+        "--threads-batch",
+        "8",
+        "--n-gpu-layers",
+        "0",
+    ]
     if args.adapter:
         command += ["--lora", str(args.adapter.resolve())]
     with inference_server(command, args.output / "server.log", port=8032):

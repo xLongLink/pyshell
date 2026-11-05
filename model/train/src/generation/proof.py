@@ -7,8 +7,7 @@ import secrets
 from dataclasses import asdict
 from pathlib import Path
 
-from model.benchmark.src.corpus import sha256 as digest
-from model.benchmark.src.corpus import write_jsonl
+from model.benchmark.src.corpus import sha256, write_jsonl
 from model.benchmark.src.proof_policy import acceptance_metadata
 from model.benchmark.src.reference import ReferenceSession
 from model.benchmark.src.task_families import BUILDERS, FixtureSeed
@@ -91,7 +90,7 @@ def prepare(output):
         ]
         path = output / f"{split}-tasks.jsonl"
         write_jsonl(path, records)
-        splits[split] = {"tasks": len(records), "sha256": digest(path)}
+        splits[split] = {"tasks": len(records), "sha256": sha256(path)}
         if split in {"train", "dev"}:
             rows = [row for record in records for row in supervision(record)]
             name = "train.jsonl" if split == "train" else "validation.jsonl"
@@ -105,9 +104,9 @@ def prepare(output):
         "selection_split": "dev",
         "test_policy": "Do not inspect test predictions or tune after the final test. A failed final test remains a reported failure.",
         "splits": splits,
-        "training_records_sha256": digest(output / "train.jsonl"),
-        "validation_records_sha256": digest(output / "validation.jsonl"),
-        "generator_sha256": digest(Path(__file__)),
+        "training_records_sha256": sha256(output / "train.jsonl"),
+        "validation_records_sha256": sha256(output / "validation.jsonl"),
+        "generator_sha256": sha256(Path(__file__)),
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2), flush=True)

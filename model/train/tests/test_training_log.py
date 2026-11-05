@@ -36,6 +36,8 @@ class TestTrainingLog:
                     "1",
                     "--threads",
                     "1",
+                    "--device",
+                    "cpu",
                 ]
             )
             self.log_path = self.args.output / "steps.jsonl"
@@ -64,10 +66,6 @@ class TestTrainingLog:
                 )
             )
             stack.enter_context(patch.object(training.torch, "set_num_interop_threads"))
-            stack.enter_context(
-                patch.object(training.ctypes, "CDLL", return_value=SimpleNamespace())
-            )
-            stack.enter_context(patch.object(training.gc, "collect"))
             stack.enter_context(redirect_stdout(io.StringIO()))
             original_open = Path.open
 
@@ -85,7 +83,9 @@ class TestTrainingLog:
             os.fsync(file.fileno())
             return [json.loads(line)["step"] for line in file]
 
-    def check_checkpoint(self, model, tokenizer, optimizer, status, output, name):
+    def check_checkpoint(
+        self, model, tokenizer, optimizer, status, output, name, *, scheduler
+    ):
         assert len(self.handles) == 1
         assert self.handles[0].closed == (name in ("final", "interrupted"))
         assert self.logged_steps() == list(range(1, status["completed_steps"] + 1))
@@ -129,8 +129,8 @@ class TestTrainingLog:
         self.args.steps = 100
         error = OSError("checkpoint failed")
 
-        def save_checkpoint(*args):
-            self.check_checkpoint(*args)
+        def save_checkpoint(*args, **kwargs):
+            self.check_checkpoint(*args, **kwargs)
             if args[-1] == "checkpoint-100":
                 raise error
 

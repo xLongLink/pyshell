@@ -2,6 +2,8 @@
 
 import io
 import json
+import math
+import random
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -34,8 +36,8 @@ class TestTrainingArguments:
                 parse_args(["--serialization", serialization])
             assert raised.value.code == 2
 
-    def test_cpu_remains_default(self):
-        assert parse_args([]).device == "cpu"
+    def test_device_is_automatically_selected_by_default(self):
+        assert parse_args([]).device == "auto"
 
     def test_periodic_worker_evaluation_is_no_longer_supported(self, capsys):
         with pytest.raises(SystemExit) as error:
@@ -149,6 +151,7 @@ class TestTrainingProgress:
                 argv.extend(["--stop-after", str(stop_after)])
             if resume_updates:
                 argv.extend(["--resume", str(root / "resume")])
+            argv.extend(["--device", "cpu"])
             args = parse_args(argv)
             model = torch.nn.Linear(1, 1, bias=False)
             model.config = SimpleNamespace(use_cache=True)
@@ -167,11 +170,13 @@ class TestTrainingProgress:
                     raise KeyboardInterrupt
                 return model.weight.square().mean()
 
-            def optimizer_step(optimizer):
+            def optimizer_step(optimizer, closure=None):
                 rates.append(optimizer.param_groups[0]["lr"] / args.learning_rate)
-                return original_step(optimizer)
+                return original_step(optimizer, closure)
 
-            def save_checkpoint(model, tokenizer, optimizer, status, output, name):
+            def save_checkpoint(
+                model, tokenizer, optimizer, status, output, name, *, scheduler
+            ):
                 assert status["rank"] == 16
                 assert status["serialization"] == "raw"
                 assert status["serialization_format"] == "task-code-console-v1"
@@ -198,8 +203,6 @@ class TestTrainingProgress:
                 patch.object(training, "save_checkpoint", side_effect=save_checkpoint),
                 patch.object(training.torch.optim.AdamW, "step", optimizer_step),
                 patch.object(runtime.torch, "set_num_interop_threads"),
-                patch.object(training.ctypes, "CDLL", return_value=SimpleNamespace()),
-                patch.object(training.gc, "collect"),
                 redirect_stdout(io.StringIO()),
             ):
                 tokenizer.return_value.encode.return_value = [1, 2]
@@ -268,3 +271,251 @@ class TestTrainingProgress:
                 assert len(rates) == updates
                 assert rates[0] == pytest.approx(first, rel=0, abs=5e-08)
                 assert rates[-1] == pytest.approx(last, rel=0, abs=5e-08)
+
+
+class TinyResponseModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.logits = torch.nn.Parameter(
+            torch.arange(32, dtype=torch.float32).reshape(4, 8) / 100
+        )
+        self.positions = []
+
+    def forward(self, input_ids, *, use_cache, logits_to_keep):
+        assert not use_cache
+        self.positions.append(logits_to_keep.tolist())
+        return SimpleNamespace(logits=self.logits[input_ids[:, logits_to_keep]])
+
+
+class TestResponseTrainer:
+    @pytest.mark.parametrize("steps", [1, 4, 5, 100, 1200])
+    def test_library_scheduler_preserves_every_used_legacy_learning_rate(self, steps):
+        updates = math.ceil(steps / 4)
+        warmup = min(10, max(1, updates // 10))
+        optimizer = torch.optim.SGD([torch.nn.Parameter(torch.ones(1))], lr=0.1)
+        scheduler = training.scheduler_for(optimizer, steps, 4)
+        for update in range(1, updates + 1):
+            expected = (
+                update / warmup
+                if update <= warmup
+                else 0.1
+                + 0.9
+                * (1 + math.cos(math.pi * (update - warmup) / max(1, updates - warmup)))
+                / 2
+            )
+            assert optimizer.param_groups[0]["lr"] == pytest.approx(
+                0.1 * expected, rel=1e-14, abs=0
+            )
+            optimizer.step()
+            scheduler.step()
+
+    @pytest.mark.parametrize("legacy,steps", [(False, 9), (True, 100)])
+    def test_saved_adapter_optimizer_and_scheduler_resume_match_uninterrupted_training(
+        self, tmp_path, legacy, steps
+    ):
+        data = tmp_path / "data"
+        data.mkdir()
+        records = [
+            {"id": str(i), "prompt": "prompt", "completion": "code"} for i in range(3)
+        ]
+        (data / "train.jsonl").write_text(
+            "".join(json.dumps(item) + "\n" for item in records)
+        )
+        (data / "validation.jsonl").write_text("")
+
+        def model_from_pretrained(*args, **kwargs):
+            model = TinyResponseModel()
+            model.config = SimpleNamespace(use_cache=False)
+            model.peft_config = {"default": SimpleNamespace(r=8)}
+            model.gradient_checkpointing_enable = Mock()
+            model.print_trainable_parameters = Mock()
+            model.save_pretrained = lambda path: torch.save(
+                model.state_dict(), path / "weights.pt"
+            )
+            return model
+
+        def adapter_from_pretrained(model, path, **kwargs):
+            model.load_state_dict(torch.load(path / "weights.pt", weights_only=True))
+            return model
+
+        def run(name, *extra):
+            args = parse_args(
+                [
+                    "--data",
+                    str(data),
+                    "--output",
+                    str(tmp_path / name),
+                    "--steps",
+                    str(steps),
+                    "--accumulation",
+                    "4",
+                    "--threads",
+                    "1",
+                    "--device",
+                    "cpu",
+                    *extra,
+                ]
+            )
+            training.train(args)
+            return args.output
+
+        tokenizer = Mock()
+        tokenizer.encode.return_value = [1, 2]
+        with (
+            patch.object(
+                training.AutoTokenizer, "from_pretrained", return_value=tokenizer
+            ),
+            patch.object(
+                training.AutoModelForImageTextToText,
+                "from_pretrained",
+                side_effect=model_from_pretrained,
+            ),
+            patch.object(
+                training, "get_peft_model", side_effect=lambda model, config: model
+            ),
+            patch.object(
+                training.PeftModel,
+                "from_pretrained",
+                side_effect=adapter_from_pretrained,
+            ),
+            patch.object(runtime.torch, "set_num_interop_threads"),
+        ):
+            full = run("full")
+            paused = run("paused", "--stop-after", "4")
+            if legacy:
+                (paused / "scheduler.pt").unlink()
+                state = torch.load(paused / "optimizer.pt", weights_only=True)
+                for group in state["param_groups"]:
+                    group.pop("initial_lr")
+                torch.save(state, paused / "optimizer.pt")
+            resumed = run("resumed", "--resume", str(paused))
+            if not legacy:
+                overrides = ["--steps", str(steps + 4), "--learning-rate", "0.0001"]
+                changed = run("changed", "--resume", str(paused), *overrides)
+                (paused / "scheduler.pt").unlink()
+                changed_legacy = run(
+                    "changed-legacy", "--resume", str(paused), *overrides
+                )
+                assert torch.equal(
+                    torch.load(changed / "weights.pt", weights_only=True)["logits"],
+                    torch.load(changed_legacy / "weights.pt", weights_only=True)[
+                        "logits"
+                    ],
+                )
+                assert not json.loads((changed / "training.json").read_text())[
+                    "scheduler_restored"
+                ]
+        full_weights = torch.load(full / "weights.pt", weights_only=True)
+        resumed_weights = torch.load(resumed / "weights.pt", weights_only=True)
+        assert torch.equal(full_weights["logits"], resumed_weights["logits"])
+        full_scheduler = torch.load(full / "scheduler.pt", weights_only=True)
+        resumed_scheduler = torch.load(resumed / "scheduler.pt", weights_only=True)
+        assert full_scheduler["last_epoch"] == resumed_scheduler["last_epoch"]
+        assert full_scheduler["_last_lr"] == resumed_scheduler["_last_lr"]
+        full_optimizer = torch.load(full / "optimizer.pt", weights_only=True)
+        resumed_optimizer = torch.load(resumed / "optimizer.pt", weights_only=True)
+        assert full_optimizer["param_groups"] == resumed_optimizer["param_groups"]
+        for key, value in full_optimizer["state"][0].items():
+            assert torch.equal(value, resumed_optimizer["state"][0][key])
+        metadata = json.loads((resumed / "training.json").read_text())
+        assert metadata["completed_steps"] == steps
+        assert metadata["updates"] == (steps + 3) // 4
+        assert metadata["optimizer_restored"]
+        assert metadata["scheduler_restored"] == (not legacy)
+        assert metadata["train_sha256"] == training.sha256(data / "train.jsonl")
+
+        def rows(path):
+            return [
+                json.loads(line)
+                for line in (path / "steps.jsonl").read_text().splitlines()
+            ]
+
+        assert [row["id"] for row in rows(full)] == [
+            row["id"] for row in rows(paused) + rows(resumed)
+        ]
+
+    @pytest.mark.parametrize("steps,accumulation", [(1, 4), (5, 4), (10, 4), (9, 1)])
+    def test_real_loss_matches_reference_updates_and_fixed_cycling(
+        self, tmp_path, steps, accumulation
+    ):
+        items = [
+            {"id": str(i), "ids": [0, i, 2, 3], "prefix_length": 2} for i in range(3)
+        ]
+        indices = list(range(len(items)))
+        random.Random(713).shuffle(indices)
+        sequence = [items[indices[i % len(indices)]] for i in range(steps)]
+        model = TinyResponseModel()
+        reference = TinyResponseModel()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+        reference_optimizer = torch.optim.SGD(reference.parameters(), lr=0.1)
+        scheduler = training.scheduler_for(optimizer, steps, accumulation)
+        reference_scheduler = training.scheduler_for(
+            reference_optimizer, steps, accumulation
+        )
+        for start in range(0, steps, accumulation):
+            group = sequence[start : start + accumulation]
+            for item in group:
+                (training.loss_for(reference, item) / len(group)).backward()
+            torch.nn.utils.clip_grad_norm_(reference.parameters(), 1.0)
+            reference_optimizer.step()
+            reference_scheduler.step()
+            reference_optimizer.zero_grad(set_to_none=True)
+        status = {"completed_steps": 0}
+        log = io.StringIO()
+        trainer = training.ResponseTrainer(
+            model=model,
+            args=training.TrainingArguments(
+                output_dir=str(tmp_path),
+                use_cpu=True,
+                per_device_train_batch_size=1,
+                gradient_accumulation_steps=accumulation,
+                num_train_epochs=1,
+                remove_unused_columns=False,
+                save_strategy="no",
+                logging_strategy="no",
+                report_to="none",
+                disable_tqdm=True,
+                seed=713,
+            ),
+            train_dataset=sequence,
+            data_collator=training.single_example,
+            optimizers=(optimizer, scheduler),
+            status=status,
+            log=log,
+        )
+        trainer.train()
+        assert torch.equal(model.logits, reference.logits)
+        assert model.positions == [[1, 2]] * steps
+        assert status["completed_steps"] == steps
+        assert trainer.state.global_step == (steps + accumulation - 1) // accumulation
+        rows = [json.loads(line) for line in log.getvalue().splitlines()]
+        assert [row["id"] for row in rows] == [item["id"] for item in sequence]
+        assert all(row["loss"] > 0 for row in rows)
+
+    def test_scheduler_state_and_legacy_position_resume_identical_rates(self):
+        optimizer = torch.optim.SGD([torch.nn.Parameter(torch.ones(1))], lr=0.1)
+        scheduler = training.scheduler_for(optimizer, 100, 4)
+        rates = []
+        saved = None
+        for update in range(25):
+            rates.append(optimizer.param_groups[0]["lr"])
+            optimizer.step()
+            scheduler.step()
+            if update == 6:
+                saved = scheduler.state_dict()
+        for restore_state in (True, False):
+            resumed_optimizer = torch.optim.SGD(
+                [torch.nn.Parameter(torch.ones(1))], lr=0.1
+            )
+            resumed = training.scheduler_for(
+                resumed_optimizer, 100, 4, 0 if restore_state else 7
+            )
+            if restore_state:
+                resumed.load_state_dict(saved)
+                resumed_optimizer.param_groups[0]["lr"] = resumed.get_last_lr()[0]
+            resumed_rates = []
+            for _ in range(7, 25):
+                resumed_rates.append(resumed_optimizer.param_groups[0]["lr"])
+                resumed_optimizer.step()
+                resumed.step()
+            assert resumed_rates == rates[7:]

@@ -6,7 +6,7 @@ import sys
 import json
 import pytest
 import signal
-from unittest.mock import call, patch
+from unittest.mock import DEFAULT, call, patch
 from importlib.util import find_spec
 from model.benchmark.src import cpu_worker
 
@@ -15,9 +15,10 @@ from model.benchmark.src import cpu_worker
     not (find_spec("api") and find_spec("numpy") and find_spec("pandas")), reason="Install the execution API and benchmark data extra"
 )
 class TestCPUWorker:
-    def run_worker(self, requests):
+    def run_worker(self, requests, protocol=None):
         incoming = io.StringIO("".join((json.dumps(request) if isinstance(request, dict) else request) + "\n" for request in requests))
-        protocol, errors = io.StringIO(), io.StringIO()
+        protocol = io.StringIO() if protocol is None else protocol
+        errors = io.StringIO()
         sinks = []
 
         def open_sink(*args, **kwargs):
@@ -70,6 +71,32 @@ class TestCPUWorker:
         assert results[1]["done"] is None
         assert results[2] == {"stdout": "42\n", "stderr": "", "exception": None, "done": None}
         assert alarms == [call(10), call(0)] * 3
+
+    def test_serialization_failure_returns_error_and_keeps_the_workspace(self):
+        dumps = json.dumps
+
+        def encode(result, *args, **kwargs):
+            if result.get("stdout") == "first\n":
+                raise ValueError("serialization failed")
+            return dumps(result, *args, **kwargs)
+
+        with patch.object(cpu_worker.json, "dumps", side_effect=encode):
+            results, _ = self.run_worker(
+                [{"action": "reset", "source": "value = 42\nprint('first')"}, {"action": "execute", "source": "print(value)"}]
+            )
+        assert results[0]["exception"] == "ValueError: serialization failed"
+        assert results[1]["exception"] is None
+        assert results[1]["stdout"] == "42\n"
+
+    def test_write_failure_returns_error_and_keeps_the_workspace(self):
+        protocol = io.StringIO()
+        with patch.object(protocol, "write", wraps=protocol.write, side_effect=[OSError("write failed"), DEFAULT, DEFAULT]):
+            results, _ = self.run_worker(
+                [{"action": "reset", "source": "value = 42"}, {"action": "execute", "source": "print(value)"}], protocol=protocol
+            )
+        assert results[0]["exception"] == "OSError: write failed"
+        assert results[1]["exception"] is None
+        assert results[1]["stdout"] == "42\n"
 
     def test_malformed_requests_do_not_break_state_or_protocol(self):
         results, alarms = self.run_worker(

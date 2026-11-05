@@ -13,15 +13,15 @@ from model.benchmark.src.execution import Worker
 from model.benchmark.src.proof_policy import acceptance_metadata
 from model.benchmark.src.reference import ReferenceSession
 from model.benchmark.src.task_types import CONTRACT, FAMILIES
-from model.train.src.generation.binding import REQUESTS, make_task
+from model.train.src.generation import binding
 from model.train.src.generation.transfer import make_task as transfer_task
 
 
 def evaluation_task(family, pair, variant, seed, split):
     if split not in ("dev", "test"):
         raise ValueError("Evaluation split must be dev or test")
-    if family in REQUESTS:
-        return make_task(family, pair, variant, seed, split)
+    if family in binding.REQUESTS:
+        return binding.make_task(family, pair, variant, seed, split)
     record = transfer_task(
         family, pair, variant, seed, split, 6 if split == "dev" else 8
     )
@@ -105,16 +105,7 @@ def prepare(output, seed=None):
                     if split == "dev":
                         validation.extend(session.rows)
                     if "negative_control" in record:
-                        assert (
-                            worker.execute(record["setup"], "reset")["exception"]
-                            is None
-                        )
-                        assert (
-                            worker.execute(record["negative_control"])["exception"]
-                            is None
-                        )
-                        if worker.execute(record["check"])["exception"] is None:
-                            raise AssertionError("Binding negative control passed")
+                        binding.verify_negative_control(record, worker)
                     record.pop("expected", None)
                     records.append(record)
             path = output / f"{split}-tasks.jsonl"

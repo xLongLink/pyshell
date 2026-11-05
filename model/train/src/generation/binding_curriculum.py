@@ -1,7 +1,6 @@
 """Teach live object-role binding and recovery using training-only tasks."""
 
 import argparse
-import ast
 import json
 import re
 from contextlib import closing
@@ -14,21 +13,15 @@ from model.benchmark.src.corpus import (
 )
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.reference import ReferenceSession
+from model.train.src.generation import binding_language
 from model.train.src.generation.binding import make_task
-from model.train.src.generation.binding_language import (
-    diversify_binding,
-    diversify_support,
-)
 from model.train.src.generation.publication import publish_curriculum
 from model.train.src.generation.transfer import make_contrast_pair, supervision
 
 
 def binding_record(family, pair, variant, seed):
     record = make_task(family, pair, variant, seed, "train")
-    assignments = [
-        node for node in ast.parse(record["setup"]).body if isinstance(node, ast.Assign)
-    ]
-    name, other = [node.targets[0].id for node in assignments[:2]]
+    name, other = binding_language.names(record)
     if family == "joined_totals":
         roles = [
             f"The order-record list is {name}; the item-price lookup is {other}.",
@@ -71,16 +64,13 @@ def binding_record(family, pair, variant, seed):
 
 def trajectories(record, errors, worker):
     rows = []
-    session = ReferenceSession(record, worker)
-    session.add(record["inspect"], record["id"] + "-inspect")
-    session.add(record["code"], record["id"] + "-solve")
-    session.check(record["check"])
-    rows.extend(session.rows)
-    for index, error in enumerate(errors):
+    for index, error in enumerate([None, *errors]):
         session = ReferenceSession(record, worker)
-        session.add(record["inspect"])
-        session.add(error, expect_error=True)
-        session.add(record["code"], record["id"] + f"-recover-{index}")
+        session.add(record["inspect"], None if index else record["id"] + "-inspect")
+        if index:
+            session.add(error, expect_error=True)
+        suffix = f"recover-{index - 1}" if index else "solve"
+        session.add(record["code"], record["id"] + "-" + suffix)
         session.check(record["check"])
         rows.extend(session.rows)
     return rows
@@ -110,7 +100,7 @@ def prepare(
                         family, pair, variant, seed + family_index * 10000019
                     )
                     if language:
-                        record = diversify_binding(record, pair)
+                        record = binding_language.diversify_binding(record, pair)
                     rows.extend(trajectories(record, errors, worker))
                     records.append(record)
         for family_index, family in enumerate(
@@ -129,7 +119,7 @@ def prepare(
                         "roles-support-" + record["contrast_group"]
                     )
                     if language:
-                        record = diversify_support(record, pair)
+                        record = binding_language.diversify_support(record, pair)
                     rows.extend(
                         supervision(record, include_inspection=True, workspace=worker)
                     )
@@ -153,8 +143,6 @@ def prepare(
             "seed": seed,
             "pairs_per_target_family": pairs,
             "support_pairs_per_family": support_pairs,
-        },
-        details={
             "language_generator_sha256": sha256(
                 Path(__file__).with_name("binding_language.py")
             ),

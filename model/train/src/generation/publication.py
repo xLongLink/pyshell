@@ -14,7 +14,6 @@ def publish_curriculum(
     *,
     generator_source,
     metadata,
-    details,
 ):
     # Validate against the frozen evaluation before writing any outputs.
     assert len({row["id"] for row in rows}) == len(rows)
@@ -44,7 +43,6 @@ def publish_curriculum(
         "evaluation_test_sha256": frozen["splits"]["test"]["sha256"],
         "replay_sha256": sha256(replay / "train.jsonl"),
         "generator_sha256": sha256(generator_source),
-        **details,
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 

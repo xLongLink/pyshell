@@ -183,6 +183,45 @@ class TestCheckpoint:
             with pytest.raises(ValueError, match="dataset"):
                 load_resume(checkpoint, root, 4)
 
+    def test_checkpoint_preserves_scheduler_position_and_next_learning_rate(
+        self, tmp_path
+    ):
+        parameter = torch.nn.Parameter(torch.tensor(2.0))
+        optimizer = torch.optim.AdamW([parameter], lr=0.01)
+        scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, total_iters=4)
+        parameter.square().backward()
+        optimizer.step()
+        scheduler.step()
+        save_checkpoint(
+            Artifact(),
+            Artifact(),
+            optimizer,
+            {"updates": 1},
+            tmp_path,
+            "checkpoint-4",
+            scheduler=scheduler,
+        )
+        restored_optimizer = torch.optim.AdamW(
+            [torch.nn.Parameter(torch.tensor(0.0))], lr=0.01
+        )
+        restored_scheduler = torch.optim.lr_scheduler.LinearLR(
+            restored_optimizer, total_iters=4
+        )
+        restored_optimizer.load_state_dict(
+            torch.load(tmp_path / "checkpoint-4/optimizer.pt", weights_only=True)
+        )
+        restored_scheduler.load_state_dict(
+            torch.load(tmp_path / "checkpoint-4/scheduler.pt", weights_only=True)
+        )
+        assert restored_scheduler.state_dict() == scheduler.state_dict()
+        optimizer.step()
+        scheduler.step()
+        restored_optimizer.step()
+        restored_scheduler.step()
+        assert (
+            restored_optimizer.param_groups[0]["lr"] == optimizer.param_groups[0]["lr"]
+        )
+
     @pytest.mark.parametrize("serialization", [None, "chat", "unknown"])
     def test_resume_rejects_checkpoints_without_raw_protocol_metadata(
         self, tmp_path, serialization

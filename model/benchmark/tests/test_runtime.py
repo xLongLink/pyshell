@@ -13,7 +13,7 @@ class TestRuntime:
                 torch.backends.cuda.matmul.allow_tf32 = True
                 torch.backends.cudnn.allow_tf32 = True
 
-                runtime.configure_device(device)
+                assert runtime.configure_device(device) == device
 
                 assert not torch.backends.cuda.matmul.allow_tf32
                 assert not torch.backends.cudnn.allow_tf32
@@ -23,6 +23,18 @@ class TestRuntime:
                     torch.cuda.is_available.assert_not_called()
                 torch.set_num_threads.assert_not_called()
                 torch.set_num_interop_threads.assert_not_called()
+
+    @pytest.mark.parametrize(("available", "expected"), [(False, "cpu"), (True, "cuda")])
+    def test_auto_selects_available_device(self, available, expected):
+        with patch.object(runtime, "torch") as torch:
+            torch.cuda.is_available.return_value = available
+            assert runtime.configure_device("auto") == expected
+            assert not torch.backends.cuda.matmul.allow_tf32
+            assert not torch.backends.cudnn.allow_tf32
+
+    def test_unknown_device_is_rejected(self):
+        with pytest.raises(ValueError, match="Unsupported device"):
+            runtime.configure_device("unknown")
 
     def test_unavailable_cuda_fails_before_changing_policy(self):
         with patch.object(runtime, "torch") as torch:
