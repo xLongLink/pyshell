@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from model.benchmark.src.corpus import adapter_weights, sha256
+from model.benchmark.src.corpus import sha256
 
 
 class Artifact(BaseModel):
@@ -58,5 +58,5 @@ def load_artifact(path, *, candidate=False):
         revision=revision,
         run_sha256=sha256(run) if run.is_file() else None,
         config_sha256=sha256(path / "adapter_config.json"),
-        weights_sha256=sha256(adapter_weights(path)),
+        weights_sha256=sha256(path / "adapter_model.safetensors"),
     )

@@ -71,18 +71,15 @@ class TestVerification:
         assert replay(worker, self.replay_task(), {"steps": [self.step(0, source)]}) == status
         assert "saved_result" not in worker.namespace
 
-    def artifacts(self, root, directory_adapter=True):
+    def artifacts(self, root):
         output, data = root / "test", root / "data"
         output.mkdir(parents=True)
         development = root / "dev"
         development.mkdir()
         data.mkdir()
         adapter = root / "adapter"
-        if directory_adapter:
-            adapter.mkdir()
-            weights = adapter / "adapter_model.safetensors"
-        else:
-            weights = adapter
+        adapter.mkdir()
+        weights = adapter / "adapter_model.safetensors"
         weights.write_bytes(b"fixed adapter")
         (weights.parent / "adapter_config.json").write_text("{}")
         tasks = [
@@ -143,18 +140,16 @@ class TestVerification:
         )
         return output, data, weights
 
-    def test_valid_artifacts_replay_with_file_and_directory_adapters(self, subtests, tmp_path):
-        for directory_adapter in (False, True):
-            with subtests.test(directory_adapter=directory_adapter):
-                experiment, data, _ = self.artifacts(tmp_path / str(directory_adapter), directory_adapter)
-                worker = ReplayWorkspace()
-                with patch("model.benchmark.src.verification.Worker", return_value=worker):
-                    verify(experiment, data, experiment.parent / "dev")
-                report = json.loads((experiment / "verification.json").read_text())
-                assert report["objective_verified"]
-                assert report["replayed_passed"] == 120
-                assert report["status_mismatches"] == []
-                assert worker.closed
+    def test_valid_artifacts_replay(self, tmp_path):
+        experiment, data, _ = self.artifacts(tmp_path)
+        worker = ReplayWorkspace()
+        with patch("model.benchmark.src.verification.Worker", return_value=worker):
+            verify(experiment, data, experiment.parent / "dev")
+        report = json.loads((experiment / "verification.json").read_text())
+        assert report["objective_verified"]
+        assert report["replayed_passed"] == 120
+        assert report["status_mismatches"] == []
+        assert worker.closed
 
     def test_worker_closes_and_preserves_replay_exceptions(self, subtests, tmp_path):
         for error in (TimeoutError("worker unavailable"), KeyboardInterrupt()):

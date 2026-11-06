@@ -33,7 +33,7 @@ class TestWorker:
                 patch.object(worker, "open", side_effect=open_sink, create=True) as opened,
                 patch.object(signal, "alarm", wraps=signal.alarm) as alarm,
             ):
-                worker.main([])
+                worker.main()
                 assert sys.stdout is protocol
                 assert sys.stderr is errors
         finally:

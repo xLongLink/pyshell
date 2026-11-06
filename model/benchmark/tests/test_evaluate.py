@@ -1,7 +1,6 @@
 import json
 import pytest
 import hashlib
-from types import SimpleNamespace
 from pathlib import Path
 from contextlib import nullcontext
 from unittest.mock import patch
@@ -96,7 +95,9 @@ class TestEvaluation:
         assert summary["adapter"] == str(artifact.path)
         assert summary["adapter_sha256"] == adapter_digest
         assert summary["backend"] == "hf"
-        assert summary["dtype"] == "float32"
+        assert summary["inference"]["dtype"] == "float32"
+        assert summary["inference"]["device"] == "cpu"
+        assert summary["inference"]["tf32"] is False
         assert summary["runtime"] == {"fixture": True}
         assert summary["success_rate"] == 1 / 3
         assert summary["by_family"] == {"join": {"tasks": 2, "passed": 1}, "recovery": {"tasks": 1, "passed": 0}}
@@ -220,26 +221,25 @@ class TestEvaluation:
         assert prompts[-1].endswith("<|task|>\nAppend 9 in place.\n<|code|>\n")
         assert all(record["check"] not in prompt and record["followup"]["check"] not in prompt for prompt in prompts)
 
-    def final_request(self, directory, *, final=False, limit=None):
-        root = Path(directory)
-        tasks = root / "test-tasks.jsonl"
-        tasks.write_text("{}\n")
+    def final_request(self, directory):
+        tasks = directory / "test-tasks.jsonl"
+        tasks.write_text('{"id":"first"}\n{"id":"second"}\n')
         manifest = {"splits": {"test": {"sha256": hashlib.sha256(tasks.read_bytes()).hexdigest()}}}
-        (root / "manifest.json").write_text(json.dumps(manifest))
-        return SimpleNamespace(data=root, split="test", final=final, limit=limit)
+        (directory / "manifest.json").write_text(json.dumps(manifest))
+        return directory
 
     def test_final_requires_explicit_authorization_before_loading_a_model(self, tmp_path):
-        args = self.final_request(tmp_path)
+        data = self.final_request(tmp_path)
         with pytest.raises(ValueError, match="explicit final"):
-            evaluate.evaluate(None, None, None, data=args.data, split="test")
+            evaluate.evaluate(None, None, None, data=data, split="test")
 
-    def test_final_cannot_be_reduced_to_a_selected_subset(self, tmp_path):
-        args = self.final_request(tmp_path, final=True, limit=10)
-        with pytest.raises(ValueError, match="cannot be reduced"):
-            load_tasks(args.data, "test", final=True, limit=10)
+    def test_final_loads_all_frozen_tasks(self, tmp_path):
+        data = self.final_request(tmp_path)
+        _, _, records = load_tasks(data, "test", final=True)
+        assert records == [{"id": "first"}, {"id": "second"}]
 
     def test_changed_frozen_tasks_are_rejected(self, tmp_path):
-        args = self.final_request(tmp_path, final=True)
-        (args.data / "test-tasks.jsonl").write_text('{"modified":true}\n')
+        data = self.final_request(tmp_path)
+        (data / "test-tasks.jsonl").write_text('{"modified":true}\n')
         with pytest.raises(ValueError, match="tasks have changed"):
-            evaluate.evaluate(None, None, None, data=args.data, split="test", final=True)
+            evaluate.evaluate(None, None, None, data=data, split="test", final=True)

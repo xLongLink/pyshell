@@ -62,8 +62,6 @@ def evaluate(artifact, config, output, *, data, split="dev", final=False):
                 "run_sha256": artifact.run_sha256,
                 "inference": inference_settings(config),
                 "backend": "hf",
-                "device": config.device,
-                "dtype": "float32",
                 "runtime": generate.runtime,
                 "scope": manifest["scope"],
                 "isolation": "network-disabled container; fresh PythonShell per task; no reference prior context",

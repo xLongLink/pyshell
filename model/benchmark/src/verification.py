@@ -2,7 +2,7 @@ import json
 import argparse
 from pathlib import Path
 from contextlib import closing
-from model.benchmark.src.corpus import adapter_weights, load_tasks, sha256, read_jsonl
+from model.benchmark.src.corpus import load_tasks, sha256, read_jsonl
 from model.benchmark.src.execution import Worker
 from model.benchmark.src.proof_policy import MAX_CALLS, FINAL_TASKS, final_passed, development_ready
 
@@ -58,7 +58,7 @@ def verify(output, data, development):
     _, task_digest, tasks = load_tasks(data, "test", final=True)
     if task_digest != summary["task_file_sha256"]:
         raise ValueError("Final tasks differ from the frozen manifest")
-    adapter = adapter_weights(Path(summary["adapter"]))
+    adapter = Path(summary["adapter"]) / "adapter_model.safetensors"
     adapter_digest = sha256(adapter)
     if adapter_digest != summary["adapter_sha256"]:
         raise ValueError("Adapter differs from the one evaluated")

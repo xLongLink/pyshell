@@ -65,7 +65,6 @@ class TestInference:
             completion = self.completion(device=device)
         self.model.to.assert_called_once_with(device)
         assert completion.runtime["gpu"] == ("fixture-gpu" if device == "cuda" else None)
-        assert completion.runtime["tf32"] is False
         assert not torch.backends.cuda.matmul.allow_tf32
         assert not torch.backends.cudnn.allow_tf32
         if device == "cuda":

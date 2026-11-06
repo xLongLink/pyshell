@@ -23,7 +23,6 @@ class HFCompletion:
             "torch_version": torch.__version__,
             "cuda_version": torch.version.cuda,
             "gpu": torch.cuda.get_device_name() if device == "cuda" else None,
-            "tf32": False,
         }
 
     def __call__(self, prompt):

@@ -2,7 +2,6 @@ import os
 import sys
 import json
 import signal
-import argparse
 import contextlib
 import statistics
 
@@ -11,8 +10,7 @@ def deadline(_signal, _frame):
     raise TimeoutError("Execution exceeded ten seconds")
 
 
-def main(argv=None):
-    argparse.ArgumentParser(description="Run the isolated execution protocol").parse_args(argv)
+def main():
     import numpy as np
     import pandas as pd
     from api.shell import PythonShell
