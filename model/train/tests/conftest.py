@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from pyshell.serialization import serialize, target_text
 from tokenizers import pre_tokenizers
 from transformers import (
     AutoModelForImageTextToText,
@@ -26,9 +27,10 @@ def training_run(tmp_path):
             for i, char in enumerate(sorted(pre_tokenizers.ByteLevel.alphabet()))
         }
     )
+    vocab["ĊĊ"] = len(vocab)
     tokenizer = Qwen3_5Tokenizer(
         vocab=vocab,
-        merges=[],
+        merges=[("Ċ", "Ċ")],
         unk_token="[UNK]",
         pad_token="[PAD]",
         eos_token="[EOS]",
@@ -64,7 +66,11 @@ def training_run(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
     rows = [
-        {"id": str(i), "prompt": "prompt " * (i + 1), "completion": "code " * (i + 1)}
+        {
+            "id": str(i),
+            "prompt": serialize([{"role": "user", "content": "prompt " * (i + 1)}]),
+            "completion": target_text("code " * (i + 1)),
+        }
         for i in range(4)
     ]
     for split in ("train", "validation"):

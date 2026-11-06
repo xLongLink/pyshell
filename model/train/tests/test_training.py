@@ -74,6 +74,11 @@ def test_overlength_training_data_is_rejected(training_run):
         training_run("oversized", "--max_length", "1")
 
 
+def test_prompt_loss_cannot_be_enabled(training_run):
+    with pytest.raises(ValueError, match="requires completion-only loss"):
+        training_run("prompt-loss", "--completion_only_loss", "false")
+
+
 def test_only_train_and_validation_files_are_loaded(training_run, tmp_path):
     (tmp_path / "data/test-tasks.jsonl").write_text("not a training dataset")
     (tmp_path / "data/train-tasks.jsonl").write_text("not a training dataset")

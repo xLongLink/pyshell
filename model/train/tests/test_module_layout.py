@@ -94,8 +94,13 @@ class TestModuleLayout:
                 assert error.value.code == 0
                 assert "usage:" in capsys.readouterr().out
 
-    def test_benchmark_has_no_training_implementation_dependency(self):
-        for path in (ROOT / "model/benchmark/src").rglob("*.py"):
+    @pytest.mark.parametrize(
+        "owner,other", [("benchmark", "train"), ("train", "benchmark")]
+    )
+    def test_training_and_benchmark_have_no_implementation_dependency(
+        self, owner, other
+    ):
+        for path in (ROOT / f"model/{owner}/src").rglob("*.py"):
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node, ast.ImportFrom):
                     names = [node.module or ""]
@@ -104,8 +109,8 @@ class TestModuleLayout:
                 else:
                     continue
                 assert not any(
-                    name == "model.train"
-                    or name == "train"
-                    or name.startswith(("model.train.", "train."))
+                    name == f"model.{other}"
+                    or name == other
+                    or name.startswith((f"model.{other}.", f"{other}."))
                     for name in names
                 ), str(path)

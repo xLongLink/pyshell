@@ -2,14 +2,29 @@ import json
 
 import pytest
 import torch
-from peft import PeftModel
+from peft import LoraConfig, PeftModel, get_peft_model
 from transformers import AutoModelForImageTextToText
 
 from model.train.src.checkpoints import load_resume
 
 
-def test_standard_checkpoint_resume_matches_uninterrupted_training(training_run):
-    full = training_run("full")
+@pytest.mark.parametrize("initialize", [False, True])
+def test_standard_checkpoint_resume_matches_uninterrupted_training(
+    training_run, tmp_path, initialize
+):
+    extra = []
+    if initialize:
+        base = AutoModelForImageTextToText.from_pretrained(tmp_path / "base")
+        lora = LoraConfig(
+            r=4,
+            lora_alpha=8,
+            task_type="CAUSAL_LM",
+            target_modules=["q_proj", "v_proj"],
+        )
+        adapter = get_peft_model(base, lora)
+        adapter.save_pretrained(tmp_path / "initial")
+        extra = ["--initialize_adapter", str(tmp_path / "initial")]
+    full = training_run("full", *extra)
     checkpoint = full / "checkpoint-2"
     metadata = json.loads((checkpoint / "training.json").read_text())
     assert load_resume(checkpoint, metadata) == 2
@@ -48,9 +63,10 @@ def test_legacy_adapters_require_initialization_not_resume(tmp_path):
         ("validation_sha256", "changed"),
         ("base_model", "different"),
         ("base_revision", "different"),
+        ("eos_token", "different"),
         ("accumulation", 8),
         ("max_length", 32),
-        ("serialization", "chat"),
+        ("serialization", "raw"),
     ],
 )
 def test_resume_rejects_changed_provenance(tmp_path, field, value):
@@ -59,9 +75,10 @@ def test_resume_rejects_changed_provenance(tmp_path, field, value):
         "validation_sha256": "validation",
         "base_model": "base",
         "base_revision": None,
+        "eos_token": "[EOS]",
         "accumulation": 2,
         "max_length": 2048,
-        "serialization": "raw",
+        "serialization": "raw-completion-eos-v1",
     }
     (tmp_path / "trainer_state.json").write_text('{"global_step": 2}')
     (tmp_path / "training.json").write_text(json.dumps(metadata))
