@@ -1,5 +1,5 @@
 import pytest
-from pyshell.serialization import END_CODE, serialize, target_text
+from pyshell.serialization import END_CODE, Prompt, target_text
 from transformers import AutoTokenizer
 
 from model.train.src import training
@@ -13,7 +13,9 @@ def tokenizer(training_run, tmp_path):
 
 @pytest.mark.parametrize("framing", ["raw", "boundary", "eos"])
 def test_ready_completions_are_idempotent_and_use_existing_eos(tokenizer, framing):
-    prompt = serialize([{"role": "user", "content": "Calculate."}])
+    history = Prompt()
+    history.append({"role": "user", "content": "Calculate."})
+    prompt = history.render()
     code = "result = 1"
     completion = code if framing == "raw" else target_text(code)
     if framing == "eos":
@@ -57,7 +59,7 @@ def test_trl_owns_tokenization_masking_and_padding(training_run, monkeypatch):
 
 def test_length_validation_counts_eos_and_never_truncates(tokenizer):
     record = {"prompt": "prompt", "completion": "code"}
-    ready = prepare(record, tokenizer, None)
+    ready = prepare(record, tokenizer, 1024)
     length = len(tokenizer(ready["prompt"] + ready["completion"])["input_ids"])
     assert prepare(record, tokenizer, length) == ready
     with pytest.raises(ValueError, match="refusing to truncate"):

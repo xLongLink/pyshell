@@ -3,6 +3,7 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from pyshell.serialization import CODE, TASK, CONSOLE, END_CODE
+from model.benchmark.src.settings import Settings
 from model.benchmark.src.inference import HFCompletion
 
 
@@ -17,7 +18,9 @@ class Inputs(dict):
 
 class TestInference:
     @pytest.fixture(autouse=True)
-    def setup(self):
+    def setup(self, tmp_path):
+        self.adapter = tmp_path / "adapter"
+        self.adapter.mkdir()
         self.tokenizer = MagicMock()
         self.tokenizer.return_value = Inputs()
         self.model = MagicMock(device=torch.device("cpu"))
@@ -25,7 +28,9 @@ class TestInference:
         self.model.to.return_value = self.model
         self.model.eval.return_value = self.model
 
-    def completion(self, *, base_model="fixture-base", adapter=None, device="cpu", revision=None, max_new_tokens=384):
+    def completion(self, *, base_model="fixture-base", device="cpu", revision=None, max_new_tokens=384):
+        (self.adapter / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": str(base_model), "revision": revision}))
+        config = Settings(adapter=self.adapter, threads=3, device=device, tokens=max_new_tokens)
         with (
             patch("model.benchmark.src.inference.torch.set_num_threads") as threads,
             patch("model.benchmark.src.inference.AutoTokenizer.from_pretrained", return_value=self.tokenizer) as tokenizer,
@@ -33,15 +38,12 @@ class TestInference:
             patch("model.benchmark.src.inference.PeftModel.from_pretrained", return_value=self.model) as load_adapter,
             patch("model.benchmark.src.inference.StopStringCriteria", return_value=SimpleNamespace()) as build,
         ):
-            completion = HFCompletion(adapter, 3, device, base_model=base_model, revision=revision, max_new_tokens=max_new_tokens)
+            completion = HFCompletion(config)
             threads.assert_called_once_with(3)
             build.assert_called_once_with(self.tokenizer, [END_CODE, TASK, CONSOLE, CODE])
-            tokenizer.assert_called_once_with(base_model, revision=revision)
-            model.assert_called_once_with(base_model, revision=revision, dtype=torch.float32, attn_implementation="sdpa")
-            if adapter is None:
-                load_adapter.assert_not_called()
-            else:
-                load_adapter.assert_called_once_with(self.model, adapter)
+            tokenizer.assert_called_once_with(str(base_model), revision=revision)
+            model.assert_called_once_with(str(base_model), revision=revision, dtype=torch.float32, attn_implementation="sdpa")
+            load_adapter.assert_called_once_with(self.model, self.adapter)
         return completion
 
     def test_recorded_revision_and_configured_generation_budget_are_used(self):
@@ -50,12 +52,8 @@ class TestInference:
         completion("prompt")
         assert self.model.generate.call_args.kwargs["max_new_tokens"] == 77
 
-    def test_explicit_base_model_does_not_depend_on_training_artifacts(self, tmp_path):
+    def test_adapter_can_reference_a_local_base_model(self, tmp_path):
         self.completion(base_model=tmp_path / "base-model")
-
-    @pytest.mark.parametrize("adapter", [None, "fixture-adapter"])
-    def test_base_model_and_adapter_evaluation_remain_supported(self, adapter):
-        self.completion(adapter=adapter)
 
     @pytest.mark.parametrize("device", ["cpu", "cuda"])
     def test_configured_device(self, device):
@@ -95,3 +93,6 @@ class TestInference:
             with subtests.test(text=text):
                 self.tokenizer.decode.return_value = text
                 assert completion("prompt") == expected
+
+
+import json

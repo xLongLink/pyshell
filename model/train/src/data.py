@@ -15,7 +15,7 @@ def prepare(record, tokenizer, max_length):
     ids = tokenizer(record["prompt"] + completion)["input_ids"]
     if ids[: len(prompt_ids)] != prompt_ids:
         raise ValueError("Prompt and completion must meet on a token boundary")
-    if max_length is not None and len(ids) > max_length:
+    if len(ids) > max_length:
         raise ValueError(
             f"Example needs {len(ids)} tokens, above {max_length}; refusing to truncate supervision"
         )

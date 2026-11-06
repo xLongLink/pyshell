@@ -1,3 +1,4 @@
+import json
 import torch
 from peft import PeftModel
 from transformers import AutoTokenizer, StopStringCriteria, StoppingCriteriaList, AutoModelForImageTextToText
@@ -6,18 +7,18 @@ from pyshell.serialization import MARKERS
 
 
 class HFCompletion:
-    def __init__(self, adapter, threads, device, *, base_model, revision=None, max_new_tokens=384):
-        torch.set_num_threads(threads)
+    def __init__(self, config):
+        native = json.loads((config.adapter / "adapter_config.json").read_text())
+        base = native["base_model_name_or_path"]
+        revision = native.get("revision")
+        torch.set_num_threads(config.threads)
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
-        self.tokenizer = AutoTokenizer.from_pretrained(base_model, revision=revision)
-        self.model = AutoModelForImageTextToText.from_pretrained(
-            base_model, revision=revision, dtype=torch.float32, attn_implementation="sdpa"
-        )
-        if adapter:
-            self.model = PeftModel.from_pretrained(self.model, adapter)
-        self.model.to(device).eval()
-        self.max_new_tokens = max_new_tokens
+        self.tokenizer = AutoTokenizer.from_pretrained(base, revision=revision)
+        self.model = AutoModelForImageTextToText.from_pretrained(base, revision=revision, dtype=torch.float32, attn_implementation="sdpa")
+        self.model = PeftModel.from_pretrained(self.model, config.adapter)
+        self.model.to(config.device).eval()
+        self.max_new_tokens = config.tokens
         self.stopping_criteria = StoppingCriteriaList([StopStringCriteria(self.tokenizer, list(MARKERS))])
 
     def __call__(self, prompt):

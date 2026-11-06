@@ -10,7 +10,6 @@ class Settings(BaseModel):
 
     # Evaluation data
     data: str = Field(default="LongLink/pyshell-worker-data", min_length=1)
-    prefix: str = Field(default="experiments/executed-transfer-v1/evaluation", min_length=1)
     data_revision: str | None = Field(default="1ed43ba23eff6438850921dca30665e5608fb8b7", pattern=r"^[0-9a-f]{40}$")
 
     # Run

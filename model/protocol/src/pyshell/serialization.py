@@ -1,5 +1,5 @@
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 TASK = "<|task|>"
 CODE = "<|code|>"
@@ -13,17 +13,6 @@ def escape_text(text: str) -> str:
     for marker in MARKERS:
         text = text.replace(marker, marker.replace("<", "\\u003c"))
     return text
-
-
-def console_block(feedback: dict) -> str:
-    """Frame execution feedback without allowing injected markers."""
-    encoded = json.dumps(feedback, ensure_ascii=False).replace("<", "\\u003c")
-    return f"{CONSOLE}\n{encoded}\n"
-
-
-def serialize(messages: Sequence[Mapping[str, str | dict]]) -> str:
-    """Render context without a system role or a pretrained chat template."""
-    return "".join(_block(turn) for turn in messages) + CODE + "\n"
 
 
 def _block(turn: Mapping[str, str | dict]) -> str:
@@ -40,7 +29,8 @@ def _block(turn: Mapping[str, str | dict]) -> str:
     if role == "console":
         if not isinstance(content, dict):
             raise TypeError("Console content must be a feedback dictionary")
-        return console_block(content)
+        encoded = json.dumps(content, ensure_ascii=False).replace("<", "\\u003c")
+        return f"{CONSOLE}\n{encoded}\n"
     if role == "user":
         return f"{TASK}\n{escape_text(content)}\n" if content.strip() else ""
     raise ValueError(f"Unsupported source role: {role}")

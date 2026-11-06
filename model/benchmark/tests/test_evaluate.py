@@ -2,7 +2,7 @@ import json
 import pytest
 from unittest.mock import Mock
 from model.benchmark import main
-from model.benchmark.src import corpus, evaluate, inference
+from model.benchmark.src import evaluate, inference
 from model.benchmark.src.settings import SETTINGS, Settings
 
 
@@ -11,10 +11,7 @@ def benchmark(tmp_path, monkeypatch):
     records = [{"id": str(index), "family": "sum"} for index in range(3)]
     (tmp_path / "dev-tasks.jsonl").write_text("".join(json.dumps(record) + "\n" for record in records))
     (tmp_path / "test-tasks.jsonl").write_text("DO NOT READ HOLDOUT")
-    adapter = tmp_path / "adapter"
-    adapter.mkdir()
-    (adapter / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": "fixture-base", "revision": "a" * 40}))
-    config = Settings(data=str(tmp_path), data_revision=None, adapter=adapter, output=tmp_path / "results.jsonl")
+    config = Settings(data=str(tmp_path), data_revision=None, output=tmp_path / "results.jsonl")
     model = Mock()
     monkeypatch.setattr(inference, "HFCompletion", model)
     worker = Mock()
@@ -29,11 +26,9 @@ def benchmark(tmp_path, monkeypatch):
 def test_run_evaluates_one_adapter_and_saves_results(benchmark, capsys):
     config, model, worker, rows = benchmark
     summary = evaluate.run(config)
-    assert summary == {"tasks": 3, "passed": 1, "success_rate": 1 / 3, "statuses": {"passed": 1, "incorrect": 1, "call_limit": 1}}
+    assert summary == {"tasks": 3, "passed": 1, "success_rate": 1 / 3}
     assert [json.loads(line) for line in config.output.read_text().splitlines()] == rows
-    model.assert_called_once_with(
-        config.adapter, config.threads, config.device, base_model="fixture-base", revision="a" * 40, max_new_tokens=config.tokens
-    )
+    model.assert_called_once_with(config)
     worker.return_value.close.assert_called_once_with()
     assert "Passed 1/3 (33.3%)" in capsys.readouterr().out
     assert (config.output.parent / "test-tasks.jsonl").read_text() == "DO NOT READ HOLDOUT"
@@ -68,15 +63,12 @@ def test_failure_preserves_completed_rows_and_closes_worker(benchmark, monkeypat
 
 def test_remote_data_downloads_only_development_tasks(benchmark, monkeypatch):
     config, _, _, _ = benchmark
-    directory = config.output.parent / config.prefix
-    directory.mkdir(parents=True)
-    (directory / "dev-tasks.jsonl").write_text('{"id": "remote"}\n')
-    download = Mock(return_value=str(config.output.parent))
-    monkeypatch.setattr(corpus, "snapshot_download", download)
+    download = Mock(return_value=str(config.output.parent / "dev-tasks.jsonl"))
+    monkeypatch.setattr(evaluate, "hf_hub_download", download)
     remote = config.model_copy(update={"data": "example/data"})
-    assert corpus.load_tasks(remote) == [{"id": "remote"}]
+    assert evaluate.run(remote)["tasks"] == 3
     download.assert_called_once_with(
-        "example/data", repo_type="dataset", revision=config.data_revision, allow_patterns=[f"{config.prefix}/dev-tasks.jsonl"]
+        "example/data", "experiments/executed-transfer-v1/evaluation/dev-tasks.jsonl", repo_type="dataset", revision=config.data_revision
     )
 
 

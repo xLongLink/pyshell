@@ -1,5 +1,7 @@
 import json
+import runpy
 import shutil
+import sys
 from unittest.mock import Mock
 
 import pytest
@@ -13,7 +15,8 @@ from model.train.src import settings, training
 def test_entrypoint_uses_the_checked_in_settings(monkeypatch):
     train = Mock()
     monkeypatch.setattr(training, "train", train)
-    training.main()
+    monkeypatch.setattr(sys, "argv", ["model.train.main"])
+    runpy.run_module("model.train.main", run_name="__main__")
     train.assert_called_once_with(settings.SETTINGS)
 
 

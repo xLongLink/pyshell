@@ -85,7 +85,3 @@ def train(config: settings.Settings):
     trainer.train()
     trainer.save_model()
     trainer.save_state()
-
-
-def main():
-    train(settings.SETTINGS)

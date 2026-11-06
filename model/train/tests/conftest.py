@@ -2,7 +2,7 @@ import json
 
 import pytest
 import torch
-from pyshell.serialization import serialize, target_text
+from pyshell.serialization import Prompt, target_text
 from tokenizers import pre_tokenizers
 from transformers import (
     AutoModelForImageTextToText,
@@ -65,14 +65,17 @@ def training_run(tmp_path):
     tokenizer.save_pretrained(base)
     data = tmp_path / "data"
     data.mkdir()
-    rows = [
-        {
-            "id": str(i),
-            "prompt": serialize([{"role": "user", "content": "prompt " * (i + 1)}]),
-            "completion": target_text("code " * (i + 1)),
-        }
-        for i in range(4)
-    ]
+    rows = []
+    for i in range(4):
+        prompt = Prompt()
+        prompt.append({"role": "user", "content": "prompt " * (i + 1)})
+        rows.append(
+            {
+                "id": str(i),
+                "prompt": prompt.render(),
+                "completion": target_text("code " * (i + 1)),
+            }
+        )
     for split in ("train", "validation"):
         (data / f"{split}.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in rows)
