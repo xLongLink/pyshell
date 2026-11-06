@@ -6,7 +6,10 @@ from pathlib import Path
 from contextlib import nullcontext
 from unittest.mock import patch
 from model.benchmark.src import evaluate
+from model.benchmark.src.artifact import Artifact
+from model.benchmark.src.corpus import load_tasks
 from model.benchmark.src.proof_trial import trial
+from model.benchmark.src.settings import Settings
 
 
 class Worker:
@@ -25,46 +28,31 @@ class Worker:
 
 
 class TestEvaluation:
-    def test_cli_owns_the_inference_defaults(self, tmp_path):
-        with patch.object(evaluate, "evaluate") as run_evaluation:
-            evaluate.main(["--label", "fixture", "--output", str(tmp_path / "output")])
-        args = run_evaluation.call_args.args[0]
-        assert args.adapter is None
-        assert args.device == "cpu"
-        assert args.threads == 16
-        assert args.base_model == Path(__file__).resolve().parents[1] / "local/base"
+    def artifact(self, directory):
+        path = directory / "adapter"
+        path.mkdir()
+        weights = path / "adapter_model.safetensors"
+        weights.write_bytes(b"fixed weights")
+        (path / "adapter_config.json").write_text("{}")
+        return Artifact(
+            base="fixture-base",
+            path=path,
+            revision="a" * 40,
+            weights_sha256=hashlib.sha256(weights.read_bytes()).hexdigest(),
+            config_sha256=hashlib.sha256(b"{}").hexdigest(),
+        )
 
-    @pytest.mark.parametrize(
-        "adapter_form,mutate_adapter", [(None, False), ("file", False), ("directory", False), ("file", True), ("directory", True)]
-    )
-    def test_evaluation_persists_full_trajectories_and_incremental_metrics(self, tmp_path, capsys, adapter_form, mutate_adapter):
+    @pytest.mark.parametrize("mutate_adapter", [False, True])
+    def test_evaluation_persists_full_trajectories_and_incremental_metrics(self, tmp_path, capsys, mutate_adapter):
         records = [{"id": str(index), "family": family} for index, family in enumerate(("join", "recovery", "join"))]
         tasks = tmp_path / "dev-tasks.jsonl"
         tasks.write_text("".join(json.dumps(record) + "\n" for record in records))
         digest = hashlib.sha256(tasks.read_bytes()).hexdigest()
         (tmp_path / "manifest.json").write_text(json.dumps({"scope": "fixture", "splits": {"dev": {"sha256": digest}}}))
-        args = SimpleNamespace(
-            data=tmp_path,
-            split="dev",
-            final=False,
-            limit=None,
-            device="cpu",
-            threads=3,
-            base_model=tmp_path / "base",
-            adapter=None,
-            output=tmp_path / "output",
-            label="fixture",
-        )
-        weights = None
-        if adapter_form:
-            args.adapter = tmp_path / "adapter"
-            if adapter_form == "directory":
-                args.adapter.mkdir()
-                weights = args.adapter / "adapter_model.safetensors"
-            else:
-                weights = args.adapter
-            weights.write_bytes(b"fixed weights")
-        adapter_digest = hashlib.sha256(b"fixed weights").hexdigest() if weights else None
+        args = Settings(data=str(tmp_path), data_revision=None, threads=3, output=tmp_path / "output")
+        artifact = self.artifact(tmp_path)
+        weights = artifact.path / "adapter_model.safetensors"
+        adapter_digest = artifact.weights_sha256
         rows = [
             {**record, "status": status, "steps": [{"source": "print('payload')", "feedback": {"stdout": "payload"}}]}
             for record, status in zip(records, ("passed", "call_limit", "incorrect"))
@@ -87,14 +75,16 @@ class TestEvaluation:
             patch.object(evaluate, "trial", side_effect=run_trial),
         ):
             model.return_value.runtime = {"fixture": True}
-            with pytest.raises(RuntimeError, match="Adapter changed during evaluation") if mutate_adapter else nullcontext():
-                evaluate.evaluate(args)
-        model.assert_called_once_with(args.adapter, 3, "cpu", base_model=args.base_model)
+            with pytest.raises(RuntimeError, match="Artifact changed") if mutate_adapter else nullcontext():
+                evaluate.evaluate(artifact, args, args.output, data=tmp_path)
+        model.assert_called_once_with(
+            artifact.path, 3, "cpu", base_model=artifact.base, revision=artifact.revision, max_new_tokens=args.tokens
+        )
         summaries.append(json.loads((args.output / "summary.json").read_text()))
         assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows
         assert [summary["tasks"] for summary in summaries] == [1, 2, 3]
         assert [summary["passed"] for summary in summaries] == [1, 1, 1]
-        assert [summary["complete"] for summary in summaries] == [False, False, True]
+        assert [summary["complete"] for summary in summaries] == [False, False, not mutate_adapter]
         assert [summary["statuses"] for summary in summaries] == [
             {"passed": 1},
             {"passed": 1, "call_limit": 1},
@@ -103,7 +93,7 @@ class TestEvaluation:
         assert all(not summary["acceptance_met"] for summary in summaries)
         summary = summaries[-1]
         assert summary["task_file_sha256"] == digest
-        assert summary["adapter"] == (str(args.adapter) if args.adapter else None)
+        assert summary["adapter"] == str(artifact.path)
         assert summary["adapter_sha256"] == adapter_digest
         assert summary["backend"] == "hf"
         assert summary["dtype"] == "float32"
@@ -111,23 +101,13 @@ class TestEvaluation:
         assert summary["success_rate"] == 1 / 3
         assert summary["by_family"] == {"join": {"tasks": 2, "passed": 1}, "recovery": {"tasks": 1, "passed": 0}}
         assert summary["statuses"] == {"passed": 1, "call_limit": 1, "incorrect": 1}
-        assert "fixture dev 3/3: 1 passed; join=incorrect" in capsys.readouterr().out
+        assert "output dev 3/3: 1 passed; join=incorrect" in capsys.readouterr().out
 
     @pytest.mark.parametrize("fail_at", [0, 1])
     def test_trial_failure_closes_the_response_log_and_preserves_completed_rows(self, tmp_path, fail_at):
         records = [{"id": str(index), "family": "join"} for index in range(2)]
-        args = SimpleNamespace(
-            data=tmp_path,
-            split="dev",
-            final=False,
-            limit=None,
-            adapter=None,
-            output=tmp_path / "output",
-            threads=1,
-            device="cpu",
-            base_model=tmp_path / "base",
-            label="fixture",
-        )
+        args = Settings(data=str(tmp_path), data_revision=None, output=tmp_path / "output")
+        artifact = self.artifact(tmp_path)
         failure = RuntimeError("trial failed")
         handles = []
         path_open = Path.open
@@ -152,7 +132,7 @@ class TestEvaluation:
             pytest.raises(RuntimeError) as error,
         ):
             model.return_value.runtime = {}
-            evaluate.evaluate(args)
+            evaluate.evaluate(artifact, args, args.output, data=tmp_path)
         assert error.value is failure
         assert len(handles) == 1
         assert handles[0].closed
@@ -250,16 +230,16 @@ class TestEvaluation:
 
     def test_final_requires_explicit_authorization_before_loading_a_model(self, tmp_path):
         args = self.final_request(tmp_path)
-        with pytest.raises(ValueError, match="requires --final"):
-            evaluate.evaluate(args)
+        with pytest.raises(ValueError, match="explicit final"):
+            evaluate.evaluate(None, None, None, data=args.data, split="test")
 
     def test_final_cannot_be_reduced_to_a_selected_subset(self, tmp_path):
         args = self.final_request(tmp_path, final=True, limit=10)
         with pytest.raises(ValueError, match="cannot be reduced"):
-            evaluate.evaluate(args)
+            load_tasks(args.data, "test", final=True, limit=10)
 
     def test_changed_frozen_tasks_are_rejected(self, tmp_path):
         args = self.final_request(tmp_path, final=True)
         (args.data / "test-tasks.jsonl").write_text('{"modified":true}\n')
         with pytest.raises(ValueError, match="tasks have changed"):
-            evaluate.evaluate(args)
+            evaluate.evaluate(None, None, None, data=args.data, split="test", final=True)

@@ -34,7 +34,7 @@ train:
 	uv run --locked --project model/train --extra cpu python -m model.train.main
 
 benchmark:
-	uv run --locked --project model/benchmark python -m model.benchmark.main $(ARGS)
+	uv run --locked --project model/benchmark --extra local python -m model.benchmark.main
 
 test\:train:
 	uv run --locked --project model/train --extra cpu python -m pytest -c model/train/pyproject.toml model/train/tests -v

@@ -15,4 +15,5 @@ def configure_device(device: str) -> str:
 
 def configure_threads(threads):
     torch.set_num_threads(threads)
-    torch.set_num_interop_threads(1)
+    if torch.get_num_interop_threads() != 1:
+        torch.set_num_interop_threads(1)

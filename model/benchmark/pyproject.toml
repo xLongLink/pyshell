@@ -2,7 +2,7 @@
 name = "pyshell-benchmark"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["pyshell"]
+dependencies = ["pyshell", "pydantic>=2.10,<3", "huggingface-hub>=1,<3"]
 
 [project.optional-dependencies]
 data = ["numpy>=2,<3", "pandas>=3,<4"]

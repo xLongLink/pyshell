@@ -49,19 +49,19 @@ class TestRuntime:
             torch.set_num_threads.assert_not_called()
             torch.set_num_interop_threads.assert_not_called()
 
-    def test_threads_are_configured_on_every_call_and_interop_errors_propagate(self):
+    def test_thread_configuration_can_be_reused_for_sequential_models(self):
+        with patch.object(runtime, "torch") as torch:
+            torch.get_num_interop_threads.side_effect = [4, 1]
+            runtime.configure_threads(3)
+            runtime.configure_threads(3)
+            assert torch.set_num_threads.call_args_list == [call(3), call(3)]
+            torch.set_num_interop_threads.assert_called_once_with(1)
+
+    def test_interop_errors_still_propagate(self):
         error = RuntimeError("interop threads already initialized")
         with patch.object(runtime, "torch") as torch:
-            torch.set_num_interop_threads.side_effect = [None, error]
-            runtime.configure_threads(3)
-
+            torch.get_num_interop_threads.return_value = 4
+            torch.set_num_interop_threads.side_effect = error
             with pytest.raises(RuntimeError) as raised:
-                runtime.configure_threads(7)
-
+                runtime.configure_threads(3)
             assert raised.value is error
-            assert torch.mock_calls == [
-                call.set_num_threads(3),
-                call.set_num_interop_threads(1),
-                call.set_num_threads(7),
-                call.set_num_interop_threads(1),
-            ]

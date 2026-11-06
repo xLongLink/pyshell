@@ -53,6 +53,8 @@ def verify(output, data, development):
         raise ValueError("Development tasks differ from the frozen manifest")
     if dev["adapter_sha256"] != summary["adapter_sha256"]:
         raise ValueError("Development and final results used different adapters")
+    if any(dev[key] != summary[key] for key in ("base_model", "base_revision", "adapter_config_sha256", "run_sha256", "inference")):
+        raise ValueError("Development and final model identity or inference settings differ")
     _, task_digest, tasks = load_tasks(data, "test", final=True)
     if task_digest != summary["task_file_sha256"]:
         raise ValueError("Final tasks differ from the frozen manifest")
@@ -60,6 +62,10 @@ def verify(output, data, development):
     adapter_digest = sha256(adapter)
     if adapter_digest != summary["adapter_sha256"]:
         raise ValueError("Adapter differs from the one evaluated")
+    if sha256(adapter.parent / "adapter_config.json") != summary["adapter_config_sha256"]:
+        raise ValueError("Adapter configuration differs from the one evaluated")
+    if summary["run_sha256"] is not None and sha256(adapter.parent / "run.json") != summary["run_sha256"]:
+        raise ValueError("Artifact provenance differs from the one evaluated")
     predictions = read_jsonl(output / "responses.jsonl")
     if len(tasks) != FINAL_TASKS or [row["id"] for row in predictions] != [row["id"] for row in tasks]:
         raise ValueError("Final predictions do not cover all 120 tasks exactly once")
@@ -79,6 +85,11 @@ def verify(output, data, development):
         "success_rate": passed / len(tasks),
         "status_mismatches": mismatches,
         "adapter_sha256": adapter_digest,
+        "adapter_config_sha256": summary["adapter_config_sha256"],
+        "base_model": summary["base_model"],
+        "base_revision": summary["base_revision"],
+        "run_sha256": summary["run_sha256"],
+        "inference": summary["inference"],
         "test_tasks_sha256": task_digest,
         "backend": summary["backend"],
         "objective_verified": verified,

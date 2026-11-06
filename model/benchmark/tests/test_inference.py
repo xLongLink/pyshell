@@ -26,7 +26,7 @@ class TestInference:
         self.model.to.return_value = self.model
         self.model.eval.return_value = self.model
 
-    def completion(self, *, base_model="fixture-base", adapter=None, device="cpu"):
+    def completion(self, *, base_model="fixture-base", adapter=None, device="cpu", revision=None, max_new_tokens=384):
         with (
             patch("model.benchmark.src.runtime.torch.set_num_interop_threads"),
             patch("model.benchmark.src.runtime.torch.set_num_threads"),
@@ -35,15 +35,21 @@ class TestInference:
             patch("model.benchmark.src.inference.PeftModel.from_pretrained", return_value=self.model) as load_adapter,
             patch("model.benchmark.src.inference.StopStringCriteria", return_value=SimpleNamespace()) as build,
         ):
-            completion = HFCompletion(adapter, 3, device, base_model=base_model)
+            completion = HFCompletion(adapter, 3, device, base_model=base_model, revision=revision, max_new_tokens=max_new_tokens)
             build.assert_called_once_with(self.tokenizer, [END_CODE, TASK, CONSOLE, CODE])
-            tokenizer.assert_called_once_with(base_model, local_files_only=True)
-            model.assert_called_once_with(base_model, dtype=torch.float32, attn_implementation="sdpa", local_files_only=True)
+            tokenizer.assert_called_once_with(base_model, revision=revision)
+            model.assert_called_once_with(base_model, revision=revision, dtype=torch.float32, attn_implementation="sdpa")
             if adapter is None:
                 load_adapter.assert_not_called()
             else:
                 load_adapter.assert_called_once_with(self.model, adapter)
         return completion
+
+    def test_recorded_revision_and_configured_generation_budget_are_used(self):
+        completion = self.completion(revision="a" * 40, max_new_tokens=77)
+        self.tokenizer.decode.return_value = "result = 1" + END_CODE
+        completion("prompt")
+        assert self.model.generate.call_args.kwargs["max_new_tokens"] == 77
 
     def test_explicit_base_model_does_not_depend_on_training_artifacts(self, tmp_path):
         self.completion(base_model=tmp_path / "base-model")

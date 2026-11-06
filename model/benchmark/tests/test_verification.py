@@ -84,6 +84,7 @@ class TestVerification:
         else:
             weights = adapter
         weights.write_bytes(b"fixed adapter")
+        (weights.parent / "adapter_config.json").write_text("{}")
         tasks = [
             {"id": f"task-{index}", "setup": f"value = {index}", "check": "assert result == value + 1", "followup": None}
             for index in range(120)
@@ -114,6 +115,11 @@ class TestVerification:
                     "by_family": {"synthetic": {"tasks": 60, "passed": 60}},
                     "task_file_sha256": dev_digest,
                     "adapter_sha256": hashlib.sha256(weights.read_bytes()).hexdigest(),
+                    "adapter_config_sha256": hashlib.sha256(b"{}").hexdigest(),
+                    "base_model": "fixture-base",
+                    "base_revision": "a" * 40,
+                    "run_sha256": None,
+                    "inference": {"max_new_tokens": 384},
                 }
             )
         )
@@ -125,6 +131,11 @@ class TestVerification:
                     "passed": 120,
                     "adapter": str(adapter),
                     "adapter_sha256": hashlib.sha256(weights.read_bytes()).hexdigest(),
+                    "adapter_config_sha256": hashlib.sha256(b"{}").hexdigest(),
+                    "base_model": "fixture-base",
+                    "base_revision": "a" * 40,
+                    "run_sha256": None,
+                    "inference": {"max_new_tokens": 384},
                     "task_file_sha256": digest,
                     "backend": "hf",
                 }
@@ -160,14 +171,20 @@ class TestVerification:
                 assert worker.closed
                 assert not (experiment / "verification.json").exists()
 
-    def test_changed_tasks_or_weights_are_rejected_before_execution(self, subtests, tmp_path):
-        for changed in ("tasks", "weights"):
+    def test_changed_tasks_or_artifacts_are_rejected_before_execution(self, subtests, tmp_path):
+        for changed in ("tasks", "weights", "configuration"):
             with subtests.test(changed=changed):
                 experiment, data, weights = self.artifacts(tmp_path / changed)
-                path = weights if changed == "weights" else data / "test-tasks.jsonl"
+                path = (
+                    weights
+                    if changed == "weights"
+                    else (weights.parent / "adapter_config.json" if changed == "configuration" else data / "test-tasks.jsonl")
+                )
                 path.write_bytes(path.read_bytes() + b"\n")
                 with patch("model.benchmark.src.verification.Worker", side_effect=AssertionError("must not execute")):
-                    with pytest.raises(ValueError, match="Adapter differs|Frozen evaluation tasks have changed"):
+                    with pytest.raises(
+                        ValueError, match="Adapter differs|Adapter configuration differs|Frozen evaluation tasks have changed"
+                    ):
                         verify(experiment, data, experiment.parent / "dev")
 
     def test_summary_task_digest_must_match_even_when_manifest_is_valid(self, tmp_path):
@@ -248,6 +265,11 @@ class TestVerification:
             ("task_file_sha256", "changed", "Development tasks differ"),
             ("adapter_sha256", "different adapter", "different adapters"),
             ("split", "train", "dev split"),
+            ("base_model", "different-base", "model identity or inference settings differ"),
+            ("base_revision", "b" * 40, "model identity or inference settings differ"),
+            ("adapter_config_sha256", "different-config", "model identity or inference settings differ"),
+            ("run_sha256", "different-run", "model identity or inference settings differ"),
+            ("inference", {"max_new_tokens": 12}, "model identity or inference settings differ"),
         ],
     )
     def test_development_provenance_is_required(self, tmp_path, field, value, message):
