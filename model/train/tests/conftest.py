@@ -87,7 +87,6 @@ def training_run(tmp_path):
                 "data_revision": None,
                 "output": tmp_path / name,
                 "steps": 4,
-                "save_steps": 2,
                 "max_length": 1024,
                 "gradient_accumulation_steps": 2,
                 "learning_rate": 0.001,

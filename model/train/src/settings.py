@@ -26,14 +26,11 @@ class Settings(BaseModel):
     seed: int = Field(default=713, ge=0)
     steps: int = Field(default=125, gt=0)
     output: Path = ROOT / "artifacts/candidate"
-    resume: Path | None = None
-    initialize_adapter: Path | None = None
 
     # Training
     dtype: Literal["float32", "bfloat16"] = "float32"
     batch_size: int = Field(default=1, gt=0)
     max_length: int = Field(default=2048, gt=0)
-    save_steps: int = Field(default=25, gt=0)
     learning_rate: float = Field(default=2e-4, gt=0)
     gradient_accumulation_steps: int = Field(default=4, gt=0)
 
@@ -46,11 +43,7 @@ class Settings(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_initialization(self):
-        if self.resume is not None and self.initialize_adapter is not None:
-            raise ValueError(
-                "Adapter initialization and checkpoint resume cannot be combined"
-            )
+    def validate_sources(self):
         if not Path(self.base).is_dir() and self.base_revision is None:
             raise ValueError("A remote base model requires a pinned revision")
         if not Path(self.data).is_dir() and self.data_revision is None:

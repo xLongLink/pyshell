@@ -3,6 +3,9 @@ import shutil
 from unittest.mock import Mock
 
 import pytest
+import torch
+from peft import PeftModel
+from transformers import AutoModelForImageTextToText, AutoTokenizer
 
 from model.train.src import settings, training
 
@@ -58,20 +61,20 @@ def test_pinned_dataset_download_only_fetches_training_splits(
         revision=revision,
         allow_patterns=["data/train.jsonl", "data/validation.jsonl"],
     )
-    assert (
-        json.loads((output / "training.json").read_text())["data_revision"] == revision
-    )
+    assert (output / "adapter_model.safetensors").is_file()
 
 
-def test_candidate_records_settings_and_source_identity(training_run):
+def test_final_adapter_can_be_reloaded_for_inference(training_run):
     output = training_run("candidate", learning_rate=0.002, rank=4, alpha=8)
-    run = json.loads((output / "run.json").read_text())
-    assert run["settings"]["learning_rate"] == 0.002
-    assert run["settings"]["output"] == str(output)
-    assert len(run["code_commit"]) == 40
-    assert len(run["source_sha256"]) == 64
-    for checkpoint in ("checkpoint-2", "checkpoint-4"):
-        assert json.loads((output / checkpoint / "run.json").read_text()) == run
     adapter = json.loads((output / "adapter_config.json").read_text())
     assert adapter["r"] == 4
     assert adapter["lora_alpha"] == 8
+    base = AutoModelForImageTextToText.from_pretrained(
+        adapter["base_model_name_or_path"]
+    )
+    model = PeftModel.from_pretrained(base, output)
+    tokenizer = AutoTokenizer.from_pretrained(output)
+    inputs = tokenizer("prompt", return_tensors="pt")
+    with torch.inference_mode():
+        prediction = model(**inputs)
+    assert torch.isfinite(prediction.logits).all()

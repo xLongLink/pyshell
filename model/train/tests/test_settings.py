@@ -13,7 +13,6 @@ from model.train.src.settings import SETTINGS, Settings
         "rank",
         "alpha",
         "max_length",
-        "save_steps",
         "batch_size",
         "learning_rate",
         "gradient_accumulation_steps",
@@ -40,16 +39,14 @@ def test_training_limits_must_be_positive(field, value):
         {"base_revision": None},
         {"data_revision": None},
         {"completion_only_loss": False},
+        {"resume": Path("checkpoint")},
+        {"initialize_adapter": Path("adapter")},
+        {"save_steps": 25},
     ],
 )
 def test_invalid_or_unknown_settings_are_rejected(changes):
     with pytest.raises(ValidationError):
         Settings(**changes)
-
-
-def test_resume_and_initialization_cannot_be_combined():
-    with pytest.raises(ValidationError, match="cannot be combined"):
-        Settings(resume=Path("checkpoint"), initialize_adapter=Path("adapter"))
 
 
 def test_candidate_output_is_separate_from_published_weights():
