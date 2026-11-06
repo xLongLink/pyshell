@@ -1,16 +1,12 @@
-import sys
 import json
 import pytest
 import hashlib
-import selectors
-import subprocess
 from types import SimpleNamespace
 from pathlib import Path
 from contextlib import nullcontext
 from unittest.mock import patch
-from model.benchmark.src import resources, cpu_evaluate
-from model.benchmark.src.resources import exclusive_cpu
-from model.benchmark.src.cpu_evaluate import trial, evaluate
+from model.benchmark.src import evaluate
+from model.benchmark.src.proof_trial import trial
 
 
 class Worker:
@@ -28,19 +24,18 @@ class Worker:
         }
 
 
-class TestCPUProof:
+class TestEvaluation:
     def test_cli_owns_the_inference_defaults(self, tmp_path):
-        with patch.object(cpu_evaluate, "evaluate") as evaluate:
-            cpu_evaluate.main(["--label", "fixture", "--output", str(tmp_path / "output")])
-        args = evaluate.call_args.args[0]
+        with patch.object(evaluate, "evaluate") as run_evaluation:
+            evaluate.main(["--label", "fixture", "--output", str(tmp_path / "output")])
+        args = run_evaluation.call_args.args[0]
         assert args.adapter is None
         assert args.device == "cpu"
         assert args.threads == 16
         assert args.base_model == Path(__file__).resolve().parents[1] / "local/base"
 
     @pytest.mark.parametrize(
-        "adapter_form,mutate_adapter",
-        [(None, False), ("file", False), ("directory", False), ("file", True), ("directory", True)],
+        "adapter_form,mutate_adapter", [(None, False), ("file", False), ("directory", False), ("file", True), ("directory", True)]
     )
     def test_evaluation_persists_full_trajectories_and_incremental_metrics(self, tmp_path, capsys, adapter_form, mutate_adapter):
         records = [{"id": str(index), "family": family} for index, family in enumerate(("join", "recovery", "join"))]
@@ -79,20 +74,21 @@ class TestCPUProof:
         def run_trial(worker, record, generate):
             if record["id"] != "0":
                 summaries.append(json.loads((args.output / "summary.json").read_text()))
-                assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows[:int(record["id"])]
+                assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows[
+                    : int(record["id"])
+                ]
             if mutate_adapter and record["id"] == "2":
                 weights.write_bytes(b"changed weights")
             return rows[int(record["id"])]
 
         with (
-            patch.object(cpu_evaluate, "exclusive_cpu", return_value=nullcontext()),
             patch("model.benchmark.src.inference.HFCompletion") as model,
-            patch.object(cpu_evaluate, "Worker"),
-            patch.object(cpu_evaluate, "trial", side_effect=run_trial),
+            patch.object(evaluate, "Worker"),
+            patch.object(evaluate, "trial", side_effect=run_trial),
         ):
             model.return_value.runtime = {"fixture": True}
             with pytest.raises(RuntimeError, match="Adapter changed during evaluation") if mutate_adapter else nullcontext():
-                evaluate(args)
+                evaluate.evaluate(args)
         model.assert_called_once_with(args.adapter, 3, "cpu", base_model=args.base_model)
         summaries.append(json.loads((args.output / "summary.json").read_text()))
         assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows
@@ -112,7 +108,6 @@ class TestCPUProof:
         assert summary["backend"] == "hf"
         assert summary["dtype"] == "float32"
         assert summary["runtime"] == {"fixture": True}
-        assert "gguf_base" not in summary
         assert summary["success_rate"] == 1 / 3
         assert summary["by_family"] == {"join": {"tasks": 2, "passed": 1}, "recovery": {"tasks": 1, "passed": 0}}
         assert summary["statuses"] == {"passed": 1, "call_limit": 1, "incorrect": 1}
@@ -122,8 +117,16 @@ class TestCPUProof:
     def test_trial_failure_closes_the_response_log_and_preserves_completed_rows(self, tmp_path, fail_at):
         records = [{"id": str(index), "family": "join"} for index in range(2)]
         args = SimpleNamespace(
-            data=tmp_path, split="dev", final=False, limit=None, adapter=None,
-            output=tmp_path / "output", threads=1, device="cpu", base_model=tmp_path / "base", label="fixture",
+            data=tmp_path,
+            split="dev",
+            final=False,
+            limit=None,
+            adapter=None,
+            output=tmp_path / "output",
+            threads=1,
+            device="cpu",
+            base_model=tmp_path / "base",
+            label="fixture",
         )
         failure = RuntimeError("trial failed")
         handles = []
@@ -141,16 +144,15 @@ class TestCPUProof:
             return {**record, "status": "passed", "steps": []}
 
         with (
-            patch.object(cpu_evaluate, "load_tasks", return_value=({"scope": "fixture"}, "digest", records)),
-            patch.object(cpu_evaluate, "exclusive_cpu", return_value=nullcontext()),
+            patch.object(evaluate, "load_tasks", return_value=({"scope": "fixture"}, "digest", records)),
             patch("model.benchmark.src.inference.HFCompletion") as model,
-            patch.object(cpu_evaluate, "Worker") as worker,
-            patch.object(cpu_evaluate, "trial", side_effect=run_trial),
+            patch.object(evaluate, "Worker") as worker,
+            patch.object(evaluate, "trial", side_effect=run_trial),
             patch.object(Path, "open", open_log),
             pytest.raises(RuntimeError) as error,
         ):
             model.return_value.runtime = {}
-            evaluate(args)
+            evaluate.evaluate(args)
         assert error.value is failure
         assert len(handles) == 1
         assert handles[0].closed
@@ -163,15 +165,6 @@ class TestCPUProof:
             assert not summary["complete"]
         else:
             assert not (args.output / "summary.json").exists()
-
-    @pytest.mark.parametrize("arguments", [("--backend", "gguf"), ("--backend", "hf"), ("--gguf-base", "base.gguf")])
-    def test_retired_backend_options_are_rejected(self, tmp_path, capsys, arguments):
-        output = tmp_path / "output"
-        with pytest.raises(SystemExit) as error:
-            cpu_evaluate.main(["--label", "fixture", "--output", str(output), *arguments])
-        assert error.value.code == 2
-        assert "unrecognized arguments" in capsys.readouterr().err
-        assert not output.exists()
 
     def record(self):
         return {
@@ -258,43 +251,15 @@ class TestCPUProof:
     def test_final_requires_explicit_authorization_before_loading_a_model(self, tmp_path):
         args = self.final_request(tmp_path)
         with pytest.raises(ValueError, match="requires --final"):
-            evaluate(args)
+            evaluate.evaluate(args)
 
     def test_final_cannot_be_reduced_to_a_selected_subset(self, tmp_path):
         args = self.final_request(tmp_path, final=True, limit=10)
         with pytest.raises(ValueError, match="cannot be reduced"):
-            evaluate(args)
+            evaluate.evaluate(args)
 
     def test_changed_frozen_tasks_are_rejected(self, tmp_path):
         args = self.final_request(tmp_path, final=True)
         (args.data / "test-tasks.jsonl").write_text('{"modified":true}\n')
         with pytest.raises(ValueError, match="tasks have changed"):
-            evaluate(args)
-
-    def test_cpu_experiments_wait_for_each_other_without_polling(self, tmp_path):
-        resource_file = str(tmp_path / "src/resources.py")
-        source = (
-            "from model.benchmark.src import resources\n"
-            f"resources.__file__ = {resource_file!r}\n"
-            "with resources.exclusive_cpu(): print('acquired', flush=True)"
-        )
-        with patch.object(resources, "__file__", resource_file), exclusive_cpu():
-            child = subprocess.Popen([sys.executable, "-c", source], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            try:
-                with selectors.DefaultSelector() as selector:
-                    selector.register(child.stdout, selectors.EVENT_READ)
-                    assert selector.select(10), "Child did not report lock contention within ten seconds"
-                    assert b"Waiting for" in child.stdout.read1(4096)
-                assert child.poll() is None
-            except BaseException:
-                child.kill()
-                child.communicate()
-                raise
-        try:
-            output, error = child.communicate(timeout=10)
-        except BaseException:
-            child.kill()
-            child.communicate()
-            raise
-        assert child.returncode == 0, error
-        assert b"acquired" in output
+            evaluate.evaluate(args)

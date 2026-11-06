@@ -1,8 +1,0 @@
-name: pyshell-benchmark
-
-services:
-  pyshell:
-    build:
-      context: ../../src
-      dockerfile: api/Dockerfile
-      target: demo

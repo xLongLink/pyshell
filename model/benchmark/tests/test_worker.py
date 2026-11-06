@@ -6,13 +6,13 @@ import pytest
 import signal
 from unittest.mock import DEFAULT, call, patch
 from importlib.util import find_spec
-from model.benchmark.src import cpu_worker
+from model.benchmark.src import worker
 
 
 @pytest.mark.skipif(
     not (find_spec("api") and find_spec("numpy") and find_spec("pandas")), reason="Install the execution API and benchmark data extra"
 )
-class TestCPUWorker:
+class TestWorker:
     def run_worker(self, requests, protocol=None):
         incoming = io.StringIO("".join((json.dumps(request) if isinstance(request, dict) else request) + "\n" for request in requests))
         protocol = io.StringIO() if protocol is None else protocol
@@ -30,10 +30,10 @@ class TestCPUWorker:
                 patch.object(sys, "stdin", incoming),
                 patch.object(sys, "stdout", protocol),
                 patch.object(sys, "stderr", errors),
-                patch.object(cpu_worker, "open", side_effect=open_sink, create=True) as opened,
+                patch.object(worker, "open", side_effect=open_sink, create=True) as opened,
                 patch.object(signal, "alarm", wraps=signal.alarm) as alarm,
             ):
-                cpu_worker.main([])
+                worker.main([])
                 assert sys.stdout is protocol
                 assert sys.stderr is errors
         finally:
@@ -78,7 +78,7 @@ class TestCPUWorker:
                 raise ValueError("serialization failed")
             return dumps(result, *args, **kwargs)
 
-        with patch.object(cpu_worker.json, "dumps", side_effect=encode):
+        with patch.object(worker.json, "dumps", side_effect=encode):
             results, _ = self.run_worker(
                 [{"action": "reset", "source": "value = 42\nprint('first')"}, {"action": "execute", "source": "print(value)"}]
             )

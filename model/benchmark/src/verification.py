@@ -86,7 +86,7 @@ def verify(output, data, development):
     (output / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2), flush=True)
     if not verified:
-        raise RuntimeError("The CPU proof did not meet its independent replay checks")
+        raise RuntimeError("The evaluation did not meet its independent replay checks")
 
 
 def main(argv=None):

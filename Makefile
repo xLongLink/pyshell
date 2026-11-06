@@ -1,4 +1,4 @@
-.PHONY: up down logs train export benchmark test test\:train test\:benchmark format dataset\:download dataset\:upload model\:download model\:upload
+.PHONY: up down logs train benchmark test test\:train test\:benchmark format dataset\:download dataset\:upload model\:download model\:upload
 
 up:
 	docker compose -f src/compose.yaml build pyshell && \
@@ -31,10 +31,7 @@ model\:upload:
 	hf upload LongLink/pyshell-worker-qwen35-08b model/train/weights . --type model --exclude ".cache/**"
 
 train:
-	uv run --locked --project model/train --extra cpu python -m model.train.main train $(ARGS)
-
-export:
-	uv run --locked --project model/train --extra cpu python -m model.train.main export $(ARGS)
+	uv run --locked --project model/train --extra cpu python -m model.train.main $(ARGS)
 
 benchmark:
 	uv run --locked --project model/benchmark python -m model.benchmark.main $(ARGS)

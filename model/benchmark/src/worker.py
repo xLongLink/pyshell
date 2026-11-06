@@ -12,7 +12,7 @@ def deadline(_signal, _frame):
 
 
 def main(argv=None):
-    argparse.ArgumentParser(description=__doc__).parse_args(argv)
+    argparse.ArgumentParser(description="Run the isolated execution protocol").parse_args(argv)
     import numpy as np
     import pandas as pd
     from api.shell import PythonShell

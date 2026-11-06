@@ -2,9 +2,9 @@ import argparse
 from importlib import import_module
 
 COMMANDS = {
-    "cpu": ("cpu_evaluate", "Evaluate frozen CPU execution tasks"),
+    "evaluate": ("evaluate", "Evaluate frozen execution tasks"),
     "verify": ("verification", "Independently replay a completed final evaluation"),
-    "worker": ("cpu_worker", "Run the container-only execution protocol"),
+    "worker": ("worker", "Run the container-only execution protocol"),
 }
 
 

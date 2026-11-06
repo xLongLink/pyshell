@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class Worker:
     def __init__(self):
-        self.name = "pyshell-cpu-proof-" + uuid.uuid4().hex[:10]
+        self.name = "pyshell-benchmark-" + uuid.uuid4().hex[:10]
         self.process = subprocess.Popen(
             [
                 "docker",
@@ -34,14 +34,14 @@ class Worker:
                 "--tmpfs",
                 "/tmp:size=64m",
                 "--volume",
-                f"{ROOT / 'src/cpu_worker.py'}:/model/benchmark/src/cpu_worker.py:ro",
+                f"{ROOT / 'src/worker.py'}:/model/benchmark/src/worker.py:ro",
                 "--env",
                 "PYTHONPATH=/",
                 "--entrypoint",
                 "/opt/venv/bin/python",
-                "pyshell-benchmark-pyshell:latest",
+                "pyshell-pyshell:latest",
                 "-c",
-                "from model.benchmark.src.cpu_worker import main; main()",
+                "from model.benchmark.src.worker import main; main()",
             ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,

@@ -21,8 +21,10 @@ def test_worker_launches_directly_with_the_same_container_isolation():
     assert "--read-only" in command
     assert "--rm" in command
     volumes = [command[index + 1] for index, value in enumerate(command) if value == "--volume"]
-    assert volumes == [f"{execution.ROOT / 'src/cpu_worker.py'}:/model/benchmark/src/cpu_worker.py:ro"]
+    assert volumes == [f"{execution.ROOT / 'src/worker.py'}:/model/benchmark/src/worker.py:ro"]
+    assert command[command.index("--entrypoint") + 2] == "pyshell-pyshell:latest"
+    assert command[command.index("--name") + 1].startswith("pyshell-benchmark-")
     assert command[-2] == "-c"
-    with patch("model.benchmark.src.cpu_worker.main") as main:
+    with patch("model.benchmark.src.worker.main") as main:
         exec(command[-1])
     main.assert_called_once_with()
