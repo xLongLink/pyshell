@@ -30,6 +30,12 @@ Charts and data:
 - Prefer the single-series chart methods; use ui.plot() for multiple series
   or advanced configuration. Reuse chart handles when updating existing charts.
 - Use wb for World Bank data.
+- Use ui.map() for interactive geographic layers; use ui.choropleth() for
+  statistical region maps. Inspect help(ui.map) before first use. Reuse map
+  handles and set_view(country="CHE") to zoom to Switzerland without losing data.
+- Filter building records in Python using known renovation dates and real
+  coordinates/footprints. "Before 2025" excludes 2025 and unknown dates. MapLibre
+  supplies rendering, not renovation records; report missing source data.
 - Preserve requested metrics, locations, dates, and actions.
 - Use real data unless examples are requested. Report missing data or retrieval
   failures rather than fabricating or silently substituting values.
