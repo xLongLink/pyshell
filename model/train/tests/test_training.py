@@ -10,6 +10,24 @@ from peft import PeftModel
 from transformers import AutoModelForImageTextToText, AutoTokenizer
 
 from model.train.src import settings, training
+from model.train.tests import conftest
+
+
+def test_training_run_restores_threads_when_setup_fails(
+    tmp_path, tokenizer, monkeypatch
+):
+    threads = torch.get_num_threads()
+    from_config = Mock(side_effect=RuntimeError("model setup failed"))
+    monkeypatch.setattr(AutoModelForImageTextToText, "from_config", from_config)
+    try:
+        torch.set_num_threads(2)
+        fixture = conftest.training_run.__wrapped__(tmp_path, tokenizer)
+        with pytest.raises(RuntimeError, match="model setup failed"):
+            next(fixture)
+        from_config.assert_called_once()
+        assert torch.get_num_threads() == 2
+    finally:
+        torch.set_num_threads(threads)
 
 
 def test_entrypoint_uses_the_checked_in_settings(monkeypatch):

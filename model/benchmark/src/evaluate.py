@@ -34,6 +34,4 @@ def run(config):
             file.flush()
             passed += row["status"] == "passed"
             print(f"{index}/{len(records)}: {record['id']} {row['status']}", flush=True)
-    summary = {"tasks": len(records), "passed": passed, "success_rate": passed / len(records)}
-    print(f"Passed {summary['passed']}/{summary['tasks']} ({summary['success_rate']:.1%})", flush=True)
-    return summary
+    print(f"Passed {passed}/{len(records)} ({passed / len(records):.1%})", flush=True)

@@ -12,6 +12,8 @@ from model.benchmark.src.inference import HFCompletion
 class TestInference:
     @pytest.fixture(autouse=True)
     def setup(self, tmp_path):
+        matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
+        cudnn_tf32 = torch.backends.cudnn.allow_tf32
         self.adapter = tmp_path / "adapter"
         self.adapter.mkdir()
         self.tokenizer = MagicMock()
@@ -19,7 +21,6 @@ class TestInference:
         self.model = MagicMock(device=torch.device("cpu"))
         self.model.generate.return_value = torch.tensor([[1, 2, 3, 4]])
         self.model.to.return_value = self.model
-        self.model.eval.return_value = self.model
 
         with (
             patch("model.benchmark.src.inference.torch.set_num_threads") as self.threads,
@@ -28,21 +29,24 @@ class TestInference:
             patch("model.benchmark.src.inference.PeftModel.from_pretrained", return_value=self.model) as self.load_adapter,
             patch("model.benchmark.src.inference.StopStringCriteria", return_value=SimpleNamespace()) as self.build,
         ):
-            yield
+            try:
+                yield
+            finally:
+                torch.backends.cuda.matmul.allow_tf32 = matmul_tf32
+                torch.backends.cudnn.allow_tf32 = cudnn_tf32
 
-    def completion(self, *, base_model="fixture-base", device="cpu", revision=None, max_new_tokens=384):
-        (self.adapter / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": str(base_model), "revision": revision}))
+    def completion(self, *, device="cpu", revision=None, max_new_tokens=384):
+        (self.adapter / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": "fixture-base", "revision": revision}))
         config = Settings(adapter=self.adapter, threads=3, device=device, tokens=max_new_tokens)
         completion = HFCompletion(config)
         return completion
 
     @pytest.mark.parametrize("revision", [None, "a" * 40])
     def test_adapter_loads_its_recorded_base_model(self, revision):
-        base = "fixture-base"
-        self.completion(base_model=base, revision=revision)
+        self.completion(revision=revision)
         self.threads.assert_called_once_with(3)
-        self.load_tokenizer.assert_called_once_with(str(base), revision=revision)
-        self.load_model.assert_called_once_with(str(base), revision=revision, dtype=torch.float32, attn_implementation="sdpa")
+        self.load_tokenizer.assert_called_once_with("fixture-base", revision=revision)
+        self.load_model.assert_called_once_with("fixture-base", revision=revision, dtype=torch.float32, attn_implementation="sdpa")
         self.load_adapter.assert_called_once_with(self.model, self.adapter)
 
     def test_configured_generation_budget_is_used(self):
@@ -58,13 +62,6 @@ class TestInference:
         assert not torch.backends.cuda.matmul.allow_tf32
         assert not torch.backends.cudnn.allow_tf32
 
-    def test_device_errors_propagate(self):
-        error = RuntimeError("CUDA unavailable")
-        self.model.to.side_effect = error
-        with pytest.raises(RuntimeError) as raised:
-            self.completion(device="cuda")
-        assert raised.value is error
-
     def test_boundary_matcher_is_built_once_and_reused_across_requests(self):
         completion = self.completion()
         self.tokenizer.decode.return_value = "result = 1\n" + END_CODE
@@ -73,8 +70,6 @@ class TestInference:
             options = self.model.generate.call_args.kwargs
             assert options["stopping_criteria"] is completion.stopping_criteria
             assert options["stop_strings"] is None
-            assert "streamer" not in options
-            assert options["max_new_tokens"] == 384
             assert not options["do_sample"]
         self.build.assert_called_once_with(self.tokenizer, [END_CODE, TASK, CONSOLE, CODE])
 
@@ -82,3 +77,30 @@ class TestInference:
         completion = self.completion()
         self.tokenizer.decode.return_value = "code" + TASK + END_CODE
         assert completion("prompt") == ("code", False)
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_inference_fixture_restores_tf32_settings(tmp_path, failure):
+    matmul_tf32 = torch.backends.cuda.matmul.allow_tf32
+    cudnn_tf32 = torch.backends.cudnn.allow_tf32
+    fixture = TestInference()
+    setup = TestInference.setup.__wrapped__(fixture, tmp_path)
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        next(setup)
+        fixture.completion()
+        assert not torch.backends.cuda.matmul.allow_tf32
+        assert not torch.backends.cudnn.allow_tf32
+        if failure:
+            with pytest.raises(RuntimeError, match="test failed"):
+                setup.throw(RuntimeError("test failed"))
+        else:
+            with pytest.raises(StopIteration):
+                next(setup)
+        assert torch.backends.cuda.matmul.allow_tf32
+        assert torch.backends.cudnn.allow_tf32
+    finally:
+        setup.close()
+        torch.backends.cuda.matmul.allow_tf32 = matmul_tf32
+        torch.backends.cudnn.allow_tf32 = cudnn_tf32

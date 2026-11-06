@@ -40,10 +40,7 @@ def test_training_limits_must_be_positive(field, value):
         {"data_revision": "main"},
         {"base_revision": None},
         {"data_revision": None},
-        {"completion_only_loss": False},
-        {"resume": Path("checkpoint")},
-        {"initialize_adapter": Path("adapter")},
-        {"save_steps": 25},
+        {"unknown_setting": True},
     ],
 )
 def test_invalid_or_unknown_settings_are_rejected(changes):

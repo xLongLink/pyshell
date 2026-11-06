@@ -17,38 +17,93 @@ class TestWorker:
         incoming = io.StringIO("".join((json.dumps(request) if isinstance(request, dict) else request) + "\n" for request in requests))
         protocol = io.StringIO() if protocol is None else protocol
         errors = io.StringIO()
-        sinks = []
+        with patch.object(sys, "stdin", incoming), patch.object(sys, "stdout", protocol), patch.object(sys, "stderr", errors):
+            worker.main()
+            assert sys.stdout is protocol
+            assert sys.stderr is errors
 
-        def open_sink(*args, **kwargs):
-            sink = open(*args, **kwargs)
-            sinks.append(sink)
-            return sink
-
-        handler = signal.getsignal(signal.SIGALRM)
-        try:
-            with (
-                patch.object(sys, "stdin", incoming),
-                patch.object(sys, "stdout", protocol),
-                patch.object(sys, "stderr", errors),
-                patch.object(worker, "open", side_effect=open_sink, create=True) as opened,
-                patch.object(signal, "alarm", wraps=signal.alarm) as alarm,
-            ):
-                worker.main()
-                assert sys.stdout is protocol
-                assert sys.stderr is errors
-        finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, handler)
-
-        opened.assert_called_once_with(os.devnull, "w")
-        assert sinks[0].closed
         assert errors.getvalue() == ""
         lines = protocol.getvalue().splitlines()
         assert len(lines) == len(requests)
-        return [json.loads(line) for line in lines], alarm.call_args_list
+        return [json.loads(line) for line in lines]
+
+    @pytest.mark.parametrize("requests", [[], [{"action": "reset", "source": "pass"}]])
+    def test_previous_signal_handler_is_restored_on_eof(self, requests):
+        def previous_handler(_signal, _frame):
+            pytest.fail("Previous signal handler should not run")
+
+        timer = signal.setitimer(signal.ITIMER_REAL, 0)
+        handler = signal.signal(signal.SIGALRM, previous_handler)
+        try:
+            signal.setitimer(signal.ITIMER_REAL, 60)
+            self.run_worker(requests)
+            assert signal.getsignal(signal.SIGALRM) is previous_handler
+            assert signal.getitimer(signal.ITIMER_REAL) == (0, 0)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, *timer)
+
+    @pytest.mark.parametrize("failure_point", ["open", "publish"])
+    def test_previous_signal_handler_is_restored_on_escaping_failure(self, failure_point):
+        def previous_handler(_signal, _frame):
+            pytest.fail("Previous signal handler should not run")
+
+        failure = OSError("fatal failure")
+        protocol = io.StringIO()
+        timer = signal.setitimer(signal.ITIMER_REAL, 0)
+        handler = signal.signal(signal.SIGALRM, previous_handler)
+        try:
+            signal.setitimer(signal.ITIMER_REAL, 60)
+            with (
+                patch.object(worker, "open", wraps=open, side_effect=failure if failure_point == "open" else None, create=True),
+                patch.object(
+                    protocol,
+                    "write",
+                    wraps=protocol.write,
+                    side_effect=[ValueError("first publish failed"), failure] if failure_point == "publish" else None,
+                ),
+                pytest.raises(OSError, match="fatal failure") as raised,
+            ):
+                self.run_worker([{"action": "reset", "source": "pass"}], protocol=protocol)
+            assert raised.value is failure
+            assert signal.getsignal(signal.SIGALRM) is previous_handler
+            assert signal.getitimer(signal.ITIMER_REAL) == (0, 0)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, handler)
+            signal.setitimer(signal.ITIMER_REAL, *timer)
+
+    def test_sink_is_opened_once_and_closed_after_requests(self):
+        sink = open(os.devnull, "w")
+        try:
+            with patch.object(worker, "open", return_value=sink, create=True) as opened:
+                results = self.run_worker([{"action": "reset", "source": "pass"}, {"action": "execute", "source": "pass"}])
+            opened.assert_called_once_with(os.devnull, "w")
+            assert all(result["exception"] is None for result in results)
+            assert sink.closed
+        finally:
+            sink.close()
+
+    @pytest.mark.parametrize(
+        "message,alarms",
+        [
+            ({"action": "reset", "source": "pass"}, [10, 0]),
+            ({"action": "reset", "source": "raise ValueError('failed')"}, [10, 0]),
+            ({"action": "reset", "source": "import signal; signal.raise_signal(signal.SIGALRM)"}, [10, 0]),
+            ("not json", [0]),
+            ("null", [0]),
+            ({"action": "execute"}, [10, 0]),
+            ({"action": "unknown", "source": "pass"}, [0]),
+        ],
+    )
+    def test_request_timer_is_armed_and_cleared(self, message, alarms):
+        with patch.object(signal, "alarm", wraps=signal.alarm) as alarm:
+            self.run_worker([message])
+        assert alarm.call_args_list == [call(seconds) for seconds in alarms]
 
     def test_output_and_exception_remain_in_json_feedback(self):
-        results, alarms = self.run_worker(
+        results = self.run_worker(
             [
                 {"action": "reset", "source": "import sys\nprint('hello')\nprint('warning', file=sys.stderr)\ndone('finished')"},
                 {
@@ -68,7 +123,6 @@ class TestWorker:
         assert "ValueError: failed" in results[1]["exception"]
         assert results[1]["done"] is None
         assert results[2] == {"stdout": "42\n", "stderr": "", "exception": None, "done": None}
-        assert alarms == [call(10), call(0)] * 3
 
     def test_serialization_failure_returns_error_and_keeps_the_workspace(self):
         dumps = json.dumps
@@ -79,7 +133,7 @@ class TestWorker:
             return dumps(result, *args, **kwargs)
 
         with patch.object(worker.json, "dumps", side_effect=encode):
-            results, _ = self.run_worker(
+            results = self.run_worker(
                 [{"action": "reset", "source": "value = 42\nprint('first')"}, {"action": "execute", "source": "print(value)"}]
             )
         assert results[0]["exception"] == "ValueError: serialization failed"
@@ -89,7 +143,7 @@ class TestWorker:
     def test_write_failure_returns_error_and_keeps_the_workspace(self):
         protocol = io.StringIO()
         with patch.object(protocol, "write", wraps=protocol.write, side_effect=[OSError("write failed"), DEFAULT, DEFAULT]):
-            results, _ = self.run_worker(
+            results = self.run_worker(
                 [{"action": "reset", "source": "value = 42"}, {"action": "execute", "source": "print(value)"}], protocol=protocol
             )
         assert results[0]["exception"] == "OSError: write failed"
@@ -97,7 +151,7 @@ class TestWorker:
         assert results[1]["stdout"] == "42\n"
 
     def test_malformed_requests_do_not_break_state_or_protocol(self):
-        results, alarms = self.run_worker(
+        results = self.run_worker(
             [
                 {"action": "reset", "source": "value = 7"},
                 "not json",
@@ -113,10 +167,9 @@ class TestWorker:
             assert result["exception"].startswith(error)
             assert result["done"] is None
         assert results[-1] == {"stdout": "7\n", "stderr": "", "exception": None, "done": None}
-        assert alarms == [call(10), call(0), call(0), call(10), call(0), call(0), call(10), call(0)]
 
     def test_consecutive_requests_share_sink_and_reset_namespace(self):
-        results, _ = self.run_worker(
+        results = self.run_worker(
             [
                 {"action": "reset", "source": "import sys\nsink = sys.stdout.stream\nvalue = 7"},
                 {
@@ -142,7 +195,7 @@ class TestWorker:
         assert [result["stdout"] for result in results] == ["", "8\n", "3 3 3 true\n", "ready\n"]
 
     def test_timeout_feedback_allows_next_request(self):
-        results, alarms = self.run_worker(
+        results = self.run_worker(
             [
                 {"action": "reset", "source": "import signal\nvalue = 9\nsignal.raise_signal(signal.SIGALRM)"},
                 {"action": "execute", "source": "print(value)"},
@@ -152,7 +205,6 @@ class TestWorker:
         assert "TimeoutError: Execution exceeded ten seconds" in results[0]["exception"]
         assert results[0]["done"] is None
         assert results[1] == {"stdout": "9\n", "stderr": "", "exception": None, "done": None}
-        assert alarms == [call(10), call(0)] * 2
 
     def test_discarded_logs_use_bounded_memory(self):
         source = (
@@ -165,7 +217,7 @@ class TestWorker:
             "tracemalloc.stop()\n"
             "print(peak)"
         )
-        results, _ = self.run_worker([{"action": "reset", "source": source}, {"action": "execute", "source": "print('still ready')"}])
+        results = self.run_worker([{"action": "reset", "source": source}, {"action": "execute", "source": "print('still ready')"}])
 
         assert results[0]["exception"] is None
         assert int(results[0]["stdout"]) < 1048576
@@ -174,7 +226,7 @@ class TestWorker:
 
     @pytest.mark.parametrize("action", ["unknown", "", None, []])
     def test_unsupported_actions_do_not_execute_source_or_change_workspace(self, action):
-        results, _ = self.run_worker(
+        results = self.run_worker(
             [
                 {"action": "reset", "source": "value = 7"},
                 {"action": action, "source": "value = 99"},

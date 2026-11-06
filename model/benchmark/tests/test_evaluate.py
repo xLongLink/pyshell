@@ -1,4 +1,5 @@
 import json
+import sys
 import pytest
 from unittest.mock import Mock
 from model.benchmark import main
@@ -25,8 +26,7 @@ def benchmark(tmp_path, monkeypatch):
 
 def test_run_evaluates_one_adapter_and_saves_results(benchmark, capsys):
     config, model, worker, rows = benchmark
-    summary = evaluate.run(config)
-    assert summary == {"tasks": 3, "passed": 1, "success_rate": 1 / 3}
+    evaluate.run(config)
     assert [json.loads(line) for line in config.output.read_text().splitlines()] == rows
     model.assert_called_once_with(config)
     worker.return_value.close.assert_called_once_with()
@@ -61,11 +61,12 @@ def test_failure_preserves_completed_rows_and_closes_worker(benchmark, monkeypat
 
 
 def test_remote_data_downloads_only_development_tasks(benchmark, monkeypatch):
-    config, _, _, _ = benchmark
+    config, _, _, rows = benchmark
     download = Mock(return_value=str(config.output.parent / "dev-tasks.jsonl"))
     monkeypatch.setattr(evaluate, "hf_hub_download", download)
     remote = config.model_copy(update={"data": "example/data"})
-    assert evaluate.run(remote)["tasks"] == 3
+    evaluate.run(remote)
+    assert [json.loads(line) for line in config.output.read_text().splitlines()] == rows
     download.assert_called_once_with(
         "example/data", "experiments/executed-transfer-v1/evaluation/dev-tasks.jsonl", repo_type="dataset", revision=config.data_revision
     )
@@ -74,5 +75,6 @@ def test_remote_data_downloads_only_development_tasks(benchmark, monkeypatch):
 def test_entrypoint_runs_configured_evaluation(monkeypatch):
     run = Mock()
     monkeypatch.setattr(evaluate, "run", run)
-    main.main([])
+    monkeypatch.setattr(sys, "argv", ["model.benchmark.main"])
+    main.main()
     run.assert_called_once_with(SETTINGS)
