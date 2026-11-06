@@ -31,7 +31,7 @@ model\:upload:
 	hf upload LongLink/pyshell-worker-qwen35-08b model/train/weights . --type model --exclude ".cache/**"
 
 train:
-	uv run --locked --project model/train --extra cpu python -m model.train.main $(ARGS)
+	uv run --locked --project model/train --extra cpu python -m model.train.main
 
 benchmark:
 	uv run --locked --project model/benchmark python -m model.benchmark.main $(ARGS)

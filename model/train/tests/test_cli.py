@@ -11,7 +11,6 @@ ROOT = Path(__file__).resolve().parents[3]
 @pytest.mark.parametrize(
     "module,arguments,option",
     [
-        ("model.train.main", [], "--max_steps"),
         ("model.benchmark.main", ["evaluate"], "--device"),
         ("model.benchmark.main", ["verify"], "--development"),
         ("model.benchmark.main", ["worker"], "isolated execution protocol"),
@@ -26,6 +25,18 @@ def test_cli_entrypoints(module, arguments, option):
         check=True,
     )
     assert option in result.stdout
+
+
+def test_training_rejects_cli_flags_before_starting_a_run():
+    result = subprocess.run(
+        [sys.executable, "-m", "model.train.main", "--max_steps", "1"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "edit model/train/src/settings.py" in result.stderr
 
 
 @pytest.mark.parametrize(

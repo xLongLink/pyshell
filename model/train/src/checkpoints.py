@@ -1,4 +1,6 @@
+import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 from transformers import TrainerCallback
@@ -7,8 +9,8 @@ from transformers import TrainerCallback
 def load_resume(path, metadata):
     if not (path / "trainer_state.json").is_file():
         raise ValueError(
-            "--resume_from_checkpoint requires a Trainer checkpoint directory; "
-            "use --initialize_adapter for older adapters"
+            "resume requires a Trainer checkpoint directory; "
+            "use initialize_adapter for older adapters"
         )
     saved = json.loads((path / "training.json").read_text())
     if saved != metadata:
@@ -23,11 +25,32 @@ def load_resume(path, metadata):
 
 
 class Checkpoints(TrainerCallback):
-    def __init__(self, metadata):
+    def __init__(self, metadata, config):
         self.metadata = metadata
+        root = Path(__file__).resolve().parents[3]
+        files = [
+            root / "model/train/main.py",
+            root / "model/train/pyproject.toml",
+            root / "model/train/uv.lock",
+        ]
+        files.extend((root / "model/train/src").rglob("*.py"))
+        files.extend((root / "model/protocol/src").rglob("*.py"))
+        source = hashlib.sha256()
+        for file in sorted(files):
+            source.update(
+                str(file.relative_to(root)).encode() + b"\0" + file.read_bytes()
+            )
+        self.run = {
+            "settings": config.model_dump(mode="json"),
+            "code_commit": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=root, text=True
+            ).strip(),
+            "source_sha256": source.hexdigest(),
+        }
 
     def write(self, path):
         (path / "training.json").write_text(json.dumps(self.metadata, indent=2) + "\n")
+        (path / "run.json").write_text(json.dumps(self.run, indent=2) + "\n")
 
     def on_save(self, args, state, control, **kwargs):
         path = Path(args.output_dir) / f"checkpoint-{state.global_step}"

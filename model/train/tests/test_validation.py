@@ -6,7 +6,7 @@ import pytest
 def test_validation_uses_the_entire_supplied_split(training_run):
     output = training_run("validation")
     state = json.loads((output / "trainer_state.json").read_text())
-    assert sum("eval_loss" in row for row in state["log_history"]) == 2
+    assert sum("eval_loss" in row for row in state["log_history"]) == 3
     metadata = json.loads((output / "training.json").read_text())
     assert metadata["validation_sha256"]
 
@@ -32,8 +32,6 @@ def test_training_without_validation_is_supported(training_run, tmp_path, empty)
         path.write_text("")
     else:
         path.unlink()
-    output = training_run(
-        "no-validation", "--eval_strategy", "no", "--eval_on_start", "false"
-    )
+    output = training_run("no-validation")
     state = json.loads((output / "trainer_state.json").read_text())
     assert not any("eval_loss" in row for row in state["log_history"])

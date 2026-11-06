@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 import torch
@@ -14,6 +13,7 @@ from transformers import (
 )
 
 from model.train.src import training
+from model.train.src.settings import Settings
 
 
 @pytest.fixture
@@ -78,46 +78,24 @@ def training_run(tmp_path):
             "".join(json.dumps(row) + "\n" for row in rows)
         )
 
-    def run(name, *extra):
-        inputs, config = training.parse_args(
-            [
-                "--base",
-                str(base),
-                "--data",
-                str(data),
-                "--output_dir",
-                str(tmp_path / name),
-                "--use_cpu",
-                "true",
-                "--bf16",
-                "false",
-                "--per_device_train_batch_size",
-                "1",
-                "--per_device_eval_batch_size",
-                "1",
-                "--max_steps",
-                "4",
-                "--gradient_accumulation_steps",
-                "2",
-                "--save_steps",
-                "2",
-                "--logging_steps",
-                "1",
-                "--eval_strategy",
-                "steps",
-                "--eval_steps",
-                "4",
-                "--eval_on_start",
-                "true",
-                "--learning_rate",
-                "0.001",
-                "--optim",
-                "adamw_torch",
-                *extra,
-            ]
+    def run(name, **changes):
+        config = Settings(
+            **{
+                "base": str(base),
+                "data": str(data),
+                "base_revision": None,
+                "data_revision": None,
+                "output": tmp_path / name,
+                "steps": 4,
+                "save_steps": 2,
+                "max_length": 1024,
+                "gradient_accumulation_steps": 2,
+                "learning_rate": 0.001,
+                **changes,
+            }
         )
-        training.train(inputs, config)
-        return Path(config.output_dir)
+        training.train(config)
+        return config.output
 
     yield run
     torch.set_num_threads(threads)

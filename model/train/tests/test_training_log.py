@@ -16,20 +16,13 @@ def test_library_logs_losses_and_saves_resumable_final_checkpoint(training_run):
         "rng_state.pth",
         "trainer_state.json",
         "training.json",
+        "run.json",
     ):
         assert (checkpoint / name).is_file()
     assert not (output / "steps.jsonl").exists()
 
 
 def test_native_step_budget_counts_optimizer_updates(training_run):
-    output = training_run("updates", "--max_steps", "5")
+    output = training_run("updates", steps=5)
     state = json.loads((output / "trainer_state.json").read_text())
     assert state["global_step"] == 5
-
-
-def test_validation_can_be_disabled(training_run):
-    output = training_run(
-        "no-validation", "--eval_strategy", "no", "--eval_on_start", "false"
-    )
-    state = json.loads((output / "trainer_state.json").read_text())
-    assert not any("eval_loss" in row for row in state["log_history"])

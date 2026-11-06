@@ -1,56 +1,17 @@
 import json
+import shutil
+from unittest.mock import Mock
 
 import pytest
-from trl import SFTConfig
 
-from model.train.src import training
-
-
-def test_native_trainer_configuration_is_used_without_budget_conversion():
-    inputs, config = training.parse_args(
-        [
-            "--base",
-            "base",
-            "--data",
-            "data",
-            "--output_dir",
-            "output",
-            "--max_steps",
-            "5",
-            "--gradient_accumulation_steps",
-            "2",
-            "--learning_rate",
-            "0.0003",
-            "--save_steps",
-            "3",
-            "--bf16",
-            "false",
-        ]
-    )
-    assert inputs.base == "base"
-    assert inputs.data == "data"
-    assert isinstance(config, SFTConfig)
-    assert config.output_dir == "output"
-    assert config.max_steps == 5
-    assert config.gradient_accumulation_steps == 2
-    assert config.learning_rate == 0.0003
-    assert config.save_steps == 3
+from model.train.src import settings, training
 
 
-@pytest.mark.parametrize(
-    "option",
-    [
-        "--stop-after",
-        "--steps",
-        "--accumulation",
-        "--eval-samples",
-        "--device",
-        "--threads",
-    ],
-)
-def test_custom_training_flags_are_no_longer_supported(option):
-    with pytest.raises(ValueError, match="not used"):
-        training.parse_args(["--bf16", "false", option, "1"])
+def test_entrypoint_uses_the_checked_in_settings(monkeypatch):
+    train = Mock()
+    monkeypatch.setattr(training, "train", train)
+    training.main()
+    train.assert_called_once_with(settings.SETTINGS)
 
 
 def test_existing_output_is_not_overwritten(training_run, tmp_path):
@@ -71,29 +32,46 @@ def test_empty_training_data_is_rejected(training_run, tmp_path):
 
 def test_overlength_training_data_is_rejected(training_run):
     with pytest.raises(ValueError, match="refusing to truncate"):
-        training_run("oversized", "--max_length", "1")
-
-
-def test_prompt_loss_cannot_be_enabled(training_run):
-    with pytest.raises(ValueError, match="requires completion-only loss"):
-        training_run("prompt-loss", "--completion_only_loss", "false")
+        training_run("oversized", max_length=1)
 
 
 def test_only_train_and_validation_files_are_loaded(training_run, tmp_path):
     (tmp_path / "data/test-tasks.jsonl").write_text("not a training dataset")
     (tmp_path / "data/train-tasks.jsonl").write_text("not a training dataset")
-    output = training_run("trained", "--max_steps", "3")
+    output = training_run("trained", steps=3)
     state = json.loads((output / "trainer_state.json").read_text())
     assert state["global_step"] == 3
 
 
-def test_resume_and_adapter_initialization_cannot_be_combined(tmp_path):
-    inputs = training.Inputs(initialize_adapter="adapter")
-    config = SFTConfig(
-        output_dir=str(tmp_path / "new"),
-        bf16=False,
-        use_cpu=True,
-        resume_from_checkpoint="checkpoint",
+def test_pinned_dataset_download_only_fetches_training_splits(
+    training_run, tmp_path, monkeypatch
+):
+    revision = "a" * 40
+    snapshot = tmp_path / revision
+    shutil.copytree(tmp_path / "data", snapshot / "data")
+    download = Mock(return_value=str(snapshot))
+    monkeypatch.setattr(training, "snapshot_download", download)
+    output = training_run("downloaded", data="example/dataset", data_revision=revision)
+    download.assert_called_once_with(
+        "example/dataset",
+        repo_type="dataset",
+        revision=revision,
+        allow_patterns=["data/train.jsonl", "data/validation.jsonl"],
     )
-    with pytest.raises(ValueError, match="cannot be combined"):
-        training.train(inputs, config)
+    assert (
+        json.loads((output / "training.json").read_text())["data_revision"] == revision
+    )
+
+
+def test_candidate_records_settings_and_source_identity(training_run):
+    output = training_run("candidate", learning_rate=0.002, rank=4, alpha=8)
+    run = json.loads((output / "run.json").read_text())
+    assert run["settings"]["learning_rate"] == 0.002
+    assert run["settings"]["output"] == str(output)
+    assert len(run["code_commit"]) == 40
+    assert len(run["source_sha256"]) == 64
+    for checkpoint in ("checkpoint-2", "checkpoint-4"):
+        assert json.loads((output / checkpoint / "run.json").read_text()) == run
+    adapter = json.loads((output / "adapter_config.json").read_text())
+    assert adapter["r"] == 4
+    assert adapter["lora_alpha"] == 8
