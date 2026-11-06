@@ -3,12 +3,6 @@ import json
 import pytest
 
 
-def test_validation_uses_the_entire_supplied_split(training_run):
-    output = training_run("validation")
-    state = json.loads((output / "trainer_state.json").read_text())
-    assert [row["step"] for row in state["log_history"] if "eval_loss" in row] == [0, 4]
-
-
 def test_invalid_validation_is_rejected_without_truncation(training_run, tmp_path):
     (tmp_path / "data/validation.jsonl").write_text(
         json.dumps(

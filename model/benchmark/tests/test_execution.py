@@ -63,6 +63,21 @@ def test_partial_response_obeys_the_original_deadline(local_worker):
     assert worker.stdout == b"{"
 
 
+@pytest.mark.parametrize("elapsed", [0, 31])
+def test_timeout_does_not_poll_after_the_deadline(local_worker, elapsed):
+    worker = local_worker("import sys; sys.stdin.read()")
+    with (
+        patch.object(execution.time, "monotonic", side_effect=[0, elapsed]),
+        patch.object(worker.selector, "select", return_value=[]) as select,
+    ):
+        with pytest.raises(TimeoutError, match="within 30 seconds"):
+            worker.execute("pass")
+    if elapsed:
+        select.assert_not_called()
+    else:
+        select.assert_called_once_with(30)
+
+
 def test_stderr_is_drained_and_retained_as_a_bounded_tail(local_worker):
     worker = local_worker(
         "import sys\n"

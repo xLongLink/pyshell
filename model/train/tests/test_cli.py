@@ -8,26 +8,20 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 
 
-@pytest.mark.parametrize(
-    "module,arguments,option",
-    [
-        ("model.benchmark.main", [], "settings.py"),
-    ],
-)
-def test_cli_entrypoints(module, arguments, option):
+def test_benchmark_help_describes_settings_configuration():
     result = subprocess.run(
-        [sys.executable, "-m", module, *arguments, "--help"],
+        [sys.executable, "-m", "model.benchmark.main", "--help"],
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=True,
     )
-    assert option in result.stdout
+    assert "settings.py" in result.stdout
 
 
 def test_training_rejects_cli_flags_before_starting_a_run():
     result = subprocess.run(
-        [sys.executable, "-m", "model.train.main", "--max_steps", "1"],
+        [sys.executable, "-S", "-m", "model.train.main", "--max_steps", "1"],
         cwd=ROOT,
         capture_output=True,
         text=True,

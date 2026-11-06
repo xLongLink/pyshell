@@ -43,9 +43,7 @@ def train(config: settings.Settings):
         lora_alpha=config.alpha,
         task_type="CAUSAL_LM",
         revision=config.base_revision,
-        target_modules=config.target_modules
-        if isinstance(config.target_modules, str)
-        else list(config.target_modules),
+        target_modules=config.target_modules,
     )
     trainer_args = SFTConfig(
         output_dir=str(config.output),

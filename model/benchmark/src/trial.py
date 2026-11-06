@@ -6,7 +6,6 @@ def trial(worker, record, generate, calls):
     if setup["exception"]:
         raise RuntimeError(f"Invalid fixture {record['id']}: {setup['exception']}")
     prompt = Prompt()
-    prompt.append({"role": "user", "content": record["instruction"]})
     stages = [{"instruction": record["instruction"], "check": record["check"]}]
     if record["followup"]:
         stages.append(record["followup"])
@@ -14,7 +13,7 @@ def trial(worker, record, generate, calls):
     for stage_index, stage in enumerate(stages):
         if stage_index:
             worker.execute("saved_result = result")
-            prompt.append({"role": "user", "content": stage["instruction"]})
+        prompt.append({"role": "user", "content": stage["instruction"]})
         for _ in range(calls):
             source, ended = generate(prompt.render())
             step = {"source": source}

@@ -17,9 +17,7 @@ from model.train.src.settings import Settings
 
 
 @pytest.fixture
-def training_run(tmp_path):
-    threads = torch.get_num_threads()
-    torch.set_num_threads(1)
+def tokenizer():
     vocab = {"[UNK]": 0, "[PAD]": 1, "[EOS]": 2}
     vocab.update(
         {
@@ -35,6 +33,13 @@ def training_run(tmp_path):
         pad_token="[PAD]",
         eos_token="[EOS]",
     )
+    return tokenizer
+
+
+@pytest.fixture
+def training_run(tmp_path, tokenizer):
+    threads = torch.get_num_threads()
+    torch.set_num_threads(1)
     text = Qwen3_5TextConfig(
         vocab_size=len(tokenizer),
         hidden_size=32,

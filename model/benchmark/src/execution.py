@@ -61,9 +61,7 @@ class Worker:
         deadline = time.monotonic() + 30
         while b"\n" not in self.stdout:
             remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError("Isolated execution worker did not respond within 30 seconds")
-            events = self.selector.select(remaining)
+            events = self.selector.select(remaining) if remaining > 0 else []
             if not events:
                 raise TimeoutError("Isolated execution worker did not respond within 30 seconds")
             for key, _ in sorted(events, key=lambda event: event[0].fileobj is self.process.stdout):

@@ -34,6 +34,8 @@ def test_training_limits_must_be_positive(field, value):
         {"base": ""},
         {"data": ""},
         {"target_modules": ""},
+        {"target_modules": ("q_proj", "v_proj")},
+        {"target_modules": ["q_proj", "v_proj"]},
         {"base_revision": "main"},
         {"data_revision": "main"},
         {"base_revision": None},

@@ -72,6 +72,7 @@ def test_final_adapter_can_be_reloaded_for_inference(training_run):
     adapter = json.loads((output / "adapter_config.json").read_text())
     assert adapter["r"] == 4
     assert adapter["lora_alpha"] == 8
+    assert adapter["target_modules"] == settings.SETTINGS.target_modules
     base = AutoModelForImageTextToText.from_pretrained(
         adapter["base_model_name_or_path"]
     )

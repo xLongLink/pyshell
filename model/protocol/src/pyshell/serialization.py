@@ -8,13 +8,6 @@ END_CODE = "<|end_code|>"
 MARKERS = (END_CODE, TASK, CONSOLE, CODE)
 
 
-def escape_text(text: str) -> str:
-    """Prevent input data from impersonating framing markers."""
-    for marker in MARKERS:
-        text = text.replace(marker, marker.replace("<", "\\u003c"))
-    return text
-
-
 def _block(turn: Mapping[str, str | dict]) -> str:
     role = turn["role"]
     if role == "system":
@@ -32,7 +25,11 @@ def _block(turn: Mapping[str, str | dict]) -> str:
         encoded = json.dumps(content, ensure_ascii=False).replace("<", "\\u003c")
         return f"{CONSOLE}\n{encoded}\n"
     if role == "user":
-        return f"{TASK}\n{escape_text(content)}\n" if content.strip() else ""
+        if not content.strip():
+            return ""
+        for marker in MARKERS:
+            content = content.replace(marker, marker.replace("<", "\\u003c"))
+        return f"{TASK}\n{content}\n"
     raise ValueError(f"Unsupported source role: {role}")
 
 

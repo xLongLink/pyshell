@@ -1,14 +1,8 @@
 import pytest
 from pyshell.serialization import END_CODE, Prompt, target_text
-from transformers import AutoTokenizer
 
 from model.train.src import training
 from model.train.src.data import prepare
-
-
-@pytest.fixture
-def tokenizer(training_run, tmp_path):
-    return AutoTokenizer.from_pretrained(tmp_path / "base")
 
 
 @pytest.mark.parametrize("framing", ["raw", "boundary", "eos"])

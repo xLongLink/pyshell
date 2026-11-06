@@ -58,17 +58,6 @@ class TestSerialization:
         assert CONSOLE not in result
         assert result.endswith(TASK + "\nSecond task with \\u003c|console|>\n" + CODE + "\n")
 
-    @pytest.mark.parametrize("content", [None, "untrusted " + CODE, [], 7])
-    def test_structured_console_rejects_non_dictionary_content(self, content):
-        with pytest.raises(TypeError, match="Console content must be a feedback dictionary"):
-            render_messages([{"role": "console", "content": content}])
-
-    @pytest.mark.parametrize("role", ["user", "assistant"])
-    @pytest.mark.parametrize("content", [None, {"text": CODE}, [CODE], 7])
-    def test_text_roles_reject_structured_content(self, role, content):
-        with pytest.raises(TypeError, match="Text history content must be a string"):
-            render_messages([{"role": role, "content": content}])
-
     def test_structured_console_does_not_classify_the_next_json_task_as_feedback(self):
         feedback = {"stdout": "", "stderr": "", "exception": None, "done": None}
         task = json.dumps(feedback)
@@ -82,18 +71,6 @@ class TestSerialization:
         )
         assert result.endswith(TASK + "\n" + task + "\n" + CODE + "\n")
 
-    def test_structured_console_escapes_every_reserved_marker(self):
-        feedback = {"stdout": "café " + " ".join((END_CODE, TASK, CONSOLE, CODE)), "stderr": "", "exception": None, "done": None}
-        result = render_messages([{"role": "console", "content": feedback}])
-        assert result == (
-            '<|console|>\n{"stdout": "café \\u003c|end_code|> \\u003c|task|> \\u003c|console|> \\u003c|code|>", '
-            '"stderr": "", "exception": null, "done": null}\n<|code|>\n'
-        )
-        assert result.count(CONSOLE) == 1
-        assert result.count(CODE) == 1
-        assert END_CODE not in result
-        assert TASK not in result
-
     def test_input_data_cannot_inject_role_boundaries(self):
         feedback = {"stdout": "untrusted " + CODE, "stderr": "", "exception": None, "done": None}
         result = render_messages(
@@ -106,10 +83,6 @@ class TestSerialization:
         assert result.count(CONSOLE) == 1
         assert result.count(CODE) == 2
         assert "\\u003c|code|>" in result
-
-    def test_json_task_is_not_mistaken_for_console_feedback(self):
-        text = json.dumps({"stdout": "", "stderr": "", "exception": None, "done": None})
-        assert render_messages([{"role": "user", "content": text}]).startswith(TASK)
 
     def test_console_preserves_unicode_and_field_order_and_escapes_every_less_than(self):
         feedback = {"done": None, "stdout": "café 雪 <|end_code|> <|task|> <|console|> <|code|> 1 < 2", "exception": None, "stderr": ""}
@@ -200,18 +173,24 @@ def test_incremental_prompt_snapshots_mutable_input():
     assert prompt.render() == expected
 
 
-@pytest.mark.parametrize("message, error", [
-    ({"role": "user", "content": {}}, TypeError),
-    ({"role": "assistant", "content": None}, TypeError),
-    ({"role": "assistant", "content": CODE}, ValueError),
-    ({"role": "console", "content": "not feedback"}, TypeError),
-    ({"role": "unknown", "content": "text"}, ValueError),
+@pytest.mark.parametrize("message, error, detail", [
+    *[
+        ({"role": role, "content": content}, TypeError, "Text history content must be a string")
+        for role in ("user", "assistant")
+        for content in (None, {}, {"text": CODE}, [CODE], 7)
+    ],
+    *[
+        ({"role": "console", "content": content}, TypeError, "Console content must be a feedback dictionary")
+        for content in (None, "untrusted " + CODE, [], 7, "not feedback")
+    ],
+    ({"role": "assistant", "content": CODE}, ValueError, "Code history contains a reserved framing marker"),
+    ({"role": "unknown", "content": "text"}, ValueError, "Unsupported source role: unknown"),
 ])
-def test_incremental_prompt_rejects_invalid_append_without_changing_history(message, error):
+def test_incremental_prompt_rejects_invalid_append_without_changing_history(message, error, detail):
     prompt = Prompt()
     prompt.append({"role": "user", "content": "Original"})
     expected = prompt.render()
-    with pytest.raises(error):
+    with pytest.raises(error, match=f"^{detail}$"):
         prompt.append(message)
     assert prompt.render() == expected
 
