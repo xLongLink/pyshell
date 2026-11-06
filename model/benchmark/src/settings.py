@@ -1,7 +1,6 @@
-from pathlib import Path
 from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pathlib import Path
+from pydantic import Field, BaseModel, ConfigDict, model_validator
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -9,17 +8,17 @@ ROOT = Path(__file__).resolve().parents[1]
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
 
-    # Frozen evaluation data
+    # Evaluation data
     data: str = Field(default="LongLink/pyshell-worker-data", min_length=1)
     prefix: str = Field(default="experiments/executed-transfer-v1/evaluation", min_length=1)
     data_revision: str | None = Field(default="1ed43ba23eff6438850921dca30665e5608fb8b7", pattern=r"^[0-9a-f]{40}$")
 
-    # Artifacts
-    output: Path = ROOT / "artifacts/comparison"
-    baseline: Path = ROOT.parent / "train/weights"
-    candidate: Path = ROOT.parent / "train/artifacts/candidate"
+    # Run
+    calls: int = Field(default=4, gt=0)
+    output: Path = ROOT / "artifacts/results.jsonl"
+    adapter: Path = ROOT.parent / "train/artifacts/candidate"
 
-    # Comparable inference
+    # Inference
     device: Literal["cpu", "cuda"] = "cpu"
     tokens: int = Field(default=384, gt=0)
     threads: int = Field(default=16, gt=0)

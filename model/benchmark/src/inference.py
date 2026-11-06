@@ -19,11 +19,6 @@ class HFCompletion:
         self.model.to(device).eval()
         self.max_new_tokens = max_new_tokens
         self.stopping_criteria = StoppingCriteriaList([StopStringCriteria(self.tokenizer, list(MARKERS))])
-        self.runtime = {
-            "torch_version": torch.__version__,
-            "cuda_version": torch.version.cuda,
-            "gpu": torch.cuda.get_device_name() if device == "cuda" else None,
-        }
 
     def __call__(self, prompt):
         inputs = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(self.model.device)

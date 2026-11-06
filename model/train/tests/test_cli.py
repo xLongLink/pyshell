@@ -11,10 +11,7 @@ ROOT = Path(__file__).resolve().parents[3]
 @pytest.mark.parametrize(
     "module,arguments,option",
     [
-        ("model.benchmark.main", ["evaluate"], "settings.py"),
-        ("model.benchmark.main", ["final"], "final holdout"),
-        ("model.benchmark.main", ["verify"], "--development"),
-        ("model.benchmark.main", ["worker"], "isolated execution protocol"),
+        ("model.benchmark.main", [], "settings.py"),
     ],
 )
 def test_cli_entrypoints(module, arguments, option):

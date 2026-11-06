@@ -1,245 +1,87 @@
 import json
 import pytest
-import hashlib
-from pathlib import Path
-from contextlib import nullcontext
-from unittest.mock import patch
-from model.benchmark.src import evaluate
-from model.benchmark.src.artifact import Artifact
-from model.benchmark.src.corpus import load_tasks
-from model.benchmark.src.proof_trial import trial
-from model.benchmark.src.settings import Settings
+from unittest.mock import Mock
+from model.benchmark import main
+from model.benchmark.src import corpus, evaluate, inference
+from model.benchmark.src.settings import SETTINGS, Settings
 
 
-class Worker:
-    def __init__(self, fail_check=False):
-        self.sources = []
-        self.fail_check = fail_check
+@pytest.fixture
+def benchmark(tmp_path, monkeypatch):
+    records = [{"id": str(index), "family": "sum"} for index in range(3)]
+    (tmp_path / "dev-tasks.jsonl").write_text("".join(json.dumps(record) + "\n" for record in records))
+    (tmp_path / "test-tasks.jsonl").write_text("DO NOT READ HOLDOUT")
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    (adapter / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": "fixture-base", "revision": "a" * 40}))
+    config = Settings(data=str(tmp_path), data_revision=None, adapter=adapter, output=tmp_path / "results.jsonl")
+    model = Mock()
+    monkeypatch.setattr(inference, "HFCompletion", model)
+    worker = Mock()
+    monkeypatch.setattr(evaluate, "Worker", worker)
+    rows = [
+        {**record, "status": status, "steps": []} for record, status in zip(records, ("passed", "incorrect", "call_limit"), strict=True)
+    ]
+    monkeypatch.setattr(evaluate, "trial", Mock(side_effect=rows))
+    return config, model, worker, rows
 
-    def execute(self, source, action="execute"):
-        self.sources.append((source, action))
-        return {
-            "stdout": "[4, 7]" if source == "print(values)" else "",
-            "stderr": "",
-            "exception": "AssertionError" if self.fail_check and source.startswith("assert") else None,
-            "done": "ok" if "done(" in source else None,
-        }
+
+def test_run_evaluates_one_adapter_and_saves_results(benchmark, capsys):
+    config, model, worker, rows = benchmark
+    summary = evaluate.run(config)
+    assert summary == {"tasks": 3, "passed": 1, "success_rate": 1 / 3, "statuses": {"passed": 1, "incorrect": 1, "call_limit": 1}}
+    assert [json.loads(line) for line in config.output.read_text().splitlines()] == rows
+    model.assert_called_once_with(
+        config.adapter, config.threads, config.device, base_model="fixture-base", revision="a" * 40, max_new_tokens=config.tokens
+    )
+    worker.return_value.close.assert_called_once_with()
+    assert "Passed 1/3 (33.3%)" in capsys.readouterr().out
+    assert (config.output.parent / "test-tasks.jsonl").read_text() == "DO NOT READ HOLDOUT"
 
 
-class TestEvaluation:
-    def artifact(self, directory):
-        path = directory / "adapter"
-        path.mkdir()
-        weights = path / "adapter_model.safetensors"
-        weights.write_bytes(b"fixed weights")
-        (path / "adapter_config.json").write_text("{}")
-        return Artifact(
-            base="fixture-base",
-            path=path,
-            revision="a" * 40,
-            weights_sha256=hashlib.sha256(weights.read_bytes()).hexdigest(),
-            config_sha256=hashlib.sha256(b"{}").hexdigest(),
-        )
+def test_existing_results_are_not_overwritten(benchmark):
+    config, model, _, _ = benchmark
+    config.output.write_text("previous run")
+    with pytest.raises(FileExistsError):
+        evaluate.run(config)
+    assert config.output.read_text() == "previous run"
+    model.assert_not_called()
 
-    @pytest.mark.parametrize("mutate_adapter", [False, True])
-    def test_evaluation_persists_full_trajectories_and_incremental_metrics(self, tmp_path, capsys, mutate_adapter):
-        records = [{"id": str(index), "family": family} for index, family in enumerate(("join", "recovery", "join"))]
-        tasks = tmp_path / "dev-tasks.jsonl"
-        tasks.write_text("".join(json.dumps(record) + "\n" for record in records))
-        digest = hashlib.sha256(tasks.read_bytes()).hexdigest()
-        (tmp_path / "manifest.json").write_text(json.dumps({"scope": "fixture", "splits": {"dev": {"sha256": digest}}}))
-        args = Settings(data=str(tmp_path), data_revision=None, threads=3, output=tmp_path / "output")
-        artifact = self.artifact(tmp_path)
-        weights = artifact.path / "adapter_model.safetensors"
-        adapter_digest = artifact.weights_sha256
-        rows = [
-            {**record, "status": status, "steps": [{"source": "print('payload')", "feedback": {"stdout": "payload"}}]}
-            for record, status in zip(records, ("passed", "call_limit", "incorrect"))
-        ]
-        summaries = []
 
-        def run_trial(worker, record, generate):
-            if record["id"] != "0":
-                summaries.append(json.loads((args.output / "summary.json").read_text()))
-                assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows[
-                    : int(record["id"])
-                ]
-            if mutate_adapter and record["id"] == "2":
-                weights.write_bytes(b"changed weights")
-            return rows[int(record["id"])]
+def test_empty_tasks_are_rejected_before_loading_model(benchmark):
+    config, model, _, _ = benchmark
+    (config.output.parent / "dev-tasks.jsonl").write_text("")
+    with pytest.raises(ValueError, match="must not be empty"):
+        evaluate.run(config)
+    model.assert_not_called()
+    assert not config.output.exists()
 
-        with (
-            patch("model.benchmark.src.inference.HFCompletion") as model,
-            patch.object(evaluate, "Worker"),
-            patch.object(evaluate, "trial", side_effect=run_trial),
-        ):
-            model.return_value.runtime = {"fixture": True}
-            with pytest.raises(RuntimeError, match="Artifact changed") if mutate_adapter else nullcontext():
-                evaluate.evaluate(artifact, args, args.output, data=tmp_path)
-        model.assert_called_once_with(
-            artifact.path, 3, "cpu", base_model=artifact.base, revision=artifact.revision, max_new_tokens=args.tokens
-        )
-        summaries.append(json.loads((args.output / "summary.json").read_text()))
-        assert [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()] == rows
-        assert [summary["tasks"] for summary in summaries] == [1, 2, 3]
-        assert [summary["passed"] for summary in summaries] == [1, 1, 1]
-        assert [summary["complete"] for summary in summaries] == [False, False, not mutate_adapter]
-        assert [summary["statuses"] for summary in summaries] == [
-            {"passed": 1},
-            {"passed": 1, "call_limit": 1},
-            {"passed": 1, "call_limit": 1, "incorrect": 1},
-        ]
-        assert all(not summary["acceptance_met"] for summary in summaries)
-        summary = summaries[-1]
-        assert summary["task_file_sha256"] == digest
-        assert summary["adapter"] == str(artifact.path)
-        assert summary["adapter_sha256"] == adapter_digest
-        assert summary["backend"] == "hf"
-        assert summary["inference"]["dtype"] == "float32"
-        assert summary["inference"]["device"] == "cpu"
-        assert summary["inference"]["tf32"] is False
-        assert summary["runtime"] == {"fixture": True}
-        assert summary["success_rate"] == 1 / 3
-        assert summary["by_family"] == {"join": {"tasks": 2, "passed": 1}, "recovery": {"tasks": 1, "passed": 0}}
-        assert summary["statuses"] == {"passed": 1, "call_limit": 1, "incorrect": 1}
-        assert "output dev 3/3: 1 passed; join=incorrect" in capsys.readouterr().out
 
-    @pytest.mark.parametrize("fail_at", [0, 1])
-    def test_trial_failure_closes_the_response_log_and_preserves_completed_rows(self, tmp_path, fail_at):
-        records = [{"id": str(index), "family": "join"} for index in range(2)]
-        args = Settings(data=str(tmp_path), data_revision=None, output=tmp_path / "output")
-        artifact = self.artifact(tmp_path)
-        failure = RuntimeError("trial failed")
-        handles = []
-        path_open = Path.open
+def test_failure_preserves_completed_rows_and_closes_worker(benchmark, monkeypatch):
+    config, _, worker, rows = benchmark
+    monkeypatch.setattr(evaluate, "trial", Mock(side_effect=[rows[0], RuntimeError("generation failed")]))
+    with pytest.raises(RuntimeError, match="generation failed"):
+        evaluate.run(config)
+    assert [json.loads(line) for line in config.output.read_text().splitlines()] == rows[:1]
+    worker.return_value.close.assert_called_once_with()
 
-        def open_log(path, *arguments, **kwargs):
-            file = path_open(path, *arguments, **kwargs)
-            if path == args.output / "responses.jsonl" and arguments == ("a",):
-                handles.append(file)
-            return file
 
-        def run_trial(worker, record, generate):
-            if int(record["id"]) == fail_at:
-                raise failure
-            return {**record, "status": "passed", "steps": []}
+def test_remote_data_downloads_only_development_tasks(benchmark, monkeypatch):
+    config, _, _, _ = benchmark
+    directory = config.output.parent / config.prefix
+    directory.mkdir(parents=True)
+    (directory / "dev-tasks.jsonl").write_text('{"id": "remote"}\n')
+    download = Mock(return_value=str(config.output.parent))
+    monkeypatch.setattr(corpus, "snapshot_download", download)
+    remote = config.model_copy(update={"data": "example/data"})
+    assert corpus.load_tasks(remote) == [{"id": "remote"}]
+    download.assert_called_once_with(
+        "example/data", repo_type="dataset", revision=config.data_revision, allow_patterns=[f"{config.prefix}/dev-tasks.jsonl"]
+    )
 
-        with (
-            patch.object(evaluate, "load_tasks", return_value=({"scope": "fixture"}, "digest", records)),
-            patch("model.benchmark.src.inference.HFCompletion") as model,
-            patch.object(evaluate, "Worker") as worker,
-            patch.object(evaluate, "trial", side_effect=run_trial),
-            patch.object(Path, "open", open_log),
-            pytest.raises(RuntimeError) as error,
-        ):
-            model.return_value.runtime = {}
-            evaluate.evaluate(artifact, args, args.output, data=tmp_path)
-        assert error.value is failure
-        assert len(handles) == 1
-        assert handles[0].closed
-        worker.return_value.close.assert_called_once_with()
-        rows = [json.loads(line) for line in (args.output / "responses.jsonl").read_text().splitlines()]
-        assert rows == [{**record, "status": "passed", "steps": []} for record in records[:fail_at]]
-        if fail_at:
-            summary = json.loads((args.output / "summary.json").read_text())
-            assert summary["tasks"] == summary["passed"] == fail_at
-            assert not summary["complete"]
-        else:
-            assert not (args.output / "summary.json").exists()
 
-    def record(self):
-        return {
-            "id": "test",
-            "family": "sum",
-            "setup": "values = [4, 7]",
-            "instruction": "Sum existing values into result.",
-            "code": "REFERENCE_CODE_MUST_NOT_LEAK",
-            "inspect": "REFERENCE_INSPECTION_MUST_NOT_LEAK",
-            "check": "assert result == 11",
-            "followup": None,
-        }
-
-    def test_setup_and_oracle_are_not_model_context(self):
-        worker = Worker()
-        prompts = []
-        scripts = iter(["print(values)", "result = sum(values)\ndone(str(result))"])
-
-        def complete(prompt):
-            prompts.append(prompt)
-            return next(scripts), True
-
-        record = self.record()
-        result = trial(worker, record, complete)
-        assert result["status"] == "passed"
-        for prompt in prompts:
-            for hidden in (record["setup"], record["check"], record["code"], record["inspect"]):
-                assert hidden not in prompt
-        assert "[4, 7]" in prompts[1]
-        assert worker.sources[0] == (record["setup"], "reset")
-        assert worker.sources[-1][0] == record["check"]
-
-    def test_done_claim_does_not_bypass_oracle(self):
-        result = trial(Worker(fail_check=True), self.record(), lambda prompt: ("result = 999\ndone('success')", True))
-        assert result["status"] == "incorrect"
-
-    def test_missing_end_marker_is_not_executed(self):
-        worker = Worker()
-        result = trial(worker, self.record(), lambda prompt: ("result = 11", False))
-        assert result["status"] == "boundary_error"
-        assert len(worker.sources) == 1
-
-    def test_followup_is_a_new_task_in_the_same_workspace(self):
-        record = self.record()
-        record["followup"] = {"instruction": "Append 9 in place.", "check": "assert result[-1] == 9"}
-        prompts = []
-
-        def complete(prompt):
-            prompts.append(prompt)
-            return "done('ok')", True
-
-        worker = Worker()
-        result = trial(worker, record, complete)
-        assert result["status"] == "passed"
-        assert sum((action == "reset" for _, action in worker.sources)) == 1
-        assert "Append 9 in place." in prompts[1]
-        assert "assert result[-1]" not in prompts[1]
-
-    def test_structured_feedback_and_followup_keep_distinct_boundaries(self):
-        record = self.record()
-        record["followup"] = {"instruction": "Append 9 in place.", "check": "assert result[-1] == 9"}
-        scripts = iter(["print(values)", "result = sum(values)\ndone(str(result))", "done('ok')"])
-        prompts = []
-
-        def complete(prompt):
-            prompts.append(prompt)
-            return next(scripts), True
-
-        result = trial(Worker(), record, complete)
-        assert result["status"] == "passed"
-        assert len(prompts) == 3
-        assert "[4, 7]" in prompts[1]
-        assert prompts[-1].endswith("<|task|>\nAppend 9 in place.\n<|code|>\n")
-        assert all(record["check"] not in prompt and record["followup"]["check"] not in prompt for prompt in prompts)
-
-    def final_request(self, directory):
-        tasks = directory / "test-tasks.jsonl"
-        tasks.write_text('{"id":"first"}\n{"id":"second"}\n')
-        manifest = {"splits": {"test": {"sha256": hashlib.sha256(tasks.read_bytes()).hexdigest()}}}
-        (directory / "manifest.json").write_text(json.dumps(manifest))
-        return directory
-
-    def test_final_requires_explicit_authorization_before_loading_a_model(self, tmp_path):
-        data = self.final_request(tmp_path)
-        with pytest.raises(ValueError, match="explicit final"):
-            evaluate.evaluate(None, None, None, data=data, split="test")
-
-    def test_final_loads_all_frozen_tasks(self, tmp_path):
-        data = self.final_request(tmp_path)
-        _, _, records = load_tasks(data, "test", final=True)
-        assert records == [{"id": "first"}, {"id": "second"}]
-
-    def test_changed_frozen_tasks_are_rejected(self, tmp_path):
-        data = self.final_request(tmp_path)
-        (data / "test-tasks.jsonl").write_text('{"modified":true}\n')
-        with pytest.raises(ValueError, match="tasks have changed"):
-            evaluate.evaluate(None, None, None, data=data, split="test", final=True)
+def test_entrypoint_runs_configured_evaluation(monkeypatch):
+    run = Mock()
+    monkeypatch.setattr(evaluate, "run", run)
+    main.main([])
+    run.assert_called_once_with(SETTINGS)

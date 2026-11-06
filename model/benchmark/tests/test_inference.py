@@ -58,19 +58,11 @@ class TestInference:
         self.completion(adapter=adapter)
 
     @pytest.mark.parametrize("device", ["cpu", "cuda"])
-    def test_configured_device_and_runtime_metadata(self, device):
-        with (
-            patch("model.benchmark.src.inference.torch.cuda.get_device_name", return_value="fixture-gpu") as gpu,
-        ):
-            completion = self.completion(device=device)
+    def test_configured_device(self, device):
+        self.completion(device=device)
         self.model.to.assert_called_once_with(device)
-        assert completion.runtime["gpu"] == ("fixture-gpu" if device == "cuda" else None)
         assert not torch.backends.cuda.matmul.allow_tf32
         assert not torch.backends.cudnn.allow_tf32
-        if device == "cuda":
-            gpu.assert_called_once_with()
-        else:
-            gpu.assert_not_called()
 
     def test_device_errors_propagate(self):
         error = RuntimeError("CUDA unavailable")

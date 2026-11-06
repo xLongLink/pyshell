@@ -1,9 +1,7 @@
-import time
 from pyshell.serialization import Prompt
-from model.benchmark.src.proof_policy import MAX_CALLS
 
 
-def trial(worker, record, generate):
+def trial(worker, record, generate, calls):
     setup = worker.execute(record["setup"], "reset")
     if setup["exception"]:
         raise RuntimeError(f"Invalid fixture {record['id']}: {setup['exception']}")
@@ -17,10 +15,9 @@ def trial(worker, record, generate):
         if stage_index:
             worker.execute("saved_result = result")
             prompt.append({"role": "user", "content": stage["instruction"]})
-        for _ in range(MAX_CALLS):
-            started = time.monotonic()
+        for _ in range(calls):
             source, ended = generate(prompt.render())
-            step = {"source": source, "stage": stage_index, "end_marker_seen": ended, "seconds": time.monotonic() - started}
+            step = {"source": source}
             row["steps"].append(step)
             if not ended or not source.strip():
                 row["status"] = "boundary_error"
