@@ -49,10 +49,12 @@ def create_app() -> FastAPI:
         response.headers["Content-Security-Policy"] = (
             "frame-ancestors http://127.0.0.1:8010 http://localhost:8010; "
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+            "img-src 'self' data: blob: https://tile.openstreetmap.org; "
+            "connect-src 'self' https://tile.openstreetmap.org; worker-src 'self'; "
+            "object-src 'none'; base-uri 'none'; form-action 'none'"
         )
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
 
     @app.get("/libraries", response_model=list[Library], dependencies=[Depends(require_server_request)])

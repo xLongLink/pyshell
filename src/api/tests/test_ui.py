@@ -27,6 +27,10 @@ def test_container_serves_widget_frontend_with_restricted_framing(tmp_path):
         policy = response.headers["content-security-policy"]
         assert "frame-ancestors http://127.0.0.1:8010 http://localhost:8010" in policy
         assert "script-src 'self'" in policy
+        assert "worker-src 'self'" in policy
+        assert "connect-src 'self' https://tile.openstreetmap.org" in policy
+        assert "img-src 'self' data: blob: https://tile.openstreetmap.org" in policy
+        assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
         assert client.get("/app.js").text == "console.log('widgets')"
         assert client.get("/missing.js").status_code == 404
 

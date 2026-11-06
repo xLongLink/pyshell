@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const position = z.tuple([
+export const position = z.tuple([
     z.number().min(-180).max(180),
     z.number().min(-90).max(90),
 ]);
@@ -13,7 +13,7 @@ const ring = z
         const last = points.at(-1);
         return first?.[0] === last?.[0] && first?.[1] === last?.[1];
     }, "GeoJSON polygon rings must be closed");
-const polygon = z.array(ring).min(1).max(200);
+export const polygon = z.array(ring).min(1).max(200);
 export const geojsonSchema = z
     .object({
         type: z.literal("FeatureCollection"),
