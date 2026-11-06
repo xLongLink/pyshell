@@ -3,13 +3,13 @@ from peft import PeftModel
 from transformers import AutoTokenizer, StopStringCriteria, StoppingCriteriaList, AutoModelForImageTextToText
 from pyshell.parsing import parse_completion
 from pyshell.serialization import MARKERS
-from model.benchmark.src.runtime import configure_device, configure_threads
 
 
 class HFCompletion:
     def __init__(self, adapter, threads, device, *, base_model, revision=None, max_new_tokens=384):
-        device = configure_device(device)
-        configure_threads(threads)
+        torch.set_num_threads(threads)
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
         self.tokenizer = AutoTokenizer.from_pretrained(base_model, revision=revision)
         self.model = AutoModelForImageTextToText.from_pretrained(
             base_model, revision=revision, dtype=torch.float32, attn_implementation="sdpa"
