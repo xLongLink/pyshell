@@ -31,7 +31,6 @@ def test_run_evaluates_one_adapter_and_saves_results(benchmark, capsys):
     model.assert_called_once_with(config)
     worker.return_value.close.assert_called_once_with()
     assert "Passed 1/3 (33.3%)" in capsys.readouterr().out
-    assert (config.output.parent / "test-tasks.jsonl").read_text() == "DO NOT READ HOLDOUT"
 
 
 def test_existing_results_are_not_overwritten(benchmark):

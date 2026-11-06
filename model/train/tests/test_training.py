@@ -41,14 +41,6 @@ def test_overlength_training_data_is_rejected(training_run):
         training_run("oversized", max_length=1)
 
 
-def test_only_train_and_validation_files_are_loaded(training_run, tmp_path):
-    (tmp_path / "data/test-tasks.jsonl").write_text("not a training dataset")
-    (tmp_path / "data/train-tasks.jsonl").write_text("not a training dataset")
-    output = training_run("trained", steps=3)
-    state = json.loads((output / "trainer_state.json").read_text())
-    assert state["global_step"] == 3
-
-
 def test_pinned_dataset_download_only_fetches_training_splits(
     training_run, tmp_path, monkeypatch
 ):
@@ -67,8 +59,14 @@ def test_pinned_dataset_download_only_fetches_training_splits(
     assert (output / "adapter_model.safetensors").is_file()
 
 
-def test_final_adapter_can_be_reloaded_for_inference(training_run):
-    output = training_run("candidate", learning_rate=0.002, rank=4, alpha=8)
+def test_training_ignores_foreign_files_and_saves_a_reloadable_adapter(
+    training_run, tmp_path
+):
+    (tmp_path / "data/test-tasks.jsonl").write_text("not a training dataset")
+    (tmp_path / "data/train-tasks.jsonl").write_text("not a training dataset")
+    output = training_run("candidate", steps=3, learning_rate=0.002, rank=4, alpha=8)
+    state = json.loads((output / "trainer_state.json").read_text())
+    assert state["global_step"] == 3
     adapter = json.loads((output / "adapter_config.json").read_text())
     assert adapter["r"] == 4
     assert adapter["lora_alpha"] == 8

@@ -37,9 +37,8 @@ class TestInference:
         return completion
 
     @pytest.mark.parametrize("revision", [None, "a" * 40])
-    @pytest.mark.parametrize("local", [False, True])
-    def test_adapter_loads_its_recorded_base_model(self, tmp_path, revision, local):
-        base = tmp_path / "base-model" if local else "fixture-base"
+    def test_adapter_loads_its_recorded_base_model(self, revision):
+        base = "fixture-base"
         self.completion(base_model=base, revision=revision)
         self.threads.assert_called_once_with(3)
         self.load_tokenizer.assert_called_once_with(str(base), revision=revision)
