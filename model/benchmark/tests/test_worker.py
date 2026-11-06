@@ -113,7 +113,7 @@ class TestWorker:
             assert result["exception"].startswith(error)
             assert result["done"] is None
         assert results[-1] == {"stdout": "7\n", "stderr": "", "exception": None, "done": None}
-        assert alarms == [call(10), call(0), call(0), call(10), call(0), call(10), call(0), call(10), call(0)]
+        assert alarms == [call(10), call(0), call(0), call(10), call(0), call(0), call(10), call(0)]
 
     def test_consecutive_requests_share_sink_and_reset_namespace(self):
         results, _ = self.run_worker(
@@ -171,3 +171,15 @@ class TestWorker:
         assert int(results[0]["stdout"]) < 1048576
         assert results[0]["stderr"] == ""
         assert results[1] == {"stdout": "still ready\n", "stderr": "", "exception": None, "done": None}
+
+    @pytest.mark.parametrize("action", ["unknown", "", None, []])
+    def test_unsupported_actions_do_not_execute_source_or_change_workspace(self, action):
+        results, _ = self.run_worker(
+            [
+                {"action": "reset", "source": "value = 7"},
+                {"action": action, "source": "value = 99"},
+                {"action": "execute", "source": "print(value)"},
+            ]
+        )
+        assert results[1] == {"stdout": "", "stderr": "", "exception": "ValueError: Unsupported worker action", "done": None}
+        assert results[2] == {"stdout": "7\n", "stderr": "", "exception": None, "done": None}

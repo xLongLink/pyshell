@@ -35,6 +35,24 @@ def evaluate(artifact, config, output, *, data, split="dev", final=False):
     generate = HFCompletion(
         artifact.path, config.threads, config.device, base_model=artifact.base, revision=artifact.revision, max_new_tokens=config.tokens
     )
+    summary = {
+        "label": output.name,
+        "split": split,
+        "complete": False,
+        "task_file_sha256": digest,
+        "adapter": str(artifact.path),
+        "adapter_sha256": artifact.weights_sha256,
+        "adapter_config_sha256": artifact.config_sha256,
+        "base_model": artifact.base,
+        "base_revision": artifact.revision,
+        "run_sha256": artifact.run_sha256,
+        "inference": inference_settings(config),
+        "backend": "hf",
+        "runtime": generate.runtime,
+        "scope": manifest["scope"],
+        "isolation": "network-disabled container; fresh PythonShell per task; no reference prior context",
+        "acceptance_met": False,
+    }
     with closing(Worker()) as worker, (output / "responses.jsonl").open("a") as file:
         for index, record in enumerate(records, 1):
             row = trial(worker, record, generate)
@@ -44,29 +62,13 @@ def evaluate(artifact, config, output, *, data, split="dev", final=False):
             group["tasks"] += 1
             group["passed"] += row["status"] == "passed"
             statuses[row["status"]] += 1
-            summary = {
-                "label": output.name,
-                "split": split,
-                "complete": False,
-                "tasks": index,
-                "passed": statuses["passed"],
-                "success_rate": statuses["passed"] / index,
-                "by_family": dict(sorted(groups.items())),
-                "statuses": dict(statuses),
-                "task_file_sha256": digest,
-                "adapter": str(artifact.path),
-                "adapter_sha256": artifact.weights_sha256,
-                "adapter_config_sha256": artifact.config_sha256,
-                "base_model": artifact.base,
-                "base_revision": artifact.revision,
-                "run_sha256": artifact.run_sha256,
-                "inference": inference_settings(config),
-                "backend": "hf",
-                "runtime": generate.runtime,
-                "scope": manifest["scope"],
-                "isolation": "network-disabled container; fresh PythonShell per task; no reference prior context",
-                "acceptance_met": False,
-            }
+            summary.update(
+                tasks=index,
+                passed=statuses["passed"],
+                success_rate=statuses["passed"] / index,
+                by_family=dict(sorted(groups.items())),
+                statuses=dict(statuses),
+            )
             (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
             print(f"{output.name} {split} {index}/{len(records)}: {summary['passed']} passed; {row['family']}={row['status']}", flush=True)
     artifact.verify()

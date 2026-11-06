@@ -27,6 +27,8 @@ def main():
         for line in sys.stdin:
             try:
                 request = json.loads(line)
+                if request["action"] not in ("reset", "execute"):
+                    raise ValueError("Unsupported worker action")
                 signal.alarm(10)
                 with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
                     if request["action"] == "reset":

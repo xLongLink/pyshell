@@ -1,4 +1,6 @@
+import os
 import json
+import time
 import uuid
 import selectors
 import subprocess
@@ -46,23 +48,57 @@ class Worker:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
         )
+        self.stdout = b""
+        self.stderr = b""
         self.selector = selectors.DefaultSelector()
         self.selector.register(self.process.stdout, selectors.EVENT_READ)
+        self.selector.register(self.process.stderr, selectors.EVENT_READ)
 
     def execute(self, source, action="execute"):
-        self.process.stdin.write(json.dumps({"action": action, "source": source}) + "\n")
+        self.process.stdin.write((json.dumps({"action": action, "source": source}) + "\n").encode())
         self.process.stdin.flush()
-        if not self.selector.select(30):
-            raise TimeoutError("Isolated execution worker did not respond within 30 seconds")
-        line = self.process.stdout.readline()
-        if not line:
-            raise RuntimeError("Isolated worker exited: " + self.process.stderr.read()[-2000:])
+        deadline = time.monotonic() + 30
+        while b"\n" not in self.stdout:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Isolated execution worker did not respond within 30 seconds")
+            events = self.selector.select(remaining)
+            if not events:
+                raise TimeoutError("Isolated execution worker did not respond within 30 seconds")
+            for key, _ in sorted(events, key=lambda event: event[0].fileobj is self.process.stdout):
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                if not chunk:
+                    self.selector.unregister(key.fileobj)
+                if key.fileobj is self.process.stderr:
+                    self.stderr = (self.stderr + chunk)[-2000:]
+                elif not chunk:
+                    raise RuntimeError("Isolated worker exited: " + self.stderr.decode(errors="replace"))
+                else:
+                    self.stdout += chunk
+        line, self.stdout = self.stdout.split(b"\n", 1)
         return json.loads(line)
 
     def close(self):
         self.selector.close()
-        subprocess.run(["docker", "rm", "--force", self.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        self.process.communicate(timeout=15)
+        try:
+            subprocess.run(
+                ["docker", "rm", "--force", self.name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=15,
+            )
+        finally:
+            self.process.stdin.close()
+            self.process.stdout.close()
+            self.process.stderr.close()
+            try:
+                self.process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=5)
