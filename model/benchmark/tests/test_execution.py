@@ -1,6 +1,6 @@
 import sys
-import subprocess
 import pytest
+import subprocess
 from unittest.mock import patch
 from model.benchmark.src import execution
 

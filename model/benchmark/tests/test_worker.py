@@ -4,6 +4,7 @@ import sys
 import json
 import pytest
 import signal
+import pathlib
 from unittest.mock import DEFAULT, call, patch
 from importlib.util import find_spec
 from model.benchmark.src import worker
@@ -56,7 +57,9 @@ class TestWorker:
         try:
             signal.setitimer(signal.ITIMER_REAL, 60)
             with (
-                patch.object(worker, "open", wraps=open, side_effect=failure if failure_point == "open" else None, create=True),
+                patch.object(
+                    worker.pathlib.Path, "open", autospec=True, side_effect=failure if failure_point == "open" else pathlib.Path.open
+                ),
                 patch.object(
                     protocol,
                     "write",
@@ -75,11 +78,11 @@ class TestWorker:
             signal.setitimer(signal.ITIMER_REAL, *timer)
 
     def test_sink_is_opened_once_and_closed_after_requests(self):
-        sink = open(os.devnull, "w")
+        sink = pathlib.Path(os.devnull).open("w")
         try:
-            with patch.object(worker, "open", return_value=sink, create=True) as opened:
+            with patch.object(worker.pathlib.Path, "open", return_value=sink) as opened:
                 results = self.run_worker([{"action": "reset", "source": "pass"}, {"action": "execute", "source": "pass"}])
-            opened.assert_called_once_with(os.devnull, "w")
+            opened.assert_called_once_with("w")
             assert all(result["exception"] is None for result in results)
             assert sink.closed
         finally:

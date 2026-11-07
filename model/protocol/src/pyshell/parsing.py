@@ -1,5 +1,4 @@
 import re
-
 from pyshell.serialization import MARKERS, END_CODE
 
 BOUNDARY = re.compile("|".join(re.escape(marker) for marker in MARKERS))
@@ -10,4 +9,4 @@ def parse_completion(text: str) -> tuple[str, bool]:
     match = BOUNDARY.search(text)
     if match is None:
         return text, False
-    return text[:match.start()], match.group() == END_CODE
+    return text[: match.start()], match.group() == END_CODE

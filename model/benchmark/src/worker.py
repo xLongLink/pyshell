@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import signal
+import pathlib
 import contextlib
 import statistics
 
@@ -24,7 +25,7 @@ def main():
         protocol.flush()
 
     try:
-        with open(os.devnull, "w") as sink:
+        with pathlib.Path(os.devnull).open("w") as sink:
             for line in sys.stdin:
                 try:
                     request = json.loads(line)
