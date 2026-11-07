@@ -11,8 +11,9 @@ def prepare(record, tokenizer, max_length):
     completion = record["completion"].removesuffix(tokenizer.eos_token)
     code = completion.removesuffix("\n" + END_CODE)
     completion = target_text(code) + tokenizer.eos_token
-    prompt_ids = tokenizer(record["prompt"])["input_ids"]
-    ids = tokenizer(record["prompt"] + completion)["input_ids"]
+    prompt_ids, ids = tokenizer([record["prompt"], record["prompt"] + completion])[
+        "input_ids"
+    ]
     if ids[: len(prompt_ids)] != prompt_ids:
         raise ValueError("Prompt and completion must meet on a token boundary")
     if len(ids) > max_length:

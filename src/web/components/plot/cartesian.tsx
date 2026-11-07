@@ -214,16 +214,20 @@ export function Cartesian({
                     const key = `trace_${index}`;
                     const name = trace.name || `Series ${index + 1}`;
                     const color = traceColor(index);
+                    const points =
+                        trace.type === "bar"
+                            ? undefined
+                            : trace.x.map((x, point) => ({
+                                  x: coordinate(x),
+                                  tooltipX: coordinate(x),
+                                  [key]: trace.y[point],
+                              }));
                     if (trace.type === "area") {
                         return (
                             <Area
                                 key={key}
                                 xAxisId="traces"
-                                data={trace.x.map((x, point) => ({
-                                    x: coordinate(x),
-                                    tooltipX: coordinate(x),
-                                    [key]: trace.y[point],
-                                }))}
+                                data={points}
                                 dataKey={key}
                                 name={name}
                                 type={trace.curve}
@@ -263,11 +267,7 @@ export function Cartesian({
                         <Line
                             key={key}
                             xAxisId="traces"
-                            data={trace.x.map((x, point) => ({
-                                x: coordinate(x),
-                                tooltipX: coordinate(x),
-                                [key]: trace.y[point],
-                            }))}
+                            data={points}
                             dataKey={key}
                             name={name}
                             type="linear"

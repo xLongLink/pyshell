@@ -4,7 +4,7 @@ from pydantic import Field, field_validator, model_validator, field_serializer
 from api.ui.model import UIModel
 from api.ui.types import Number, TextValue, Identifier, ImmutableList
 from collections.abc import Mapping
-from api.ui.plot.geojson import Polygon, Position, MultiPolygon
+from api.ui.plot.geojson import Polygon, Position, MultiPolygon, count_positions
 
 
 class Point(UIModel):
@@ -114,8 +114,7 @@ class Map(UIModel):
                 if isinstance(geometry, Point):
                     positions += 1
                 else:
-                    polygons = (geometry.coordinates,) if isinstance(geometry, Polygon) else geometry.coordinates
-                    positions += sum(len(ring) for polygon in polygons for ring in polygon)
+                    positions += count_positions(geometry)
         if positions > 4000:
             raise ValueError("A map accepts at most 4,000 positions; simplify the geometry first")
         return self
