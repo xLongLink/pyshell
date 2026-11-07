@@ -231,7 +231,7 @@ class UI:
             chart = ui.map(view={"country": "CHE"}, title="Switzerland")
 
         """
-        return self.plot([{"type": "map", "layers": layers, "view": view}], layout={"title": {"text": title}}, surface_id=surface_id)
+        return self.plot([{"type": "map", "layers": list(layers), "view": view}], layout={"title": {"text": title}}, surface_id=surface_id)
 
     def plot(
         self,
@@ -337,7 +337,7 @@ class UI:
         if {"id", "component"} & attributes.keys():
             raise ValueError("Widget identity and type cannot be changed by update()")
         candidate = Figure.model_validate(
-            {"id": widget.id, "component": widget.component, "data": widget.data, "layout": widget.layout, **attributes}
+            {"id": widget.id, "component": widget.component, "data": list(widget.data), "layout": widget.layout, **attributes}
         )
         self._publish([self._content(widget.surface_id, candidate)])
 

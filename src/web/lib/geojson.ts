@@ -25,7 +25,9 @@ export const polygonGeometry = z.discriminatedUnion("type", [
     }),
 ]);
 
-export function countPositions(geometry: z.infer<typeof polygonGeometry>): number {
+export function countPositions(
+    geometry: z.infer<typeof polygonGeometry>,
+): number {
     const polygons =
         geometry.type === "Polygon"
             ? [geometry.coordinates]

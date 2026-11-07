@@ -30,10 +30,7 @@ class UIState:
             return {
                 "type": "snapshot",
                 "events": [
-                    {
-                        "type": "a2ui",
-                        "messages": [{"version": "v0.9", "createSurface": {"surfaceId": identifier}}, surface.latest_update],
-                    }
+                    {"type": "a2ui", "messages": [{"version": "v0.9", "createSurface": {"surfaceId": identifier}}, surface.latest_update]}
                     for identifier, surface in self.surfaces.items()
                 ],
                 "placements": {key: {"pinned": surface.pinned} for key, surface in self.surfaces.items()},

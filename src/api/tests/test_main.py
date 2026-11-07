@@ -123,7 +123,8 @@ async def open_stream(app):
 def test_stream_worker_failure_still_emits_terminal_event(monkeypatch):
     app = create_app()
 
-    def execute(_shell, _code):
+    def execute(_shell, _code, *, interactive=False):
+        assert interactive is False
         raise RuntimeError("worker failed")
 
     monkeypatch.setattr("api.main.PythonShell.execute", execute)
@@ -143,7 +144,8 @@ def test_stream_disconnect_does_not_cancel_or_resubmit_execution(monkeypatch):
     disconnected = Event()
     calls = []
 
-    def execute(_shell, code):
+    def execute(_shell, code, *, interactive=False):
+        assert interactive is False
         calls.append(code)
         assert disconnected.wait(timeout=2)
         calls.append("completed")

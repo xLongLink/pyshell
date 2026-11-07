@@ -90,7 +90,8 @@ test("bounds total positions across features", () => {
 test.each(["Polygon", "MultiPolygon"])(
     "inline and map schemas validate %s geometry consistently",
     (type) => {
-        const polygon = figure().data[0].geojson.features[0].geometry.coordinates;
+        const polygon =
+            figure().data[0].geojson.features[0].geometry.coordinates;
         const geometry = {
             type,
             coordinates: type === "Polygon" ? polygon : [polygon],
