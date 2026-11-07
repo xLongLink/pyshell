@@ -29,6 +29,7 @@ def test_map_publish_navigation_data_update_and_lifecycle():
     chart = ui.map([layer()], title="Buildings", surface_id="buildings")
     assert chart.surface_id == "buildings"
     assert chart.data[0].layers[0].data.features[0].properties["renovation_year"] == 2024
+    layers = chart.model_dump(mode="json")["data"][0]["layers"]
     chart.set_view(country="CHE")
     assert chart.data[0].view.country == "CHE"
     chart.set_view(country="CHE")
@@ -36,6 +37,8 @@ def test_map_publish_navigation_data_update_and_lifecycle():
     chart.set_view(center=[8.54, 47.37], zoom=14)
     assert chart.data[0].view.center == (8.54, 47.37)
     assert chart.data[0].layers[0].id == "buildings"
+    assert chart.model_dump(mode="json")["data"][0]["layers"] == layers
+    assert ui.state.snapshot()["events"][0]["messages"][1]["updateComponents"]["components"][0]["data"][0]["layers"] == layers
     chart.update(data=[{"type": "map", "layers": [layer(count=0)]}])
     assert chart.data[0].view is None
     assert not chart.data[0].layers[0].data.features

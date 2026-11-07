@@ -131,8 +131,24 @@ export default function GeographicMap({
         for (const layer of trace.layers) {
             const sourceId = `data-${layer.id}`;
             const source = map.getSource(sourceId) as GeoJSONSource | undefined;
-            if (source) source.setData(layer.data);
-            else {
+            if (source) {
+                source.setData(layer.data);
+                map.setPaintProperty(
+                    `${layer.id}-fill`,
+                    "fill-color",
+                    layer.color,
+                );
+                map.setPaintProperty(
+                    `${layer.id}-line`,
+                    "line-color",
+                    layer.color,
+                );
+                map.setPaintProperty(
+                    `${layer.id}-point`,
+                    "circle-color",
+                    layer.color,
+                );
+            } else {
                 map.addSource(sourceId, { type: "geojson", data: layer.data });
                 map.addLayer({
                     id: `${layer.id}-fill`,
@@ -161,13 +177,6 @@ export default function GeographicMap({
                     },
                 });
             }
-            map.setPaintProperty(`${layer.id}-fill`, "fill-color", layer.color);
-            map.setPaintProperty(`${layer.id}-line`, "line-color", layer.color);
-            map.setPaintProperty(
-                `${layer.id}-point`,
-                "circle-color",
-                layer.color,
-            );
         }
         trace.layers.forEach((layer) => {
             for (const suffix of ["fill", "line", "point"])

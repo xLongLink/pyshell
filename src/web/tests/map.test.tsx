@@ -212,13 +212,33 @@ test("data and title updates preserve the camera; explicit repeated navigation m
         "data-buildings",
         expect.objectContaining({ type: "geojson" }),
     );
+    expect(map.addLayer).toHaveBeenCalledWith(
+        expect.objectContaining({
+            id: "buildings-fill",
+            paint: expect.objectContaining({
+                "fill-color": trace.layers[0].color,
+            }),
+        }),
+    );
     const updated = mapTraceSchema.parse(input);
+    updated.layers[0].color = "#ff0000";
     updated.layers[0].data.features[0].properties.renovation_year = 2023;
     rerender(<GeographicMap trace={updated} showlegend={false} />);
     expect(map.flyTo).toHaveBeenCalledTimes(1);
     expect(map.sources["data-buildings"].setData).toHaveBeenCalledWith(
         updated.layers[0].data,
     );
+    for (const [suffix, property] of [
+        ["fill", "fill-color"],
+        ["line", "line-color"],
+        ["point", "circle-color"],
+    ]) {
+        expect(map.setPaintProperty).toHaveBeenCalledWith(
+            `buildings-${suffix}`,
+            property,
+            updated.layers[0].color,
+        );
+    }
     expect(screen.queryByLabelText("Map layers")).toBeNull();
     rerender(
         <GeographicMap
