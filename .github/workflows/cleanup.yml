@@ -47,9 +47,15 @@ jobs:
                     echo 'skip=true' >> "$GITHUB_OUTPUT"
                   fi
 
-            - name: Verify OpenCode
+            - name: Sync OpenCode configuration
               if: steps.pending.outputs.skip != 'true'
               run: |
+                  config="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+                  if [[ -d "$config/.git" ]]; then
+                    git -C "$config" pull --ff-only origin main
+                  else
+                    git clone --branch main https://github.com/Sau1707/openconfig.git "$config"
+                  fi
                   echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
                   export PATH="$HOME/.opencode/bin:$PATH"
                   opencode --version
