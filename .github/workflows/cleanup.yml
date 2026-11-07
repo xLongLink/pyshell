@@ -2,6 +2,8 @@ name: cleanup
 
 on:
     workflow_dispatch:
+    pull_request_target:
+        types: [closed]
     schedule:
         - cron: '0 */12 * * *'
 
@@ -15,6 +17,10 @@ concurrency:
 
 jobs:
     cleanup:
+        if: >-
+            github.event_name != 'pull_request_target' ||
+            (github.event.pull_request.head.ref == 'automation/opencode-cleanup' &&
+             github.event.pull_request.head.repo.full_name == github.repository)
         runs-on: self-hosted
         timeout-minutes: 60
         defaults:
