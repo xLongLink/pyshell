@@ -3,6 +3,7 @@ import traceback
 from typing import Annotated
 from pydantic import Field, TypeAdapter
 from collections import deque
+from collections.abc import Callable, Awaitable
 from sample.src.shell import EXECUTION_UNCERTAIN
 from sample.src.agents.script import Agent
 
@@ -124,6 +125,20 @@ class Workspace:
         print(f"[worker:{outcome}] {result}", flush=True)
         self.recent_tasks.append(record)
         return record
+
+    async def reset(self, stop_voices: Callable[[], Awaitable[None]]) -> None:
+        """Reset idle workspace state after stopping its browser connections."""
+        self.resetting = True
+        try:
+            for subscription in tuple(self.listeners):
+                subscription.close()
+            await stop_voices()
+            await self.agent.reset()
+            self.recent_tasks.clear()
+            self.task = None
+            self.phase = "idle"
+        finally:
+            self.resetting = False
 
     async def close(self) -> None:
         """Stop submissions and finish accepted work."""

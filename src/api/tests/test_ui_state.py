@@ -5,6 +5,23 @@ from api.ui.state import UIState
 from src.api.tests.ui_helpers import content, creation
 
 
+def test_snapshot_preserves_creation_payloads_and_replacement_order():
+    state = UIState()
+    state.publish([creation("sales"), content("sales")])
+    state.publish([creation("costs"), content("costs")])
+    state.publish([content("sales", "Updated")])
+    assert state.snapshot()["events"] == [
+        {"type": "a2ui", "messages": [creation("sales"), content("sales", "Updated")]},
+        {"type": "a2ui", "messages": [creation("costs"), content("costs")]},
+    ]
+
+    state.publish([creation("sales"), content("sales", "Replacement")])
+    assert state.snapshot()["events"] == [
+        {"type": "a2ui", "messages": [creation("costs"), content("costs")]},
+        {"type": "a2ui", "messages": [creation("sales"), content("sales", "Replacement")]},
+    ]
+
+
 def test_unsubscribe_before_delivery_does_not_deliver_to_detached_queue():
     async def run():
         state = UIState()

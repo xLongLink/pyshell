@@ -21,7 +21,7 @@ const format = new Intl.NumberFormat(undefined, {
 export default function Choropleth(props: MapProps) {
     if (props.trace.geojson)
         return <BoundaryMap {...props} boundaries={props.trace.geojson} />;
-    return <ProviderMap {...props} />;
+    return <ProviderMap key={props.trace.geography} {...props} />;
 }
 
 function ProviderMap(props: MapProps) {
