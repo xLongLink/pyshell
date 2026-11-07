@@ -61,7 +61,7 @@ def test_done_does_not_bypass_checks(record):
     assert "AssertionError" in row["error"]
 
 
-@pytest.mark.parametrize("source,ended", [("result = 11", False), ("", True), ("  \n", True)])
+@pytest.mark.parametrize(("source", "ended"), [("result = 11", False), ("", True), ("  \n", True)])
 def test_invalid_completion_is_not_executed(record, source, ended):
     worker = Worker()
     row = trial(worker, record, lambda prompt: (source, ended), 4)

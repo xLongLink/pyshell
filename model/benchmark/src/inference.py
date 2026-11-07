@@ -4,10 +4,14 @@ from peft import PeftModel
 from transformers import AutoTokenizer, StopStringCriteria, StoppingCriteriaList, AutoModelForImageTextToText
 from pyshell.parsing import parse_completion
 from pyshell.serialization import MARKERS
+from model.benchmark.src.settings import Settings
 
 
 class HFCompletion:
-    def __init__(self, config):
+    """Generate code completions from a trained adapter."""
+
+    def __init__(self, config: Settings) -> None:
+        """Load the adapter and configure deterministic generation."""
         native = json.loads((config.adapter / "adapter_config.json").read_text())
         base = native["base_model_name_or_path"]
         revision = native.get("revision")
@@ -21,7 +25,8 @@ class HFCompletion:
         self.max_new_tokens = config.tokens
         self.stopping_criteria = StoppingCriteriaList([StopStringCriteria(self.tokenizer, list(MARKERS))])
 
-    def __call__(self, prompt):
+    def __call__(self, prompt: str) -> tuple[str, bool]:
+        """Return generated code and whether its closing marker was reached."""
         inputs = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(self.model.device)
         with torch.inference_mode():
             output = self.model.generate(

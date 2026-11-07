@@ -4,7 +4,8 @@ import time
 import uuid
 import selectors
 import contextlib
-import subprocess
+import subprocess  # noqa: S404
+from typing import Any
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,10 +13,13 @@ MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 
 
 class Worker:
-    def __init__(self):
+    """Execute benchmark code in an isolated Docker container."""
+
+    def __init__(self) -> None:
+        """Start the container and register its output streams."""
         self.name = "pyshell-benchmark-" + uuid.uuid4().hex[:10]
-        self.process = subprocess.Popen(
-            [
+        self.process = subprocess.Popen(  # noqa: S603
+            [  # noqa: S607
                 "docker",
                 "run",
                 "--rm",
@@ -36,7 +40,7 @@ class Worker:
                 "--pids-limit",
                 "64",
                 "--tmpfs",
-                "/tmp:size=64m",
+                "/tmp:size=64m",  # noqa: S108
                 "--volume",
                 f"{ROOT / 'src/worker.py'}:/model/benchmark/src/worker.py:ro",
                 "--env",
@@ -64,7 +68,8 @@ class Worker:
                 self.close()
             raise
 
-    def execute(self, source, action="execute"):
+    def execute(self, source: str, action: str = "execute") -> dict[str, Any]:
+        """Send code to the worker and return its execution feedback."""
         deadline = time.monotonic() + 30
         pending = memoryview((json.dumps({"action": action, "source": source}) + "\n").encode())
         self.selector.register(self.process.stdin, selectors.EVENT_WRITE)
@@ -101,7 +106,8 @@ class Worker:
         line, self.stdout = self.stdout.split(b"\n", 1)
         return json.loads(line)
 
-    def close(self):
+    def close(self) -> None:
+        """Remove the container and close the worker streams."""
         try:
             with contextlib.ExitStack() as cleanup:
                 cleanup.callback(self.process.stderr.close)
@@ -111,8 +117,8 @@ class Worker:
                     if self.selector is not None:
                         self.selector.close()
                 finally:
-                    subprocess.run(
-                        ["docker", "rm", "--force", self.name],
+                    subprocess.run(  # noqa: S603
+                        ["docker", "rm", "--force", self.name],  # noqa: S607
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         check=False,

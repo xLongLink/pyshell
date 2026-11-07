@@ -89,7 +89,7 @@ class TestWorker:
             sink.close()
 
     @pytest.mark.parametrize(
-        "message,alarms",
+        ("message", "alarms"),
         [
             ({"action": "reset", "source": "pass"}, [10, 0]),
             ({"action": "reset", "source": "raise ValueError('failed')"}, [10, 0]),

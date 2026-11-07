@@ -1,7 +1,11 @@
+from typing import Any
+from collections.abc import Callable
 from pyshell.serialization import Prompt
+from model.benchmark.src.execution import Worker
 
 
-def trial(worker, record, generate, calls):
+def trial(worker: Worker, record: dict[str, Any], generate: Callable[[str], tuple[str, bool]], calls: int) -> dict[str, Any]:
+    """Execute and grade one task within its model-call budget."""
     setup = worker.execute(record["setup"], "reset")
     if setup["exception"]:
         raise RuntimeError(f"Invalid fixture {record['id']}: {setup['exception']}")

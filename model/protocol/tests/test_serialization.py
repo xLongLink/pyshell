@@ -167,7 +167,7 @@ def test_incremental_prompt_snapshots_mutable_input():
 
 
 @pytest.mark.parametrize(
-    "message, error, detail",
+    ("message", "error", "detail"),
     [
         *[
             ({"role": role, "content": content}, TypeError, "Text history content must be a string")

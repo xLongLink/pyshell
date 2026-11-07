@@ -3,10 +3,12 @@ from pathlib import Path
 from contextlib import closing
 from huggingface_hub import hf_hub_download
 from model.benchmark.src.trial import trial
+from model.benchmark.src.settings import Settings
 from model.benchmark.src.execution import Worker
 
 
-def run(config):
+def run(config: Settings) -> None:
+    """Write execution results for the configured evaluation tasks."""
     if config.output.exists():
         raise FileExistsError(f"Refusing to overwrite benchmark results: {config.output}")
     path = Path(config.data) / "dev-tasks.jsonl"
