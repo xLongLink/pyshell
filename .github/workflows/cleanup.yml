@@ -55,11 +55,10 @@ jobs:
               if: steps.pending.outputs.skip != 'true'
               run: |
                   config="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
-                  if [[ -d "$config/.git" ]]; then
-                    git -C "$config" pull --ff-only origin main
-                  else
-                    git clone --branch main https://github.com/Sau1707/openconfig.git "$config"
-                  fi
+                  source=$(mktemp -d "$RUNNER_TEMP/openconfig.XXXXXX")
+                  git clone --depth 1 --branch main https://github.com/Sau1707/openconfig.git "$source"
+                  mkdir -p "$config"
+                  git -C "$source" archive HEAD | tar -x -C "$config"
                   echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
                   export PATH="$HOME/.opencode/bin:$PATH"
                   opencode --version
