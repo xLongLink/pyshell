@@ -6,7 +6,11 @@ from model.benchmark.src import execution
 
 
 def test_worker_launches_directly_with_the_same_container_isolation():
-    with patch.object(execution.subprocess, "Popen") as launch, patch.object(execution.selectors, "DefaultSelector"):
+    with (
+        patch.object(execution.subprocess, "Popen") as launch,
+        patch.object(execution.selectors, "DefaultSelector"),
+        patch.object(execution.os, "set_blocking"),
+    ):
         execution.Worker()
 
     command = launch.call_args.args[0]
@@ -34,7 +38,8 @@ def test_worker_launches_directly_with_the_same_container_isolation():
 
 
 @pytest.mark.parametrize(
-    ("phase", "cleanup_failure"), [("create", None), ("stdout", None), ("stderr", None), ("stderr", "selector"), ("stderr", "docker")]
+    ("phase", "cleanup_failure"),
+    [("stdin", None), ("create", None), ("stdout", None), ("stderr", None), ("stderr", "selector"), ("stderr", "docker")],
 )
 def test_failed_initialization_cleans_up_and_preserves_the_error(phase, cleanup_failure):
     error = RuntimeError("selector initialization failed")
@@ -42,8 +47,11 @@ def test_failed_initialization_cleans_up_and_preserves_the_error(phase, cleanup_
         patch.object(execution.subprocess, "Popen") as launch,
         patch.object(execution.selectors, "DefaultSelector") as selector,
         patch.object(execution.subprocess, "run") as remove,
+        patch.object(execution.os, "set_blocking") as set_blocking,
     ):
-        if phase == "create":
+        if phase == "stdin":
+            set_blocking.side_effect = error
+        elif phase == "create":
             selector.side_effect = error
         elif phase == "stdout":
             selector.return_value.register.side_effect = error
@@ -63,7 +71,7 @@ def test_failed_initialization_cleans_up_and_preserves_the_error(phase, cleanup_
     process.wait.assert_called_once_with(timeout=15)
     remove.assert_called_once()
     assert remove.call_args.args[0][:3] == ["docker", "rm", "--force"]
-    if phase == "create":
+    if phase in {"stdin", "create"}:
         selector.return_value.close.assert_not_called()
     else:
         selector.return_value.close.assert_called_once_with()
@@ -226,6 +234,7 @@ def test_cleanup_reaps_the_client_even_when_docker_removal_times_out(timeouts, d
         patch.object(execution.subprocess, "Popen") as launch,
         patch.object(execution.selectors, "DefaultSelector"),
         patch.object(execution.subprocess, "run", side_effect=error if docker_timeout else None) as remove,
+        patch.object(execution.os, "set_blocking"),
     ):
         worker = execution.Worker()
         process = launch.return_value
@@ -253,6 +262,7 @@ def test_pipe_close_failures_do_not_skip_other_cleanup(failed_streams, timeouts)
         patch.object(execution.subprocess, "Popen") as launch,
         patch.object(execution.selectors, "DefaultSelector") as selector,
         patch.object(execution.subprocess, "run") as remove,
+        patch.object(execution.os, "set_blocking"),
     ):
         worker = execution.Worker()
         process = launch.return_value

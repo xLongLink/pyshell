@@ -55,6 +55,7 @@ class Worker:
         self.stderr = b""
         self.selector = None
         try:
+            os.set_blocking(self.process.stdin.fileno(), False)
             self.selector = selectors.DefaultSelector()
             self.selector.register(self.process.stdout, selectors.EVENT_READ)
             self.selector.register(self.process.stderr, selectors.EVENT_READ)
@@ -66,7 +67,6 @@ class Worker:
     def execute(self, source, action="execute"):
         deadline = time.monotonic() + 30
         pending = memoryview((json.dumps({"action": action, "source": source}) + "\n").encode())
-        os.set_blocking(self.process.stdin.fileno(), False)
         self.selector.register(self.process.stdin, selectors.EVENT_WRITE)
         try:
             while pending or b"\n" not in self.stdout:
