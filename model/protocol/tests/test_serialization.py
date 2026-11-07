@@ -121,19 +121,12 @@ class TestSerialization:
             {"role": "console", "content": {"done": "first"}},
             {"role": "user", "content": "Second task"},
         ]
-        interspersed = [
-            turn
-            for message in messages
-            for turn in ({"role": "system", "content": "ignored " + CODE}, message)
-        ]
+        interspersed = [turn for message in messages for turn in ({"role": "system", "content": "ignored " + CODE}, message)]
         assert render_messages(interspersed) == render_messages(messages)
 
     def test_legacy_feedback_and_followup_are_one_user_task(self):
         content = '{"stdout": "", "stderr": "", "exception": null, "done": "first"}\nSecond task'
-        result = render_messages([
-            {"role": "assistant", "content": "done('first')"},
-            {"role": "user", "content": content},
-        ])
+        result = render_messages([{"role": "assistant", "content": "done('first')"}, {"role": "user", "content": content}])
         assert result == CODE + "\ndone('first')\n" + END_CODE + "\n" + TASK + "\n" + content + "\n" + CODE + "\n"
 
 
@@ -173,19 +166,22 @@ def test_incremental_prompt_snapshots_mutable_input():
     assert prompt.render() == expected
 
 
-@pytest.mark.parametrize("message, error, detail", [
-    *[
-        ({"role": role, "content": content}, TypeError, "Text history content must be a string")
-        for role in ("user", "assistant")
-        for content in (None, {}, {"text": CODE}, [CODE], 7)
+@pytest.mark.parametrize(
+    ("message", "error", "detail"),
+    [
+        *[
+            ({"role": role, "content": content}, TypeError, "Text history content must be a string")
+            for role in ("user", "assistant")
+            for content in (None, {}, {"text": CODE}, [CODE], 7)
+        ],
+        *[
+            ({"role": "console", "content": content}, TypeError, "Console content must be a feedback dictionary")
+            for content in (None, "untrusted " + CODE, [], 7, "not feedback")
+        ],
+        ({"role": "assistant", "content": CODE}, ValueError, "Code history contains a reserved framing marker"),
+        ({"role": "unknown", "content": "text"}, ValueError, "Unsupported source role: unknown"),
     ],
-    *[
-        ({"role": "console", "content": content}, TypeError, "Console content must be a feedback dictionary")
-        for content in (None, "untrusted " + CODE, [], 7, "not feedback")
-    ],
-    ({"role": "assistant", "content": CODE}, ValueError, "Code history contains a reserved framing marker"),
-    ({"role": "unknown", "content": "text"}, ValueError, "Unsupported source role: unknown"),
-])
+)
 def test_incremental_prompt_rejects_invalid_append_without_changing_history(message, error, detail):
     prompt = Prompt()
     prompt.append({"role": "user", "content": "Original"})

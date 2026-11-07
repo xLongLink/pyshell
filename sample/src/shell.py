@@ -35,15 +35,6 @@ class RemoteShell:
         """Use the application-owned execution transport."""
         self.client = client
         self.uncertain = False
-        self._inventory: list[dict[str, str]] | None = None
-
-    async def inventory(self) -> list[dict[str, str]]:
-        """Cache successful package inventory reads for the application lifetime."""
-        if self._inventory is None:
-            response = await self.client.get("/libraries")
-            response.raise_for_status()
-            self._inventory = response.json()
-        return self._inventory
 
     async def context(self) -> dict[str, object]:
         """Read widget metadata without executing Python or retaining widget state."""
@@ -64,7 +55,7 @@ class RemoteShell:
             self.uncertain = True
             raise
 
-    async def stream(self, code: str, *, interactive: bool = False) -> Result:
+    async def stream(self, code: str) -> Result:
         """Submit once and consume ordered output until completion is confirmed."""
         if self.uncertain:
             raise RuntimeError(EXECUTION_UNCERTAIN)
@@ -77,7 +68,7 @@ class RemoteShell:
         try:
             async with (
                 asyncio.timeout(180),
-                self.client.stream("POST", "/execute/stream", json={"code": code, "interactive": interactive}) as response,
+                self.client.stream("POST", "/execute/stream", json={"code": code, "interactive": False}) as response,
             ):
                 response.raise_for_status()
 

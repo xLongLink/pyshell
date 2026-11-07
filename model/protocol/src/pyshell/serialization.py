@@ -37,6 +37,7 @@ class Prompt:
     """Snapshot each appended message as a serialized block."""
 
     def __init__(self) -> None:
+        """Start with an empty message history."""
         self._blocks: list[str] = []
 
     def append(self, message: Mapping[str, str | dict]) -> None:

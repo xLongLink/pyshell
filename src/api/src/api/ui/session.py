@@ -336,7 +336,9 @@ class UI:
         self._active(widget)
         if {"id", "component"} & attributes.keys():
             raise ValueError("Widget identity and type cannot be changed by update()")
-        candidate = Figure.model_validate({**widget.model_dump(mode="json", exclude=set(attributes)), **attributes})
+        candidate = Figure.model_validate(
+            {"id": widget.id, "component": widget.component, "data": list(widget.data), "layout": widget.layout, **attributes}
+        )
         self._publish([self._content(widget.surface_id, candidate)])
 
         # Commit validated attributes only after the update has been published.

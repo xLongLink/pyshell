@@ -39,7 +39,7 @@ class TestInference:
         (self.adapter / "adapter_config.json").write_text(json.dumps({"base_model_name_or_path": "fixture-base", "revision": revision}))
         config = Settings(adapter=self.adapter, threads=3, device=device, tokens=max_new_tokens)
         completion = HFCompletion(config)
-        return completion
+        return completion  # noqa: RET504
 
     @pytest.mark.parametrize("revision", [None, "a" * 40])
     def test_adapter_loads_its_recorded_base_model(self, revision):

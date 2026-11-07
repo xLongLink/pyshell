@@ -2,15 +2,20 @@ import os
 import sys
 import json
 import signal
+import pathlib
 import contextlib
 import statistics
+from types import FrameType
+from typing import Any, NoReturn
 
 
-def deadline(_signal, _frame):
+def deadline(_signal: int, _frame: FrameType | None) -> NoReturn:
+    """Interrupt code that exceeds the execution deadline."""
     raise TimeoutError("Execution exceeded ten seconds")
 
 
-def main():
+def main() -> None:
+    """Process execution requests from standard input."""
     import numpy as np
     import pandas as pd
     from api.shell import PythonShell
@@ -19,12 +24,12 @@ def main():
     shell = None
     handler = signal.signal(signal.SIGALRM, deadline)
 
-    def publish(result):
+    def publish(result: dict[str, Any]) -> None:
         protocol.write(json.dumps(result, default=str) + "\n")
         protocol.flush()
 
     try:
-        with open(os.devnull, "w") as sink:
+        with pathlib.Path(os.devnull).open("w") as sink:
             for line in sys.stdin:
                 try:
                     request = json.loads(line)

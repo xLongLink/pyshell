@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseModel):
+    """Configure evaluation data, output, and model inference."""
+
     model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
 
     # Evaluation data
@@ -23,7 +25,8 @@ class Settings(BaseModel):
     threads: int = Field(default=16, gt=0)
 
     @model_validator(mode="after")
-    def validate_data(self):
+    def validate_data(self) -> "Settings":
+        """Require a pinned revision for remotely loaded evaluation data."""
         if not Path(self.data).is_dir() and self.data_revision is None:
             raise ValueError("A remote benchmark requires a pinned revision")
         return self

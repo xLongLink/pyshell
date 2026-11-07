@@ -1,5 +1,5 @@
-import json
 import sys
+import json
 import pytest
 from unittest.mock import Mock
 from model.benchmark import main
