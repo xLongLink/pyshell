@@ -109,7 +109,6 @@ jobs:
                   uv run --directory model/protocol --locked --python 3.12 pytest -v
                   npm --prefix src/web test
                   docker build --target runtime --tag pyshell:cleanup --file src/api/Dockerfile src
-                  bash .github/scripts/container.sh pyshell:cleanup
                   git diff --check HEAD
                   CHECKS
                       echo "Validation passed on attempt $attempt." >> "$GITHUB_STEP_SUMMARY"

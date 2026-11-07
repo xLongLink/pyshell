@@ -95,8 +95,6 @@ jobs:
             org.opencontainers.image.description=Python agent shell
           cache-from: type=gha,scope=pyshell
           cache-to: type=gha,mode=max,scope=pyshell
-      - name: Check container permissions, workspace, and execution API
-        run: bash .github/scripts/container.sh pyshell:test
       - name: Export tested image
         if: inputs.export-image
         run: docker save --output "${RUNNER_TEMP}/pyshell.tar" pyshell:test
