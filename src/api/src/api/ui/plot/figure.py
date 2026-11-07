@@ -83,7 +83,7 @@ class Figure(UIModel):
             raise ValueError("set_view() requires an interactive map")
         revision = trace.view.revision + 1 if trace.view is not None else 1
         view = MapView.model_validate({**attributes, "revision": revision})
-        self.update(data=[{"type": trace.type, "layers": list(trace.layers), "view": view}])
+        self.update(data=[{"type": trace.type, "layers": trace.layers, "view": view}])
 
     def pin(self) -> None:
         """Move this figure into the sidebar."""

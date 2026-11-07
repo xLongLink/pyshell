@@ -2,7 +2,7 @@ from api.ui.state import UIState
 
 
 def creation(identifier):
-    return {"createSurface": {"surfaceId": identifier}}
+    return {"version": "v0.9", "createSurface": {"surfaceId": identifier}}
 
 
 def content(identifier, title="Initial"):
