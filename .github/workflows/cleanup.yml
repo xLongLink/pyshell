@@ -37,15 +37,19 @@ jobs:
 
             - name: Check for an existing cleanup PR
               id: pending
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  GH_REPO: ${{ github.repository }}
-              run: |
-                  count=$(gh pr list --state open --head automation/opencode-cleanup --json number --jq 'length')
-                  if [[ "$count" != 0 ]]; then
-                    echo 'A cleanup PR is already awaiting review; skipping.' >> "$GITHUB_STEP_SUMMARY"
-                    echo 'skip=true' >> "$GITHUB_OUTPUT"
-                  fi
+              uses: actions/github-script@v8
+              with:
+                  script: |
+                      const { data: pulls } = await github.rest.pulls.list({
+                        ...context.repo,
+                        state: 'open',
+                        head: `${context.repo.owner}:automation/opencode-cleanup`,
+                        per_page: 1,
+                      });
+                      if (pulls.length) {
+                        await core.summary.addRaw('A cleanup PR is already awaiting review; skipping.').write();
+                        core.setOutput('skip', 'true');
+                      }
 
             - name: Sync OpenCode configuration
               if: steps.pending.outputs.skip != 'true'
