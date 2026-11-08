@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { polygon, position } from "./geojson";
+import { countPositions, polygonGeometry, position } from "./geojson";
 
 const text = z.string().max(10000);
 const properties = z
@@ -55,17 +55,7 @@ export const mapTraceSchema = z
                                             type: z.literal("Point"),
                                             coordinates: position,
                                         }),
-                                        z.strictObject({
-                                            type: z.literal("Polygon"),
-                                            coordinates: polygon,
-                                        }),
-                                        z.strictObject({
-                                            type: z.literal("MultiPolygon"),
-                                            coordinates: z
-                                                .array(polygon)
-                                                .min(1)
-                                                .max(200),
-                                        }),
+                                        ...polygonGeometry.options,
                                     ]),
                                 }),
                             )
@@ -97,17 +87,7 @@ export const mapTraceSchema = z
             for (const feature of layer.data.features) {
                 const geometry = feature.geometry;
                 if (geometry.type === "Point") positions += 1;
-                else {
-                    const polygons =
-                        geometry.type === "Polygon"
-                            ? [geometry.coordinates]
-                            : geometry.coordinates;
-                    positions += polygons.reduce(
-                        (sum, rings) =>
-                            sum + rings.reduce((n, ring) => n + ring.length, 0),
-                        0,
-                    );
-                }
+                else positions += countPositions(geometry);
             }
         }
         if (features > 200) fail("A map accepts at most 200 total features");

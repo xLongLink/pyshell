@@ -114,7 +114,7 @@ def create_app() -> FastAPI:
         def execute() -> None:
             try:
                 with lock:
-                    result = shell.execute(request.code, interactive=True) if request.interactive else shell.execute(request.code)
+                    result = shell.execute(request.code, interactive=request.interactive)
                 queue.put({"type": "result", **result})
 
             # Terminate connected readers even when execution fails.

@@ -8,7 +8,6 @@ from dataclasses import dataclass
 class Surface:
     """Retain a widget's current content and placement."""
 
-    creation: dict[str, object]
     latest_update: dict[str, object]
     pinned: bool = False
     focused_at: int = 0
@@ -30,7 +29,10 @@ class UIState:
         with self.lock:
             return {
                 "type": "snapshot",
-                "events": [{"type": "a2ui", "messages": [surface.creation, surface.latest_update]} for surface in self.surfaces.values()],
+                "events": [
+                    {"type": "a2ui", "messages": [{"version": "v0.9", "createSurface": {"surfaceId": identifier}}, surface.latest_update]}
+                    for identifier, surface in self.surfaces.items()
+                ],
                 "placements": {key: {"pinned": surface.pinned} for key, surface in self.surfaces.items()},
             }
 
@@ -87,7 +89,7 @@ class UIState:
                 elif "createSurface" in message:
                     identifier = message["createSurface"]["surfaceId"]
                     self.surfaces.pop(identifier, None)
-                    self.surfaces[identifier] = Surface(message, messages[index + 1])
+                    self.surfaces[identifier] = Surface(messages[index + 1])
                     self._focus(identifier)
                 elif "updateComponents" in message:
                     self.surfaces[message["updateComponents"]["surfaceId"]].latest_update = message
