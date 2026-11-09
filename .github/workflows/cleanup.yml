@@ -43,7 +43,6 @@ jobs:
                   echo "CLEANUP_TEMP=$temporary" >> "$GITHUB_ENV"
                   echo "TMPDIR=$temporary" >> "$GITHUB_ENV"
                   echo "CLEANUP_REPORT=$temporary/cleanup-report.md" >> "$GITHUB_ENV"
-                  echo "CLEANUP_IMAGE=pyshell:cleanup-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
 
             - name: Check for an existing cleanup PR
               id: pending
@@ -83,15 +82,10 @@ jobs:
               with:
                   node-version: '26'
 
-            - name: Set up Docker
-              if: steps.pending.outputs.skip != 'true'
-              uses: docker/setup-docker-action@3f1ab1ab0e29231562e4db4ca600c1a49653bac6
-
             - name: Check runner prerequisites
               if: steps.pending.outputs.skip != 'true'
               run: |
                   make --version
-                  docker info
 
             - name: Implement cleanup findings
               if: steps.pending.outputs.skip != 'true'
@@ -116,7 +110,6 @@ jobs:
                   uv run --directory src/api --locked --python 3.12 pytest -v
                   uv run --directory model/protocol --locked --python 3.12 pytest -v
                   npm --prefix src/web test
-                  docker build --target runtime --tag "$CLEANUP_IMAGE" --file src/api/Dockerfile src
                   git diff --check HEAD
                   CHECKS
                       echo "Validation passed on attempt $attempt." >> "$GITHUB_STEP_SUMMARY"
@@ -166,7 +159,7 @@ jobs:
                   labels: refactor
                   body-path: ${{ env.CLEANUP_REPORT }}
 
-            - name: Remove job temporary files and validation image
+            - name: Remove job temporary files
               if: always()
               working-directory: ${{ runner.temp }}
               run: |
@@ -174,7 +167,4 @@ jobs:
                   echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
                   if [[ -n "${CLEANUP_TEMP:-}" && "$CLEANUP_TEMP" == "$RUNNER_TEMP"/opencode-cleanup.* ]]; then
                     rm -rf -- "$CLEANUP_TEMP"
-                  fi
-                  if [[ -n "${CLEANUP_IMAGE:-}" ]] && command -v docker >/dev/null && docker image inspect "$CLEANUP_IMAGE" >/dev/null 2>&1; then
-                    docker image rm "$CLEANUP_IMAGE"
                   fi
