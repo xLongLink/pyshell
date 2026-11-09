@@ -39,7 +39,11 @@ jobs:
               id: base
               run: |
                   echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-                  echo "CLEANUP_REPORT=$RUNNER_TEMP/cleanup-report.md" >> "$GITHUB_ENV"
+                  temporary=$(mktemp -d "$RUNNER_TEMP/opencode-cleanup.XXXXXX")
+                  echo "CLEANUP_TEMP=$temporary" >> "$GITHUB_ENV"
+                  echo "TMPDIR=$temporary" >> "$GITHUB_ENV"
+                  echo "CLEANUP_REPORT=$temporary/cleanup-report.md" >> "$GITHUB_ENV"
+                  echo "CLEANUP_IMAGE=pyshell:cleanup-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
 
             - name: Check for an existing cleanup PR
               id: pending
@@ -61,7 +65,7 @@ jobs:
               if: steps.pending.outputs.skip != 'true'
               run: |
                   config="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
-                  source=$(mktemp -d "$RUNNER_TEMP/openconfig.XXXXXX")
+                  source=$(mktemp -d "$CLEANUP_TEMP/openconfig.XXXXXX")
                   git clone --depth 1 --branch main https://github.com/Sau1707/openconfig.git "$source"
                   mkdir -p "$config"
                   git -C "$source" archive HEAD | tar -x -C "$config"
@@ -96,7 +100,7 @@ jobs:
               if: steps.pending.outputs.skip != 'true'
               timeout-minutes: 35
               run: |
-                  log="$RUNNER_TEMP/cleanup-validation.log"
+                  log="$CLEANUP_TEMP/cleanup-validation.log"
                   for attempt in 1 2 3; do
                     if bash -e -o pipefail <<'CHECKS' 2>&1 | tee "$log"; then
                   npm --prefix src/web ci
@@ -108,7 +112,7 @@ jobs:
                   uv run --directory src/api --locked --python 3.12 pytest -v
                   uv run --directory model/protocol --locked --python 3.12 pytest -v
                   npm --prefix src/web test
-                  docker build --target runtime --tag pyshell:cleanup --file src/api/Dockerfile src
+                  docker build --target runtime --tag "$CLEANUP_IMAGE" --file src/api/Dockerfile src
                   git diff --check HEAD
                   CHECKS
                       echo "Validation passed on attempt $attempt." >> "$GITHUB_STEP_SUMMARY"
@@ -124,7 +128,7 @@ jobs:
             - name: Generate cleanup report
               if: steps.pending.outputs.skip != 'true'
               run: |
-                  opencode run --standalone --auto --continue --agent build "Generate a Markdown pull request description based on the final diff and actual verification results in $RUNNER_TEMP/cleanup-validation.log. Write the description to the absolute path in CLEANUP_REPORT. Use the headings ## Summary and ## Validation. Include a summary of the implemented changes, checks that passed or failed, and any remaining limitations. If nothing changed, state that explicitly. Do not include secrets or raw environment output. Do not modify repository files, commit, push, or create a pull request."
+                  opencode run --standalone --auto --continue --agent build "Generate a Markdown pull request description based on the final diff and actual verification results in $CLEANUP_TEMP/cleanup-validation.log. Write the description to the absolute path in CLEANUP_REPORT. Use the headings ## Summary and ## Validation. Include a summary of the implemented changes, checks that passed or failed, and any remaining limitations. If nothing changed, state that explicitly. Do not include secrets or raw environment output. Do not modify repository files, commit, push, or create a pull request."
 
             - name: Validate the resulting changes
               if: steps.pending.outputs.skip != 'true'
@@ -157,3 +161,16 @@ jobs:
                   title: 'refactor: cleanup'
                   labels: refactor
                   body-path: ${{ env.CLEANUP_REPORT }}
+
+            - name: Remove job temporary files and validation image
+              if: always()
+              working-directory: ${{ runner.temp }}
+              run: |
+                  export TMPDIR="$RUNNER_TEMP"
+                  echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+                  if [[ -n "${CLEANUP_TEMP:-}" && "$CLEANUP_TEMP" == "$RUNNER_TEMP"/opencode-cleanup.* ]]; then
+                    rm -rf -- "$CLEANUP_TEMP"
+                  fi
+                  if [[ -n "${CLEANUP_IMAGE:-}" ]] && command -v docker >/dev/null && docker image inspect "$CLEANUP_IMAGE" >/dev/null 2>&1; then
+                    docker image rm "$CLEANUP_IMAGE"
+                  fi
