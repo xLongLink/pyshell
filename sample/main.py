@@ -76,7 +76,6 @@ async def reset_workspace(request: Request) -> dict[str, str]:
         await workspace.agent.reset()
         workspace.recent_tasks.clear()
         workspace.task = None
-        workspace.phase = "idle"
     except Exception as error:
         raise HTTPException(status_code=502, detail="Workspace reset failed. Restart the execution container and web server.") from error
     finally:
