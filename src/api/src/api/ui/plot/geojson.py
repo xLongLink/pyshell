@@ -23,6 +23,13 @@ Ring = Annotated[ImmutableList[Position], Field(min_length=4, max_length=4000), 
 PolygonCoordinates = Annotated[ImmutableList[Ring], Field(min_length=1, max_length=200)]
 
 
+class Point(UIModel):
+    """Locate a feature using WGS84 longitude and latitude."""
+
+    type: Literal["Point"] = "Point"
+    coordinates: Position
+
+
 class Polygon(UIModel):
     """Describe a polygon using WGS84 longitude/latitude rings."""
 
@@ -37,8 +44,10 @@ class MultiPolygon(UIModel):
     coordinates: Annotated[ImmutableList[PolygonCoordinates], Field(min_length=1, max_length=200)]
 
 
-def count_positions(geometry: Polygon | MultiPolygon) -> int:
-    """Count coordinate positions across polygon rings."""
+def count_positions(geometry: Point | Polygon | MultiPolygon) -> int:
+    """Count coordinate positions across geographic geometries."""
+    if isinstance(geometry, Point):
+        return 1
     polygons = (geometry.coordinates,) if isinstance(geometry, Polygon) else geometry.coordinates
     return sum(len(ring) for polygon in polygons for ring in polygon)
 

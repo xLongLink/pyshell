@@ -27,20 +27,23 @@ class UIState:
     def snapshot(self) -> dict[str, object]:
         """Copy the current widgets and their placement."""
         with self.lock:
-            return {
-                "type": "snapshot",
-                "events": [
-                    {"type": "a2ui", "messages": [{"version": "v0.9", "createSurface": {"surfaceId": identifier}}, surface.latest_update]}
-                    for identifier, surface in self.surfaces.items()
-                ],
-                "placements": {key: {"pinned": surface.pinned} for key, surface in self.surfaces.items()},
-            }
+            return self._snapshot()
+
+    def _snapshot(self) -> dict[str, object]:
+        return {
+            "type": "snapshot",
+            "events": [
+                {"type": "a2ui", "messages": [{"version": "v0.9", "createSurface": {"surfaceId": identifier}}, surface.latest_update]}
+                for identifier, surface in self.surfaces.items()
+            ],
+            "placements": {key: {"pinned": surface.pinned} for key, surface in self.surfaces.items()},
+        }
 
     def subscribe(self) -> asyncio.Queue:
         """Subscribe on the browser event loop before taking its first snapshot."""
         with self.lock:
             queue = asyncio.Queue(maxsize=1)
-            queue.put_nowait(self.snapshot())
+            queue.put_nowait(self._snapshot())
             self.listeners[queue] = asyncio.get_running_loop()
             return queue
 
@@ -55,7 +58,7 @@ class UIState:
             queues = [queue for queue, owner in self.listeners.items() if owner is loop]
             if not queues:
                 return
-            snapshot = self.snapshot()
+            snapshot = self._snapshot()
             for queue in queues:
                 if queue.full():
                     queue.get_nowait()
@@ -79,7 +82,8 @@ class UIState:
     def publish(self, messages: list[dict[str, object]]) -> None:
         """Apply a validated widget mutation from the execution thread."""
         with self.lock:
-            for index, message in enumerate(messages):
+            pending = iter(messages)
+            for message in pending:
                 if message.get("type") == "widget":
                     identifier = message["surface_id"]
                     if message["action"] == "focus":
@@ -89,7 +93,7 @@ class UIState:
                 elif "createSurface" in message:
                     identifier = message["createSurface"]["surfaceId"]
                     self.surfaces.pop(identifier, None)
-                    self.surfaces[identifier] = Surface(messages[index + 1])
+                    self.surfaces[identifier] = Surface(next(pending))
                     self._focus(identifier)
                 elif "updateComponents" in message:
                     self.surfaces[message["updateComponents"]["surfaceId"]].latest_update = message

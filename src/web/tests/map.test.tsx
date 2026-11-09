@@ -345,4 +345,12 @@ test("unavailable country bounds report an error and allow retry with a fresh ma
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(map.remove).toHaveBeenCalledOnce();
     expect(sdk.FakeMap.instances).toHaveLength(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Loading map");
+    const replacement = sdk.FakeMap.instances[1];
+    act(() => replacement.handlers.load());
+    expect((await screen.findByRole("alert")).textContent).toContain(
+        "Unable to load country bounds",
+    );
+    expect(replacement.sources["data-buildings"]).toBeDefined();
 });

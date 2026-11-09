@@ -4,14 +4,7 @@ from pydantic import Field, field_validator, model_validator, field_serializer
 from api.ui.model import UIModel
 from api.ui.types import Number, TextValue, Identifier, ImmutableList
 from collections.abc import Mapping
-from api.ui.plot.geojson import Polygon, Position, MultiPolygon, count_positions
-
-
-class Point(UIModel):
-    """Locate a feature using WGS84 longitude and latitude."""
-
-    type: Literal["Point"] = "Point"
-    coordinates: Position
+from api.ui.plot.geojson import Point, Polygon, Position, MultiPolygon, count_positions
 
 
 class MapFeature(UIModel):
@@ -110,11 +103,7 @@ class Map(UIModel):
             if len({feature.id for feature in layer.data.features}) != len(layer.data.features):
                 raise ValueError("Map feature IDs must be unique within each layer")
             for feature in layer.data.features:
-                geometry = feature.geometry
-                if isinstance(geometry, Point):
-                    positions += 1
-                else:
-                    positions += count_positions(geometry)
+                positions += count_positions(feature.geometry)
         if positions > 4000:
             raise ValueError("A map accepts at most 4,000 positions; simplify the geometry first")
         return self

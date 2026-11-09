@@ -15,25 +15,37 @@ import { loadGeography, orientBoundaries } from "./geography";
 
 setWorkerUrl(workerUrl);
 
-export default function GeographicMap({
-    trace,
-    showlegend,
-}: {
+type MapProps = {
     trace: MapTrace;
     showlegend: boolean;
-}) {
+};
+
+export default function GeographicMap(props: MapProps) {
+    const [attempt, setAttempt] = useState(0);
+    return (
+        <MapAttempt
+            key={attempt}
+            {...props}
+            retry={() => setAttempt((value) => value + 1)}
+        />
+    );
+}
+
+function MapAttempt({
+    trace,
+    showlegend,
+    retry,
+}: MapProps & { retry: () => void }) {
     const container = useRef<HTMLDivElement>(null);
     const current = useRef(trace);
     const popup = useRef<Popup | null>(null);
     const [map, setMap] = useState<Map | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [attempt, setAttempt] = useState(0);
     current.current = trace;
 
     useEffect(() => {
         if (!container.current) return;
         let instance: Map;
-        setError(null);
         try {
             instance = new Map({
                 container: container.current,
@@ -114,9 +126,8 @@ export default function GeographicMap({
             observer.disconnect();
             popup.current?.remove();
             instance.remove();
-            setMap(null);
         };
-    }, [attempt]);
+    }, []);
 
     useEffect(() => {
         if (!map) return;
@@ -238,10 +249,7 @@ export default function GeographicMap({
             {error && (
                 <div role="alert" className="text-xs text-destructive">
                     {error}{" "}
-                    <button
-                        className="underline"
-                        onClick={() => setAttempt((value) => value + 1)}
-                    >
+                    <button className="underline" onClick={retry}>
                         Retry
                     </button>
                 </div>
