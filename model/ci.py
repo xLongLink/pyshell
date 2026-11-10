@@ -161,6 +161,11 @@ def publish(directory: Path, repo: str) -> None:
         raise ValueError("Only the exact passing, merged tree can be published")
     if metrics["baseline_model"]["repo"] != repo:
         raise ValueError("Hugging Face repository changed since evaluation")
+    adapter = directory / "candidate"
+    for name in ("adapter_config.json", "adapter_model.safetensors"):
+        path = adapter / name
+        if not path.is_file() or not path.stat().st_size:
+            raise ValueError(f"Candidate adapter is missing or empty: {name}")
     api = HfApi()
     revision = metrics["baseline_model"]["revision"]
     if metrics["bootstrap"]:
@@ -168,7 +173,7 @@ def publish(directory: Path, repo: str) -> None:
         revision = api.model_info(repo).sha
     elif api.model_info(repo).sha != revision:
         raise ValueError("Accepted model changed; update the PR and evaluate again")
-    for path in (directory / "candidate").glob("adapter_*"):
+    for path in adapter.glob("adapter_*"):
         shutil.copy2(path, directory / path.name)
     api.upload_folder(
         repo_id=repo,

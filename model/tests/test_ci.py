@@ -123,6 +123,23 @@ def test_publish_preserves_exact_adapter_and_uses_atomic_baseline_check(publicat
     api.create_repo.assert_not_called()
 
 
+@pytest.mark.parametrize("name", ["adapter_config.json", "adapter_model.safetensors"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_incomplete_adapter_cannot_be_published(publication, name, empty):
+    directory, metrics, api = publication
+    metrics["bootstrap"] = True
+    (directory / "metrics.json").write_text(json.dumps(metrics))
+    path = directory / "candidate" / name
+    if empty:
+        path.write_bytes(b"")
+    else:
+        path.unlink()
+    with pytest.raises(ValueError, match="missing or empty"):
+        ci.publish(directory, "example/model")
+    api.create_repo.assert_not_called()
+    api.upload_folder.assert_not_called()
+
+
 @pytest.mark.parametrize("field,value", [("tree", "different"), ("improved", False)])
 def test_unapproved_candidate_cannot_be_published(publication, field, value):
     directory, metrics, api = publication

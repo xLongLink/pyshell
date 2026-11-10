@@ -76,6 +76,8 @@ jobs:
           uv run --project model/train --locked --extra cuda --python 3.12 pytest model/train/tests
           uv run --project model/train --locked --extra cuda --python 3.12 python model/ci.py train --directory "$RUN_DIR"
       - name: Test approved benchmark
+        env:
+          PYTHONPATH: approved/src/api/src
         run: uv run --project approved/model/benchmark --locked --extra cuda --extra data --python 3.12 pytest -c approved/model/benchmark/pyproject.toml approved/model/benchmark/tests
       - name: Evaluate accepted model with approved benchmark
         if: github.event_name != 'workflow_dispatch'
@@ -90,6 +92,8 @@ jobs:
           python model/ci.py evaluate --root approved --directory "$RUN_DIR"
       - name: Validate proposed benchmark
         if: github.event_name != 'workflow_dispatch'
+        env:
+          PYTHONPATH: src/api/src
         run: |
           uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 pytest model/benchmark/tests
           uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 python model/ci.py evaluate --directory "$RUN_DIR" --adapter baseline --output proposed.jsonl

@@ -64,6 +64,8 @@ jobs:
           enable-cache: true
       - run: uv run --project model/train --locked --extra cpu --python 3.12 python -m pytest model/train/tests model/tests
       - run: uv run --project model/benchmark --locked --extra local --extra data --python 3.12 python -m pytest model/benchmark/tests
+        env:
+          PYTHONPATH: src/api/src
 
   frontend:
     runs-on: ubuntu-24.04
