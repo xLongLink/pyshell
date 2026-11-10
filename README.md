@@ -45,9 +45,6 @@ Base model: `Qwen/Qwen3.5-0.8B`.
 
 **Execution success: 15.00% (9/60 tasks).**
 
-Development benchmark: `LongLink/pyshell-worker-data` at `1ed43ba23eff6438850921dca30665e5608fb8b7`.
-Budget: 4 model calls per stage, 384 generated tokens per call.
-
 | Category | Passed | Success |
 | --- | ---: | ---: |
 | Filtered means | 0/5 | 0.00% |
@@ -62,8 +59,6 @@ Budget: 4 model calls per stage, 384 generated tokens per call.
 | Recover execution | 0/5 | 0.00% |
 | Stateful followup | 2/5 | 40.00% |
 | Statistics | 2/5 | 40.00% |
-
-Evaluated commit: `c1cf3677067d4b2975e1d20f9a9716fcc01f0a50`.
 
 <!-- model-stats:end -->
 

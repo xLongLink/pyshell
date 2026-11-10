@@ -288,17 +288,7 @@ def accepted_model(tmp_path):
         "workflow": "https://github.com/example/pyshell/actions/runs/42",
         "evaluated_at": "2026-11-10T12:00:00+00:00",
     }
-    config = {
-        "commit": "evaluated-commit",
-        "settings": {
-            "data": "example/tasks",
-            "calls": 4,
-            "tokens": 384,
-            "data_revision": "a" * 40,
-        },
-    }
     (tmp_path / "metrics.json").write_text(json.dumps(metrics))
-    (tmp_path / "candidate.jsonl.config.json").write_text(json.dumps(config))
     (tmp_path / "adapter_config.json").write_text(
         '{"base_model_name_or_path":"example/base"}'
     )
@@ -311,10 +301,12 @@ def test_readme_replaces_only_model_statistics_and_is_idempotent(accepted_model)
     assert updated.startswith("# Project\n\n## Model\n<!-- model-stats:start -->")
     assert updated.endswith("<!-- model-stats:end -->\nFooter\n")
     assert "33.33% (1/3 tasks)" in updated
+    assert "Evaluated commit:" not in updated
+    assert "Development benchmark:" not in updated
+    assert "Budget:" not in updated
     assert "| Left join | 0/1 | 0.00% |" in updated
     assert "| Statistics | 1/2 | 50.00% |" in updated
     assert "https://huggingface.co/example/model/tree/accepted-revision" in updated
-    assert "`example/tasks` at `" + "a" * 40 + "`" in updated
     assert "2026-11-10T12:00:00+00:00" in updated
     assert "https://github.com/example/pyshell/actions/runs/42" in updated
     assert updated == ci.readme(

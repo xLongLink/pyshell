@@ -196,18 +196,13 @@ def readme(content: str, directory: Path, repo: str, revision: str) -> str:
     metrics = json.loads((directory / "metrics.json").read_text())
     if not metrics["improved"]:
         raise ValueError("README statistics require an accepted model")
-    config = json.loads((directory / "candidate.jsonl.config.json").read_text())
     adapter = json.loads((directory / "adapter_config.json").read_text())
     score = metrics["candidate"]
-    settings = config["settings"]
     lines = [
         f"Accepted adapter: [{repo}](https://huggingface.co/{repo}/tree/{revision}).",
         f"Base model: `{adapter['base_model_name_or_path']}`.",
         "",
         f"**Execution success: {score['success_rate']:.2%} ({score['passed']}/{score['total']} tasks).**",
-        "",
-        f"Development benchmark: `{settings['data']}` at `{settings['data_revision']}`.",
-        f"Budget: {settings['calls']} model calls per stage, {settings['tokens']} generated tokens per call.",
         "",
         "| Category | Passed | Success |",
         "| --- | ---: | ---: |",
@@ -217,7 +212,8 @@ def readme(content: str, directory: Path, repo: str, revision: str) -> str:
             f"| {family.replace('_', ' ').capitalize()} | {result['passed']}/{result['total']} | "
             f"{result['passed'] / result['total']:.2%} |"
         )
-    lines.extend(["", f"Evaluated commit: `{config['commit']}`."])
+    if metrics.get("evaluated_at") or metrics.get("workflow"):
+        lines.append("")
     if metrics.get("evaluated_at"):
         lines.append(f"Evaluation date (UTC): {metrics['evaluated_at']}.")
     if metrics.get("workflow"):
@@ -244,7 +240,6 @@ def update_readme(directory: Path, repo: str) -> None:
         allow_patterns=[
             "metrics.json",
             "adapter_config.json",
-            "candidate.jsonl.config.json",
         ],
     )
     endpoint = f"repos/{repository}/contents/README.md"
