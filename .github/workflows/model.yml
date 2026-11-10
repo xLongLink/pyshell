@@ -1,0 +1,178 @@
+name: Model
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  HF_MODEL_REPO: ${{ vars.HF_MODEL_REPO }}
+
+jobs:
+  changes:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    outputs:
+      relevant: ${{ steps.changes.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: python3 model/ci.py changes --base "$BASE"
+
+  evaluate:
+    needs: changes
+    if: >-
+      always() &&
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' ||
+      needs.changes.outputs.relevant == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, x64, rtx]
+    environment: model-training
+    timeout-minutes: 180
+    concurrency:
+      group: model-gpu
+      cancel-in-progress: false
+    env:
+      HF_TOKEN: ${{ secrets.HF_READ_TOKEN }}
+      BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && '--bootstrap' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.4'
+          enable-cache: true
+      - name: Check GPU and build execution container
+        run: |
+          echo "RUN_DIR=$RUNNER_TEMP/model-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          nvidia-smi
+          docker build --target runtime -t pyshell-pyshell:latest -f src/api/Dockerfile src
+      - name: Load accepted model
+        run: uv run --project model/benchmark --locked --python 3.12 python model/ci.py baseline --directory "$RUN_DIR" $BOOTSTRAP
+      - name: Test and train candidate
+        run: |
+          uv run --project model/train --locked --extra cuda --python 3.12 pytest model/train/tests
+          uv run --project model/train --locked --extra cuda --python 3.12 python model/ci.py train --directory "$RUN_DIR"
+      - name: Test current benchmark
+        env:
+          PYTHONPATH: src/api/src
+        run: uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 pytest model/benchmark/tests
+      - name: Evaluate accepted model with current benchmark
+        if: github.event_name != 'workflow_dispatch'
+        run: >-
+          uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12
+          python model/ci.py evaluate --directory "$RUN_DIR"
+          --adapter baseline --output baseline.jsonl
+      - name: Evaluate candidate with current benchmark
+        run: >-
+          uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12
+          python model/ci.py evaluate --directory "$RUN_DIR"
+      - name: Require strict improvement
+        run: python3 model/ci.py report --directory "$RUN_DIR" $BOOTSTRAP
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: model-candidate
+          path: |
+            ${{ env.RUN_DIR }}/candidate/adapter_*
+            ${{ env.RUN_DIR }}/*.json
+            ${{ env.RUN_DIR }}/*.jsonl
+          if-no-files-found: error
+          retention-days: 30
+
+  model-quality:
+    needs: [changes, evaluate]
+    if: always() && github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check model result
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULT: ${{ needs.evaluate.result }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            test "$RESULT" = success
+          else
+            test "$CHANGES" = success
+            if [ "$RELEVANT" = true ]; then test "$RESULT" = success; fi
+          fi
+
+  publish:
+    if: >-
+      github.event.action == 'closed' && github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: model-publishing
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    concurrency:
+      group: model-publishing
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Find tested candidate
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          RELEVANT=$(gh pr diff "$NUMBER" --name-only | python3 -c 'import sys; from model.ci import changes; print(str(changes(sys.stdin.read().splitlines())).lower())')
+          if [ "$RELEVANT" != true ]; then exit 0; fi
+          RUN=$(gh run list --workflow model.yml --event pull_request --commit "$HEAD" --status success --json databaseId --jq '.[0].databaseId // empty')
+          test -n "$RUN"
+          gh run download "$RUN" --name model-candidate --dir candidate
+          test -f candidate/metrics.json
+          echo 'found=true' >> "$GITHUB_OUTPUT"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: steps.candidate.outputs.found == 'true'
+        with:
+          version: '0.13.4'
+      - name: Publish accepted adapter and scores
+        if: steps.candidate.outputs.found == 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: uv run --project model/benchmark --locked --python 3.12 python model/ci.py publish --directory candidate
+
+  bootstrap:
+    needs: [evaluate, model-quality]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: model-publishing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: model-candidate
+          path: candidate
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.4'
+      - env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: uv run --project model/benchmark --locked --python 3.12 python model/ci.py publish --directory candidate
