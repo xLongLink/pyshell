@@ -22,6 +22,7 @@ class Settings(BaseModel):
     device: Literal["cpu", "cuda"] = "cpu"
     tokens: int = Field(default=384, gt=0)
     threads: int = Field(default=16, gt=0)
+    batch_size: int = Field(default=1, gt=0)
 
 
 SETTINGS = Settings()

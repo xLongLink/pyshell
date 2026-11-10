@@ -2,6 +2,7 @@ import json
 import torch
 from peft import PeftModel
 from transformers import AutoTokenizer, StopStringCriteria, StoppingCriteriaList, AutoModelForImageTextToText
+from collections.abc import Sequence
 from pyshell.parsing import parse_completion
 from pyshell.serialization import MARKERS
 from model.benchmark.src.settings import Settings
@@ -19,15 +20,18 @@ class HFCompletion:
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
         self.tokenizer = AutoTokenizer.from_pretrained(base, revision=revision)
+        self.tokenizer.padding_side = "left"
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         self.model = AutoModelForImageTextToText.from_pretrained(base, revision=revision, dtype=torch.float32, attn_implementation="sdpa")
         self.model = PeftModel.from_pretrained(self.model, config.adapter)
         self.model.to(config.device).eval()
         self.max_new_tokens = config.tokens
         self.stopping_criteria = StoppingCriteriaList([StopStringCriteria(self.tokenizer, list(MARKERS))])
 
-    def __call__(self, prompt: str) -> tuple[str, bool]:
-        """Return generated code and whether its closing marker was reached."""
-        inputs = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(self.model.device)
+    def __call__(self, prompts: Sequence[str]) -> list[tuple[str, bool]]:
+        """Return generated code and boundary status for each prompt."""
+        inputs = self.tokenizer(list(prompts), return_tensors="pt", add_special_tokens=False, padding=True).to(self.model.device)
         with torch.inference_mode():
             output = self.model.generate(
                 **inputs,
@@ -37,5 +41,11 @@ class HFCompletion:
                 stop_strings=None,
                 stopping_criteria=self.stopping_criteria,
             )
-        text = self.tokenizer.decode(output[0, inputs.input_ids.shape[1] :], skip_special_tokens=False)
-        return parse_completion(text)
+        eos = self.model.generation_config.eos_token_id
+        eos = set(eos if isinstance(eos, list) else [eos])
+        completions = []
+        for tokens in output[:, inputs.input_ids.shape[1] :].tolist():
+            end = next((index + 1 for index, token in enumerate(tokens) if token in eos), len(tokens))
+            text = self.tokenizer.decode(tokens[:end], skip_special_tokens=False)
+            completions.append(parse_completion(text))
+        return completions
