@@ -183,14 +183,13 @@ def main() -> None:
         choices=["changes", "baseline", "train", "evaluate", "report", "publish"],
     )
     parser.add_argument("--directory", type=Path)
-    parser.add_argument("--base")
     parser.add_argument("--repo", default=os.environ.get("HF_MODEL_REPO"))
     parser.add_argument("--adapter", default="candidate")
     parser.add_argument("--output", default="candidate.jsonl")
     parser.add_argument("--bootstrap", action="store_true")
     args = parser.parse_args()
     if args.command == "changes":
-        relevant = changes(git("diff", "--name-only", args.base, "HEAD").splitlines())
+        relevant = changes(sys.stdin.read().splitlines())
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as file:
             file.write(f"relevant={str(relevant).lower()}\n")
         return
