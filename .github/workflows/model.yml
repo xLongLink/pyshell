@@ -31,7 +31,7 @@ jobs:
       - id: changes
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-        run: python model/ci.py changes --base "$BASE"
+        run: python3 model/ci.py changes --base "$BASE"
 
   evaluate:
     needs: changes
@@ -99,10 +99,10 @@ jobs:
           uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 python model/ci.py evaluate --directory "$RUN_DIR" --adapter baseline --output proposed.jsonl
       - name: Require strict improvement
         if: env.TRAIN == 'true'
-        run: python model/ci.py report --directory "$RUN_DIR" $BOOTSTRAP
+        run: python3 model/ci.py report --directory "$RUN_DIR" $BOOTSTRAP
       - name: Report evaluation-only change
         if: env.TRAIN != 'true'
-        run: python model/ci.py report --directory "$RUN_DIR" --evaluation-only
+        run: python3 model/ci.py report --directory "$RUN_DIR" --evaluation-only
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -159,7 +159,7 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          TRAIN=$(gh pr diff "$NUMBER" --name-only | python -c 'import sys; from model.ci import changes; print(str(changes(sys.stdin.read().splitlines())[1]).lower())')
+          TRAIN=$(gh pr diff "$NUMBER" --name-only | python3 -c 'import sys; from model.ci import changes; print(str(changes(sys.stdin.read().splitlines())[1]).lower())')
           if [ "$TRAIN" != true ]; then exit 0; fi
           RUN=$(gh run list --workflow model.yml --event pull_request --commit "$HEAD" --status success --json databaseId --jq '.[0].databaseId // empty')
           test -n "$RUN"
