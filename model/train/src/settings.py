@@ -13,12 +13,9 @@ class Settings(BaseModel):
 
     # Model and dataset
     base: str = Field(default="Qwen/Qwen3.5-0.8B", min_length=1)
-    data: str = Field(default="LongLink/pyshell-worker-data", min_length=1)
+    data: str = Field(default=str(ROOT / "data"), min_length=1)
     base_revision: str | None = Field(
         default="2fc06364715b967f1860aea9cf38778875588b17", pattern=r"^[0-9a-f]{40}$"
-    )
-    data_revision: str | None = Field(
-        default="1ed43ba23eff6438850921dca30665e5608fb8b7", pattern=r"^[0-9a-f]{40}$"
     )
 
     # Run
@@ -46,8 +43,6 @@ class Settings(BaseModel):
     def validate_sources(self):
         if not Path(self.base).is_dir() and self.base_revision is None:
             raise ValueError("A remote base model requires a pinned revision")
-        if not Path(self.data).is_dir() and self.data_revision is None:
-            raise ValueError("A remote dataset requires a pinned revision")
         return self
 
 

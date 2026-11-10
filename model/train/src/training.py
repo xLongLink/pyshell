@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import datasets
-from huggingface_hub import snapshot_download
 from peft import LoraConfig
 from transformers import AutoTokenizer
 from trl import SFTConfig, SFTTrainer
@@ -16,14 +15,6 @@ def train(config: settings.Settings):
             f"Refusing to overwrite existing training artifacts: {config.output}"
         )
     data = Path(config.data)
-    if not data.is_dir():
-        snapshot = snapshot_download(
-            config.data,
-            repo_type="dataset",
-            revision=config.data_revision,
-            allow_patterns=["data/train.jsonl", "data/validation.jsonl"],
-        )
-        data = Path(snapshot) / "data"
     if not (data / "train.jsonl").stat().st_size:
         raise ValueError("Training dataset must not be empty")
     validation = data / "validation.jsonl"
