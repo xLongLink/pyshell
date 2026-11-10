@@ -14,7 +14,11 @@ dependencies = [
 
 [project.optional-dependencies]
 cpu = ["torch>=2.10,<3"]
-cuda = ["torch>=2.10,<3"]
+cuda = [
+    "torch==2.10.0",
+    "causal-conv1d==1.7.0; sys_platform == 'linux'",
+    "flash-linear-attention[cuda]==0.6.0; sys_platform == 'linux'",
+]
 
 [dependency-groups]
 dev = ["pytest>=9,<10"]
@@ -26,6 +30,15 @@ addopts = "--import-mode=importlib"
 
 [tool.uv]
 conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
+
+[tool.uv.extra-build-dependencies]
+causal-conv1d = [{ requirement = "torch", match-runtime = true }, "packaging", "ninja"]
+
+[[tool.uv.dependency-metadata]]
+name = "causal-conv1d"
+version = "1.7.0"
+requires-python = ">=3.9"
+requires-dist = ["torch", "packaging", "ninja"]
 
 [tool.uv.sources]
 pyshell = { path = "../protocol", editable = true }
