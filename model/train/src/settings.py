@@ -31,7 +31,7 @@ class Settings(BaseModel):
     dtype: Literal["float32", "bfloat16"] = "float32"
     batch_size: int = Field(default=1, gt=0)
     max_length: int = Field(default=2048, gt=0)
-    learning_rate: float = Field(default=2e-4, gt=0)
+    learning_rate: float = Field(default=5e-5, gt=0)
     gradient_accumulation_steps: int = Field(default=4, gt=0)
 
     # LoRA
