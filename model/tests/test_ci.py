@@ -1,3 +1,5 @@
+import base64
+import datetime
 import json
 import os
 import subprocess
@@ -119,7 +121,9 @@ def test_failed_gate_preserves_metrics(tmp_path, status):
     assert json.loads((tmp_path / "metrics.json").read_text())["improved"] is False
 
 
-def test_improved_candidate_passes_on_current_benchmark(tmp_path):
+def test_improved_candidate_passes_on_current_benchmark(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/pyshell")
+    monkeypatch.setenv("GITHUB_RUN_ID", "42")
     results(tmp_path / "candidate.jsonl", ["passed", "passed"])
     results(tmp_path / "baseline.jsonl", ["passed", "incorrect"])
     (tmp_path / "baseline.json").write_text('{"repo":"example/model","revision":"old"}')
@@ -128,6 +132,10 @@ def test_improved_candidate_passes_on_current_benchmark(tmp_path):
     assert metrics["improved"] is True
     assert metrics["candidate"]["passed"] == 2
     assert metrics["baseline"]["passed"] == 1
+    assert datetime.datetime.fromisoformat(metrics["evaluated_at"]).utcoffset() == (
+        datetime.timedelta(0)
+    )
+    assert metrics["workflow"] == "https://github.com/example/pyshell/actions/runs/42"
 
 
 def test_both_adapters_use_current_benchmark_and_identical_settings(
@@ -261,3 +269,127 @@ def test_bootstrap_does_not_require_existing_model(tmp_path, monkeypatch):
     ci.baseline(tmp_path, "example/new-model", True)
     api.model_info.assert_not_called()
     assert json.loads((tmp_path / "baseline.json").read_text())["revision"] is None
+
+
+@pytest.fixture
+def accepted_model(tmp_path):
+    metrics = {
+        "improved": True,
+        "candidate": {
+            "passed": 1,
+            "total": 3,
+            "success_rate": 1 / 3,
+            "families": {
+                "statistics": {"passed": 1, "total": 2},
+                "left_join": {"passed": 0, "total": 1},
+            },
+        },
+        "baseline": {"passed": 0, "total": 3, "success_rate": 0},
+        "workflow": "https://github.com/example/pyshell/actions/runs/42",
+        "evaluated_at": "2026-11-10T12:00:00+00:00",
+    }
+    config = {
+        "commit": "evaluated-commit",
+        "settings": {
+            "data": "example/tasks",
+            "calls": 4,
+            "tokens": 384,
+            "data_revision": "a" * 40,
+        },
+    }
+    (tmp_path / "metrics.json").write_text(json.dumps(metrics))
+    (tmp_path / "candidate.jsonl.config.json").write_text(json.dumps(config))
+    (tmp_path / "adapter_config.json").write_text(
+        '{"base_model_name_or_path":"example/base"}'
+    )
+    return tmp_path
+
+
+def test_readme_replaces_only_model_statistics_and_is_idempotent(accepted_model):
+    content = "# Project\n\n## Model\n<!-- model-stats:start -->old<!-- model-stats:end -->\nFooter\n"
+    updated = ci.readme(content, accepted_model, "example/model", "accepted-revision")
+    assert updated.startswith("# Project\n\n## Model\n<!-- model-stats:start -->")
+    assert updated.endswith("<!-- model-stats:end -->\nFooter\n")
+    assert "33.33% (1/3 tasks)" in updated
+    assert "| Left join | 0/1 | 0.00% |" in updated
+    assert "| Statistics | 1/2 | 50.00% |" in updated
+    assert "https://huggingface.co/example/model/tree/accepted-revision" in updated
+    assert "`example/tasks` at `" + "a" * 40 + "`" in updated
+    assert "2026-11-10T12:00:00+00:00" in updated
+    assert "https://github.com/example/pyshell/actions/runs/42" in updated
+    assert updated == ci.readme(
+        updated, accepted_model, "example/model", "accepted-revision"
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "# Project",
+        "<!-- model-stats:start -->",
+        "<!-- model-stats:end --><!-- model-stats:start -->",
+        "<!-- model-stats:start --><!-- model-stats:start --><!-- model-stats:end -->",
+        "<!-- model-stats:start --><!-- model-stats:end --><!-- model-stats:end -->",
+    ],
+)
+def test_readme_rejects_missing_duplicate_or_reversed_markers(accepted_model, content):
+    with pytest.raises(ValueError, match="markers"):
+        ci.readme(content, accepted_model, "example/model", "accepted-revision")
+
+
+def test_readme_rejects_rejected_model(accepted_model):
+    metrics = json.loads((accepted_model / "metrics.json").read_text())
+    metrics["improved"] = False
+    (accepted_model / "metrics.json").write_text(json.dumps(metrics))
+    with pytest.raises(ValueError, match="accepted model"):
+        ci.readme(
+            "<!-- model-stats:start --><!-- model-stats:end -->",
+            accepted_model,
+            "example/model",
+            "rejected-revision",
+        )
+
+
+@pytest.mark.parametrize("already_current", [False, True])
+def test_readme_update_uses_published_snapshot_and_latest_readme_sha(
+    accepted_model, monkeypatch, already_current
+):
+    import huggingface_hub
+
+    api = Mock()
+    api.model_info.return_value = SimpleNamespace(sha="published-revision")
+    download = Mock()
+    monkeypatch.setattr(huggingface_hub, "HfApi", Mock(return_value=api))
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", download)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/pyshell")
+    content = "Header\n<!-- model-stats:start -->old<!-- model-stats:end -->\nFooter\n"
+    updated = ci.readme(content, accepted_model, "example/model", "published-revision")
+    document = {
+        "sha": "latest-readme-sha",
+        "content": base64.b64encode(
+            (updated if already_current else content).encode()
+        ).decode(),
+    }
+    get = Mock(return_value=json.dumps(document))
+    put = Mock()
+    monkeypatch.setattr(subprocess, "check_output", get)
+    monkeypatch.setattr(subprocess, "run", put)
+    ci.update_readme(accepted_model, "example/model")
+    assert download.call_args.kwargs["revision"] == "published-revision"
+    assert (
+        "adapter_model.safetensors" not in download.call_args.kwargs["allow_patterns"]
+    )
+    assert get.call_args.args[0] == [
+        "gh",
+        "api",
+        "repos/example/pyshell/contents/README.md?ref=main",
+    ]
+    api.upload_folder.assert_not_called()
+    if already_current:
+        put.assert_not_called()
+    else:
+        payload = json.loads(put.call_args.kwargs["input"])
+        assert payload["sha"] == "latest-readme-sha"
+        assert payload["branch"] == "main"
+        assert base64.b64decode(payload["content"]).decode() == updated
+        assert put.call_args.kwargs["check"] is True

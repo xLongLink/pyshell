@@ -36,6 +36,39 @@ https://github.com/user-attachments/assets/3b46a5d7-b39b-40f7-8575-fd3f6f0c1d7a
 
 <br />
 
+## Model
+
+<!-- model-stats:start -->
+
+Accepted adapter: [LongLink/pyshell-worker](https://huggingface.co/LongLink/pyshell-worker/tree/4064ca4a5ebab1c97dd166133a74be4231771973).
+Base model: `Qwen/Qwen3.5-0.8B`.
+
+**Execution success: 15.00% (9/60 tasks).**
+
+Development benchmark: `LongLink/pyshell-worker-data` at `1ed43ba23eff6438850921dca30665e5608fb8b7`.
+Budget: 4 model calls per stage, 384 generated tokens per call.
+
+| Category | Passed | Success |
+| --- | ---: | ---: |
+| Filtered means | 0/5 | 0.00% |
+| Grouped revenue | 0/5 | 0.00% |
+| Inspect callable | 1/5 | 20.00% |
+| Joined totals | 0/5 | 0.00% |
+| Left join | 0/5 | 0.00% |
+| Linear system | 2/5 | 40.00% |
+| Missing input | 2/5 | 40.00% |
+| Missing values | 0/5 | 0.00% |
+| Monthly totals | 0/5 | 0.00% |
+| Recover execution | 0/5 | 0.00% |
+| Stateful followup | 2/5 | 40.00% |
+| Statistics | 2/5 | 40.00% |
+
+Evaluated commit: `c1cf3677067d4b2975e1d20f9a9716fcc01f0a50`.
+
+<!-- model-stats:end -->
+
+<br />
+
 ## Try it locally
 
 Set `OPENAI_API_KEY` in `sample/.env`, then run from the repository root:

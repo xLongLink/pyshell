@@ -1,4 +1,6 @@
 import argparse
+import base64
+import datetime
 import json
 import os
 import shutil
@@ -122,7 +124,13 @@ def report(directory: Path, bootstrap: bool) -> None:
         commit=git("rev-parse", "HEAD"),
         tree=git("rev-parse", "HEAD^{tree}"),
         bootstrap=bootstrap,
+        evaluated_at=datetime.datetime.now(datetime.UTC).isoformat(),
     )
+    if os.environ.get("GITHUB_REPOSITORY") and os.environ.get("GITHUB_RUN_ID"):
+        result["workflow"] = (
+            f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/"
+            f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+        )
     (directory / "metrics.json").write_text(json.dumps(result, indent=2) + "\n")
     summary = f"Candidate: {result['candidate']['success_rate']:.2%}\n"
     if not bootstrap:
@@ -176,11 +184,105 @@ def publish(directory: Path, repo: str) -> None:
     )
 
 
+def readme(content: str, directory: Path, repo: str, revision: str) -> str:
+    start = "<!-- model-stats:start -->"
+    end = "<!-- model-stats:end -->"
+    if (
+        content.count(start) != 1
+        or content.count(end) != 1
+        or content.index(start) > content.index(end)
+    ):
+        raise ValueError("README must contain one ordered pair of model-stats markers")
+    metrics = json.loads((directory / "metrics.json").read_text())
+    if not metrics["improved"]:
+        raise ValueError("README statistics require an accepted model")
+    config = json.loads((directory / "candidate.jsonl.config.json").read_text())
+    adapter = json.loads((directory / "adapter_config.json").read_text())
+    score = metrics["candidate"]
+    settings = config["settings"]
+    lines = [
+        f"Accepted adapter: [{repo}](https://huggingface.co/{repo}/tree/{revision}).",
+        f"Base model: `{adapter['base_model_name_or_path']}`.",
+        "",
+        f"**Execution success: {score['success_rate']:.2%} ({score['passed']}/{score['total']} tasks).**",
+        "",
+        f"Development benchmark: `{settings['data']}` at `{settings['data_revision']}`.",
+        f"Budget: {settings['calls']} model calls per stage, {settings['tokens']} generated tokens per call.",
+        "",
+        "| Category | Passed | Success |",
+        "| --- | ---: | ---: |",
+    ]
+    for family, result in sorted(score["families"].items()):
+        lines.append(
+            f"| {family.replace('_', ' ').capitalize()} | {result['passed']}/{result['total']} | "
+            f"{result['passed'] / result['total']:.2%} |"
+        )
+    lines.extend(["", f"Evaluated commit: `{config['commit']}`."])
+    if metrics.get("evaluated_at"):
+        lines.append(f"Evaluation date (UTC): {metrics['evaluated_at']}.")
+    if metrics.get("workflow"):
+        lines.append(f"[Evaluation workflow]({metrics['workflow']}).")
+    return (
+        content[: content.index(start) + len(start)]
+        + "\n\n"
+        + "\n".join(lines)
+        + "\n\n"
+        + content[content.index(end) :]
+    )
+
+
+def update_readme(directory: Path, repo: str) -> None:
+    from huggingface_hub import HfApi, snapshot_download
+
+    repository = os.environ["GITHUB_REPOSITORY"]
+    api = HfApi()
+    revision = api.model_info(repo).sha
+    snapshot_download(
+        repo,
+        revision=revision,
+        local_dir=directory,
+        allow_patterns=[
+            "metrics.json",
+            "adapter_config.json",
+            "candidate.jsonl.config.json",
+        ],
+    )
+    endpoint = f"repos/{repository}/contents/README.md"
+    document = json.loads(
+        subprocess.check_output(["gh", "api", f"{endpoint}?ref=main"], text=True)
+    )
+    content = base64.b64decode(document["content"]).decode()
+    updated = readme(content, directory, repo, revision)
+    if updated == content:
+        return
+    payload = {
+        "sha": document["sha"],
+        "branch": "main",
+        "content": base64.b64encode(updated.encode()).decode(),
+        "message": "docs: Update accepted model statistics",
+    }
+    subprocess.run(
+        ["gh", "api", "--method", "PUT", endpoint, "--input", "-"],
+        input=json.dumps(payload),
+        text=True,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "command",
-        choices=["changes", "baseline", "train", "evaluate", "report", "publish"],
+        choices=[
+            "changes",
+            "baseline",
+            "train",
+            "evaluate",
+            "report",
+            "publish",
+            "readme",
+        ],
     )
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--repo", default=os.environ.get("HF_MODEL_REPO"))
@@ -197,7 +299,7 @@ def main() -> None:
         parser.error("--directory is required")
     directory = args.directory.resolve()
     directory.mkdir(parents=True, exist_ok=True)
-    if args.command in {"baseline", "publish"} and not args.repo:
+    if args.command in {"baseline", "publish", "readme"} and not args.repo:
         parser.error("Set the HF_MODEL_REPO repository variable")
     if args.command == "baseline":
         baseline(directory, args.repo, args.bootstrap)
@@ -210,6 +312,8 @@ def main() -> None:
         report(directory, args.bootstrap)
     elif args.command == "publish":
         publish(directory, args.repo)
+    elif args.command == "readme":
+        update_readme(directory, args.repo)
 
 
 if __name__ == "__main__":

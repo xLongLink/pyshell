@@ -161,6 +161,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: model-publishing
+    concurrency:
+      group: model-publishing
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -175,3 +178,28 @@ jobs:
       - env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: uv run --project model/benchmark --locked --python 3.12 python model/ci.py publish --directory candidate
+
+  readme:
+    needs: [publish, bootstrap]
+    if: always() && (needs.publish.result == 'success' || needs.bootstrap.result == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: model-publishing
+    permissions:
+      contents: write
+    concurrency:
+      group: model-publishing
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.4'
+      - name: Update accepted model statistics
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: uv run --project model/benchmark --locked --python 3.12 python model/ci.py readme --directory "$RUNNER_TEMP/model-readme"
