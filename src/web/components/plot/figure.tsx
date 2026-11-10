@@ -17,13 +17,7 @@ export function Figure({
         Trace,
         { type: "bar" | "scatter" | "area" }
     >[];
-    const chartLayout = compact
-        ? {
-              ...layout,
-              showlegend: false,
-              xaxis: { title: { text: "" } },
-          }
-        : layout;
+    const showlegend = !compact && layout.showlegend;
     return (
         <figure className="flex h-full min-h-0 min-w-0 flex-col rounded-xl border bg-card shadow-sm">
             <figcaption
@@ -44,10 +38,7 @@ export function Figure({
             >
                 {trace.type === "map" ? (
                     <Suspense fallback={<p role="status">Loading map…</p>}>
-                        <GeographicMap
-                            trace={trace}
-                            showlegend={chartLayout.showlegend}
-                        />
+                        <GeographicMap trace={trace} showlegend={showlegend} />
                     </Suspense>
                 ) : trace.type === "choropleth" ? (
                     <Suspense
@@ -57,19 +48,16 @@ export function Figure({
                             </p>
                         }
                     >
-                        <Choropleth
-                            key={trace.geography}
-                            trace={trace}
-                            showlegend={chartLayout.showlegend}
-                        />
+                        <Choropleth trace={trace} showlegend={showlegend} />
                     </Suspense>
                 ) : trace.type === "pie" ? (
-                    <PiePlot
-                        trace={trace}
-                        showlegend={chartLayout.showlegend}
-                    />
+                    <PiePlot trace={trace} showlegend={showlegend} />
                 ) : (
-                    <Cartesian data={cartesian} layout={chartLayout} />
+                    <Cartesian
+                        data={cartesian}
+                        xAxisTitle={compact ? "" : layout.xaxis.title.text}
+                        showlegend={showlegend}
+                    />
                 )}
             </div>
         </figure>
