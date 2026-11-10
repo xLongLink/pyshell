@@ -1,4 +1,8 @@
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -35,6 +39,26 @@ from model import ci
 )
 def test_change_classification(paths, expected):
     assert ci.changes(paths) == expected
+
+
+@pytest.mark.parametrize(
+    "paths,expected",
+    [
+        (".github/workflows/model.yml\nmodel/ci.py\n", "false"),
+        ("model/train/src/settings.py\n", "true"),
+        ("model/benchmark/tasks.jsonl\n", "true"),
+    ],
+)
+def test_changes_command_classifies_pr_file_list(tmp_path, paths, expected):
+    output = tmp_path / "outputs"
+    subprocess.run(
+        [sys.executable, str(Path(ci.__file__)), "changes"],
+        input=paths,
+        text=True,
+        check=True,
+        env={**os.environ, "GITHUB_OUTPUT": str(output)},
+    )
+    assert output.read_text() == f"relevant={expected}\n"
 
 
 def results(path, statuses):

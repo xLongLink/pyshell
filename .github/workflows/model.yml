@@ -18,26 +18,31 @@ env:
 
 jobs:
   changes:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    if: >-
+      github.event_name == 'pull_request' &&
+      (github.event.action != 'closed' || github.event.pull_request.merged == true)
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       relevant: ${{ steps.changes.outputs.relevant }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
       - id: changes
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-        run: python3 model/ci.py changes --base "$BASE"
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr diff "$NUMBER" --name-only | python3 model/ci.py changes
 
   evaluate:
     needs: changes
     if: >-
       always() &&
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' ||
-      needs.changes.outputs.relevant == 'true' &&
+      github.event.action != 'closed' && needs.changes.outputs.relevant == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, linux, x64, rtx]
     environment: model-training
@@ -114,16 +119,17 @@ jobs:
           fi
 
   publish:
+    needs: changes
     if: >-
       github.event.action == 'closed' && github.event.pull_request.merged == true &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: model-publishing
     permissions:
       contents: read
       actions: read
-      pull-requests: read
     concurrency:
       group: model-publishing
       cancel-in-progress: false
@@ -133,25 +139,18 @@ jobs:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           persist-credentials: false
       - name: Find tested candidate
-        id: candidate
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          RELEVANT=$(gh pr diff "$NUMBER" --name-only | python3 -c 'import sys; from model.ci import changes; print(str(changes(sys.stdin.read().splitlines())).lower())')
-          if [ "$RELEVANT" != true ]; then exit 0; fi
           RUN=$(gh run list --workflow model.yml --event pull_request --commit "$HEAD" --status success --json databaseId --jq '.[0].databaseId // empty')
           test -n "$RUN"
           gh run download "$RUN" --name model-candidate --dir candidate
           test -f candidate/metrics.json
-          echo 'found=true' >> "$GITHUB_OUTPUT"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        if: steps.candidate.outputs.found == 'true'
         with:
           version: '0.13.4'
       - name: Publish accepted adapter and scores
-        if: steps.candidate.outputs.found == 'true'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: uv run --project model/benchmark --locked --python 3.12 python model/ci.py publish --directory candidate
