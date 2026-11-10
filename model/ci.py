@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import sys
-from collections import Counter
 from pathlib import Path
 
 
@@ -24,23 +23,10 @@ def changes(paths: list[str]) -> bool:
 
 
 def score(path: Path) -> dict:
+    from model.benchmark.src import scoring
+
     rows = [json.loads(line) for line in path.read_text().splitlines()]
-    if not rows or len({row["id"] for row in rows}) != len(rows):
-        raise ValueError("Evaluation must contain unique, nonempty tasks")
-    statuses = {"passed", "incorrect", "call_limit", "boundary_error"}
-    if any(row["status"] not in statuses for row in rows):
-        raise ValueError("Unknown evaluation status")
-    families = Counter(row["family"] for row in rows)
-    passed = Counter(row["family"] for row in rows if row["status"] == "passed")
-    return {
-        "passed": sum(passed.values()),
-        "total": len(rows),
-        "success_rate": sum(passed.values()) / len(rows),
-        "families": {
-            family: {"passed": passed[family], "total": total}
-            for family, total in sorted(families.items())
-        },
-    }
+    return scoring.score(rows)
 
 
 def compare(candidate: Path, baseline: Path) -> dict:
@@ -94,7 +80,6 @@ def train(directory: Path) -> None:
 
 
 def evaluate(directory: Path, adapter: str, output: str) -> None:
-    sys.path.insert(0, str(Path.cwd()))
     from model.benchmark.src import evaluate, settings
 
     config = settings.Settings.model_validate(
@@ -119,6 +104,8 @@ def evaluate(directory: Path, adapter: str, output: str) -> None:
 
 
 def report(directory: Path, bootstrap: bool) -> None:
+    from model.benchmark.src import scoring
+
     result = {"candidate": score(directory / "candidate.jsonl"), "improved": True}
     if not bootstrap:
         result = compare(directory / "candidate.jsonl", directory / "baseline.jsonl")
@@ -135,9 +122,9 @@ def report(directory: Path, bootstrap: bool) -> None:
             f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
         )
     (directory / "metrics.json").write_text(json.dumps(result, indent=2) + "\n")
-    summary = f"Candidate: {result['candidate']['success_rate']:.2%}\n"
+    summary = f"Candidate:\n{scoring.summary(result['candidate'])}\n"
     if not bootstrap:
-        summary += f"Accepted: {result['baseline']['success_rate']:.2%}\n"
+        summary += f"Accepted:\n{scoring.summary(result['baseline'])}\n"
     summary += (
         "Bootstrap baseline\n" if bootstrap else f"Improved: {result['improved']}\n"
     )
@@ -205,15 +192,14 @@ def readme(content: str, directory: Path, repo: str, revision: str) -> str:
         f"Accepted adapter: [{repo}](https://huggingface.co/{repo}/tree/{revision}).",
         f"Base model: `{adapter['base_model_name_or_path']}`.",
         "",
-        f"**Execution success: {score['success_rate']:.2%} ({score['passed']}/{score['total']} tasks).**",
-        "",
-        "| Category | Passed | Success |",
-        "| --- | ---: | ---: |",
+        f"**Task success: {score['success_rate']:.2%} ({score['passed']}/{score['total']} tasks).**",
     ]
-    for family, result in sorted(score["families"].items()):
+    if score.get("valid_python_rate") is None:
+        lines.append("**Valid Python: not measured.**")
+    else:
         lines.append(
-            f"| {family.replace('_', ' ').capitalize()} | {result['passed']}/{result['total']} | "
-            f"{result['passed'] / result['total']:.2%} |"
+            f"**Valid Python: {score['valid_python_rate']:.2%} "
+            f"({score['valid_python']}/{score['generations']} responses).**"
         )
     if metrics.get("evaluated_at") or metrics.get("workflow"):
         lines.append("")
@@ -302,7 +288,6 @@ def main() -> None:
     if args.command == "baseline":
         baseline(directory, args.repo, args.bootstrap)
     elif args.command == "train":
-        sys.path.insert(0, str(Path.cwd()))
         train(directory)
     elif args.command == "evaluate":
         evaluate(directory, args.adapter, args.output)
@@ -315,4 +300,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     main()
