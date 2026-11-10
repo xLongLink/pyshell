@@ -37,9 +37,7 @@ def test_training_limits_must_be_positive(field, value):
         {"target_modules": ("q_proj", "v_proj")},
         {"target_modules": ["q_proj", "v_proj"]},
         {"base_revision": "main"},
-        {"data_revision": "main"},
         {"base_revision": None},
-        {"data_revision": None},
         {"unknown_setting": True},
     ],
 )
@@ -52,6 +50,14 @@ def test_candidate_output_is_separate_from_published_weights():
     assert (
         SETTINGS.output == Path(__file__).resolve().parents[1] / "artifacts/candidate"
     )
+
+
+def test_default_data_is_repository_local(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    data = Path(Settings().data)
+    assert data == Path(__file__).resolve().parents[1] / "data"
+    assert (data / "train.jsonl").is_file()
+    assert (data / "validation.jsonl").is_file()
 
 
 def test_checked_in_values_do_not_read_environment(monkeypatch):

@@ -1,6 +1,5 @@
 import json
 import runpy
-import shutil
 import sys
 from unittest.mock import Mock
 
@@ -59,22 +58,9 @@ def test_overlength_training_data_is_rejected(training_run):
         training_run("oversized", max_length=1)
 
 
-def test_pinned_dataset_download_only_fetches_training_splits(
-    training_run, tmp_path, monkeypatch
-):
-    revision = "a" * 40
-    snapshot = tmp_path / revision
-    shutil.copytree(tmp_path / "data", snapshot / "data")
-    download = Mock(return_value=str(snapshot))
-    monkeypatch.setattr(training, "snapshot_download", download)
-    output = training_run("downloaded", data="example/dataset", data_revision=revision)
-    download.assert_called_once_with(
-        "example/dataset",
-        repo_type="dataset",
-        revision=revision,
-        allow_patterns=["data/train.jsonl", "data/validation.jsonl"],
-    )
-    assert (output / "adapter_model.safetensors").is_file()
+def test_missing_local_training_data_is_rejected(training_run, tmp_path):
+    with pytest.raises(FileNotFoundError):
+        training_run("missing", data=str(tmp_path / "missing"))
 
 
 def test_training_ignores_foreign_files_and_saves_a_reloadable_adapter(

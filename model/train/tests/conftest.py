@@ -95,7 +95,6 @@ def training_run(tmp_path, tokenizer):
                     "base": str(base),
                     "data": str(data),
                     "base_revision": None,
-                    "data_revision": None,
                     "output": tmp_path / name,
                     "steps": 4,
                     "max_length": 1024,

@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from contextlib import closing
-from huggingface_hub import hf_hub_download
 from model.benchmark.src.trial import trial
 from model.benchmark.src.settings import Settings
 from model.benchmark.src.execution import Worker
@@ -12,15 +11,6 @@ def run(config: Settings) -> None:
     if config.output.exists():
         raise FileExistsError(f"Refusing to overwrite benchmark results: {config.output}")
     path = Path(config.data) / "dev-tasks.jsonl"
-    if not path.parent.is_dir():
-        path = Path(
-            hf_hub_download(
-                config.data,
-                "experiments/executed-transfer-v1/evaluation/dev-tasks.jsonl",
-                repo_type="dataset",
-                revision=config.data_revision,
-            )
-        )
     records = [json.loads(line) for line in path.read_text().splitlines()]
     if not records:
         raise ValueError("Evaluation tasks must not be empty")
