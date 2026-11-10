@@ -84,6 +84,8 @@ def train(directory: Path) -> None:
             **settings.SETTINGS.model_dump(),
             "cpu": False,
             "dtype": "bfloat16",
+            "batch_size": 4,
+            "gradient_accumulation_steps": 1,
             "output": directory / "candidate",
         }
     )
