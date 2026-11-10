@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from contextlib import ExitStack, closing
+from model.benchmark.src import scoring
 from model.benchmark.src.trial import trial
 from model.benchmark.src.settings import Settings
 from model.benchmark.src.execution import Worker
@@ -18,7 +19,6 @@ def run(config: Settings) -> None:
 
     generate = HFCompletion(config)
     config.output.parent.mkdir(parents=True, exist_ok=True)
-    passed = 0
     with config.output.open("x") as file, ExitStack() as stack:
         workers = []
         for _ in range(min(config.batch_size, len(records))):
@@ -40,7 +40,6 @@ def run(config: Settings) -> None:
                     row = result.value
                     file.write(json.dumps(row) + "\n")
                     file.flush()
-                    passed += row["status"] == "passed"
                     completed += 1
                     print(f"{completed}/{len(records)}: {row['id']} {row['status']}", flush=True)
                     record = next(remaining, None)
@@ -50,4 +49,5 @@ def run(config: Settings) -> None:
                     prompt = next(task)
                 pending.append((worker, task, prompt))
             active = pending
-    print(f"Passed {passed}/{len(records)} ({passed / len(records):.1%})", flush=True)
+    rows = [json.loads(line) for line in config.output.read_text().splitlines()]
+    print(scoring.summary(scoring.score(rows)), flush=True)

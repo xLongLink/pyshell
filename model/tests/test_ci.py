@@ -86,7 +86,8 @@ def test_only_strict_improvement_passes(tmp_path, statuses, improved):
     comparison = ci.compare(candidate, baseline)
     assert comparison["improved"] is improved
     assert comparison["baseline"]["success_rate"] == 0.5
-    assert comparison["candidate"]["families"]["arithmetic"]["total"] == 2
+    assert comparison["candidate"]["total"] == 2
+    assert "families" not in comparison["candidate"]
 
 
 @pytest.mark.parametrize("content", ["", '{"id":"x","family":"f","status":"error"}\n'])
@@ -121,7 +122,28 @@ def test_failed_gate_preserves_metrics(tmp_path, status):
     assert json.loads((tmp_path / "metrics.json").read_text())["improved"] is False
 
 
-def test_improved_candidate_passes_on_current_benchmark(tmp_path, monkeypatch):
+def test_better_python_validity_does_not_bypass_task_success_gate(tmp_path, capsys):
+    for name, source in (("baseline", "result ="), ("candidate", "result = 1")):
+        row = {
+            "id": "task",
+            "family": "arithmetic",
+            "status": "incorrect",
+            "steps": [{"source": source}],
+        }
+        (tmp_path / f"{name}.jsonl").write_text(json.dumps(row) + "\n")
+    (tmp_path / "baseline.json").write_text('{"repo":"example/model","revision":"old"}')
+    with pytest.raises(SystemExit, match="strictly improve"):
+        ci.report(tmp_path, False)
+    metrics = json.loads((tmp_path / "metrics.json").read_text())
+    assert metrics["candidate"]["valid_python_rate"] == 1
+    assert metrics["baseline"]["valid_python_rate"] == 0
+    assert metrics["improved"] is False
+    output = capsys.readouterr().out
+    assert "Valid Python: 100.00% (1/1 responses)" in output
+    assert "Valid Python: 0.00% (0/1 responses)" in output
+
+
+def test_improved_candidate_passes_on_current_benchmark(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("GITHUB_REPOSITORY", "example/pyshell")
     monkeypatch.setenv("GITHUB_RUN_ID", "42")
     results(tmp_path / "candidate.jsonl", ["passed", "passed"])
@@ -136,6 +158,8 @@ def test_improved_candidate_passes_on_current_benchmark(tmp_path, monkeypatch):
         datetime.timedelta(0)
     )
     assert metrics["workflow"] == "https://github.com/example/pyshell/actions/runs/42"
+    assert "Task success: 100.00% (2/2 tasks)" in capsys.readouterr().out
+    assert metrics["candidate"]["valid_python_rate"] is None
 
 
 def test_both_adapters_use_current_benchmark_and_identical_settings(
@@ -279,10 +303,9 @@ def accepted_model(tmp_path):
             "passed": 1,
             "total": 3,
             "success_rate": 1 / 3,
-            "families": {
-                "statistics": {"passed": 1, "total": 2},
-                "left_join": {"passed": 0, "total": 1},
-            },
+            "generations": 4,
+            "valid_python": 3,
+            "valid_python_rate": 0.75,
         },
         "baseline": {"passed": 0, "total": 3, "success_rate": 0},
         "workflow": "https://github.com/example/pyshell/actions/runs/42",
@@ -304,14 +327,32 @@ def test_readme_replaces_only_model_statistics_and_is_idempotent(accepted_model)
     assert "Evaluated commit:" not in updated
     assert "Development benchmark:" not in updated
     assert "Budget:" not in updated
-    assert "| Left join | 0/1 | 0.00% |" in updated
-    assert "| Statistics | 1/2 | 50.00% |" in updated
+    assert "Valid Python: 75.00% (3/4 responses)" in updated
+    assert "Category" not in updated
     assert "https://huggingface.co/example/model/tree/accepted-revision" in updated
     assert "2026-11-10T12:00:00+00:00" in updated
     assert "https://github.com/example/pyshell/actions/runs/42" in updated
     assert updated == ci.readme(
         updated, accepted_model, "example/model", "accepted-revision"
     )
+
+
+def test_readme_does_not_invent_python_validity_for_older_metrics(accepted_model):
+    path = accepted_model / "metrics.json"
+    metrics = json.loads(path.read_text())
+    for field in ("generations", "valid_python", "valid_python_rate"):
+        del metrics["candidate"][field]
+    metrics["candidate"]["families"] = {"old_category": {"passed": 1, "total": 3}}
+    path.write_text(json.dumps(metrics))
+    updated = ci.readme(
+        "<!-- model-stats:start --><!-- model-stats:end -->",
+        accepted_model,
+        "example/model",
+        "revision",
+    )
+    assert "Valid Python: not measured." in updated
+    assert "33.33% (1/3 tasks)" in updated
+    assert "old_category" not in updated
 
 
 @pytest.mark.parametrize(

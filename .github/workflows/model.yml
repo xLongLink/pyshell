@@ -113,7 +113,9 @@ jobs:
           uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12
           python model/ci.py evaluate --directory "$RUN_DIR"
       - name: Require strict improvement
-        run: python3 model/ci.py report --directory "$RUN_DIR" $BOOTSTRAP
+        run: >-
+          uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12
+          python model/ci.py report --directory "$RUN_DIR" $BOOTSTRAP
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

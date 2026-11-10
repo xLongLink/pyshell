@@ -19,7 +19,8 @@ def benchmark(tmp_path, monkeypatch):
     worker = Mock()
     monkeypatch.setattr(evaluate, "Worker", worker)
     rows = [
-        {**record, "status": status, "steps": []} for record, status in zip(records, ("passed", "incorrect", "call_limit"), strict=True)
+        {**record, "status": status, "steps": [{"source": "result = 1"}]}
+        for record, status in zip(records, ("passed", "incorrect", "call_limit"), strict=True)
     ]
 
     def task(worker, record, calls):
@@ -37,7 +38,9 @@ def test_run_evaluates_one_adapter_and_saves_results(benchmark, capsys):
     assert [json.loads(line) for line in config.output.read_text().splitlines()] == rows
     model.assert_called_once_with(config)
     worker.return_value.close.assert_called_once_with()
-    assert "Passed 1/3 (33.3%)" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Task success: 33.33% (1/3 tasks)" in output
+    assert "Valid Python: 100.00% (3/3 responses)" in output
 
 
 def test_existing_results_are_not_overwritten(benchmark):

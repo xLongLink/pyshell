@@ -43,22 +43,8 @@ https://github.com/user-attachments/assets/3b46a5d7-b39b-40f7-8575-fd3f6f0c1d7a
 Accepted adapter: [LongLink/pyshell-worker](https://huggingface.co/LongLink/pyshell-worker/tree/4064ca4a5ebab1c97dd166133a74be4231771973).
 Base model: `Qwen/Qwen3.5-0.8B`.
 
-**Execution success: 15.00% (9/60 tasks).**
-
-| Category | Passed | Success |
-| --- | ---: | ---: |
-| Filtered means | 0/5 | 0.00% |
-| Grouped revenue | 0/5 | 0.00% |
-| Inspect callable | 1/5 | 20.00% |
-| Joined totals | 0/5 | 0.00% |
-| Left join | 0/5 | 0.00% |
-| Linear system | 2/5 | 40.00% |
-| Missing input | 2/5 | 40.00% |
-| Missing values | 0/5 | 0.00% |
-| Monthly totals | 0/5 | 0.00% |
-| Recover execution | 0/5 | 0.00% |
-| Stateful followup | 2/5 | 40.00% |
-| Statistics | 2/5 | 40.00% |
+**Task success: 15.00% (9/60 tasks).**
+**Valid Python: 99.08% (215/217 responses).**
 
 <!-- model-stats:end -->
 
