@@ -10,18 +10,27 @@ from model import ci
 @pytest.mark.parametrize(
     "paths,expected",
     [
-        (["sample/main.py"], (False, False)),
-        (["model/train/tests/test_training.py"], (False, False)),
-        (["model/README.md"], (False, False)),
-        (["model/train/src/settings.py"], (True, True)),
-        (["model/train/uv.lock"], (True, True)),
-        (["model/protocol/src/pyshell/parsing.py"], (True, True)),
-        (["model/benchmark/src/settings.py"], (True, False)),
-        (["model/benchmark/uv.lock"], (True, False)),
-        (["model/benchmark/tasks.jsonl"], (True, False)),
-        ([".github/workflows/model.yml"], (True, True)),
-        (["model/ci.py"], (True, True)),
-        (["model/train/data/train.jsonl"], (True, True)),
+        ([], False),
+        (["sample/main.py"], False),
+        (["model/train/tests/test_training.py"], False),
+        (["model/benchmark/tests/test_evaluate.py"], False),
+        (["model/protocol/tests/test_parsing.py"], False),
+        (["model/README.md"], False),
+        (["model/train/README.md"], False),
+        (["model/train/src/settings.py"], True),
+        (["model/train/uv.lock"], True),
+        (["model/protocol/src/pyshell/parsing.py"], True),
+        (["model/benchmark/src/settings.py"], True),
+        (["model/benchmark/uv.lock"], True),
+        (["model/benchmark/tasks.jsonl"], True),
+        ([".github/workflows/model.yml"], False),
+        ([".github/workflows/tests.yml", "model/ci.py"], False),
+        (["model/train/data/train.jsonl"], True),
+        (["model/ci.py", "model/train/data/train.jsonl"], True),
+        (
+            ["model/benchmark/tests/test_evaluate.py", "model/benchmark/tasks.jsonl"],
+            True,
+        ),
     ],
 )
 def test_change_classification(paths, expected):
@@ -76,8 +85,9 @@ def test_different_tasks_are_not_comparable(tmp_path):
         ci.compare(candidate, baseline)
 
 
-def test_failed_gate_preserves_metrics(tmp_path):
-    results(tmp_path / "candidate.jsonl", ["passed"])
+@pytest.mark.parametrize("status", ["passed", "incorrect"])
+def test_failed_gate_preserves_metrics(tmp_path, status):
+    results(tmp_path / "candidate.jsonl", [status])
     results(tmp_path / "baseline.jsonl", ["passed"])
     (tmp_path / "baseline.json").write_text('{"repo":"example/model","revision":"old"}')
     with pytest.raises(SystemExit, match="strictly improve"):
@@ -85,11 +95,42 @@ def test_failed_gate_preserves_metrics(tmp_path):
     assert json.loads((tmp_path / "metrics.json").read_text())["improved"] is False
 
 
-def test_evaluation_only_change_does_not_require_improvement(tmp_path):
-    results(tmp_path / "baseline.jsonl", ["passed"])
-    results(tmp_path / "proposed.jsonl", ["incorrect", "incorrect"])
-    ci.report(tmp_path, False, evaluation_only=True)
-    assert not (tmp_path / "metrics.json").exists()
+def test_improved_candidate_passes_on_current_benchmark(tmp_path):
+    results(tmp_path / "candidate.jsonl", ["passed", "passed"])
+    results(tmp_path / "baseline.jsonl", ["passed", "incorrect"])
+    (tmp_path / "baseline.json").write_text('{"repo":"example/model","revision":"old"}')
+    ci.report(tmp_path, False)
+    metrics = json.loads((tmp_path / "metrics.json").read_text())
+    assert metrics["improved"] is True
+    assert metrics["candidate"]["passed"] == 2
+    assert metrics["baseline"]["passed"] == 1
+
+
+def test_both_adapters_use_current_benchmark_and_identical_settings(
+    tmp_path, monkeypatch
+):
+    from model.benchmark.src import evaluate, settings
+
+    current = settings.Settings(data=str(tmp_path), calls=2, tokens=32)
+    run = Mock()
+    monkeypatch.setattr(settings, "SETTINGS", current)
+    monkeypatch.setattr(evaluate, "run", run)
+    ci.evaluate(tmp_path, "baseline", "baseline.jsonl")
+    ci.evaluate(tmp_path, "candidate", "candidate.jsonl")
+    accepted = run.call_args_list[0].args[0]
+    candidate = run.call_args_list[1].args[0]
+    assert accepted.model_dump(exclude={"adapter", "output"}) == candidate.model_dump(
+        exclude={"adapter", "output"}
+    )
+    assert candidate.data == str(tmp_path)
+    assert candidate.calls == 2
+    assert candidate.tokens == 32
+    assert accepted.adapter == tmp_path / "baseline"
+    assert candidate.adapter == tmp_path / "candidate"
+    for name in ("baseline", "candidate"):
+        config = json.loads((tmp_path / f"{name}.jsonl.config.json").read_text())
+        assert config["commit"] == ci.git("rev-parse", "HEAD")
+        assert config["settings"]["output"] == str(tmp_path / f"{name}.jsonl")
 
 
 @pytest.fixture

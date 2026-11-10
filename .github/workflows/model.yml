@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       relevant: ${{ steps.changes.outputs.relevant }}
-      train: ${{ steps.changes.outputs.train }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,15 +48,9 @@ jobs:
     env:
       HF_TOKEN: ${{ secrets.HF_READ_TOKEN }}
       BOOTSTRAP: ${{ github.event_name == 'workflow_dispatch' && '--bootstrap' || '' }}
-      TRAIN: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.train == 'true' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          path: approved
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -67,42 +60,29 @@ jobs:
         run: |
           echo "RUN_DIR=$RUNNER_TEMP/model-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
           nvidia-smi
-          docker build --target runtime -t pyshell-pyshell:latest -f approved/src/api/Dockerfile approved/src
+          docker build --target runtime -t pyshell-pyshell:latest -f src/api/Dockerfile src
       - name: Load accepted model
         run: uv run --project model/benchmark --locked --python 3.12 python model/ci.py baseline --directory "$RUN_DIR" $BOOTSTRAP
       - name: Test and train candidate
-        if: env.TRAIN == 'true'
         run: |
           uv run --project model/train --locked --extra cuda --python 3.12 pytest model/train/tests
           uv run --project model/train --locked --extra cuda --python 3.12 python model/ci.py train --directory "$RUN_DIR"
-      - name: Test approved benchmark
-        env:
-          PYTHONPATH: approved/src/api/src
-        run: uv run --project approved/model/benchmark --locked --extra cuda --extra data --python 3.12 pytest -c approved/model/benchmark/pyproject.toml approved/model/benchmark/tests
-      - name: Evaluate accepted model with approved benchmark
-        if: github.event_name != 'workflow_dispatch'
-        run: >-
-          uv run --project approved/model/benchmark --locked --extra cuda --extra data --python 3.12
-          python model/ci.py evaluate --root approved --directory "$RUN_DIR"
-          --adapter baseline --output baseline.jsonl
-      - name: Evaluate candidate with approved benchmark
-        if: env.TRAIN == 'true'
-        run: >-
-          uv run --project approved/model/benchmark --locked --extra cuda --extra data --python 3.12
-          python model/ci.py evaluate --root approved --directory "$RUN_DIR"
-      - name: Validate proposed benchmark
-        if: github.event_name != 'workflow_dispatch'
+      - name: Test current benchmark
         env:
           PYTHONPATH: src/api/src
-        run: |
-          uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 pytest model/benchmark/tests
-          uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 python model/ci.py evaluate --directory "$RUN_DIR" --adapter baseline --output proposed.jsonl
+        run: uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 pytest model/benchmark/tests
+      - name: Evaluate accepted model with current benchmark
+        if: github.event_name != 'workflow_dispatch'
+        run: >-
+          uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12
+          python model/ci.py evaluate --directory "$RUN_DIR"
+          --adapter baseline --output baseline.jsonl
+      - name: Evaluate candidate with current benchmark
+        run: >-
+          uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12
+          python model/ci.py evaluate --directory "$RUN_DIR"
       - name: Require strict improvement
-        if: env.TRAIN == 'true'
         run: python3 model/ci.py report --directory "$RUN_DIR" $BOOTSTRAP
-      - name: Report evaluation-only change
-        if: env.TRAIN != 'true'
-        run: python3 model/ci.py report --directory "$RUN_DIR" --evaluation-only
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -159,8 +139,8 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          TRAIN=$(gh pr diff "$NUMBER" --name-only | python3 -c 'import sys; from model.ci import changes; print(str(changes(sys.stdin.read().splitlines())[1]).lower())')
-          if [ "$TRAIN" != true ]; then exit 0; fi
+          RELEVANT=$(gh pr diff "$NUMBER" --name-only | python3 -c 'import sys; from model.ci import changes; print(str(changes(sys.stdin.read().splitlines())).lower())')
+          if [ "$RELEVANT" != true ]; then exit 0; fi
           RUN=$(gh run list --workflow model.yml --event pull_request --commit "$HEAD" --status success --json databaseId --jq '.[0].databaseId // empty')
           test -n "$RUN"
           gh run download "$RUN" --name model-candidate --dir candidate

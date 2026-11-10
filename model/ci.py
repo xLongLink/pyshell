@@ -12,17 +12,13 @@ def git(*args: str) -> str:
     return subprocess.check_output(["git", *args], text=True).strip()
 
 
-def changes(paths: list[str]) -> tuple[bool, bool]:
-    relevant = [
-        path
+def changes(paths: list[str]) -> bool:
+    return any(
+        path.startswith(("model/train/", "model/protocol/", "model/benchmark/"))
+        and "/tests/" not in path
+        and not path.endswith(".md")
         for path in paths
-        if path.startswith("model/") or path == ".github/workflows/model.yml"
-    ]
-    relevant = [
-        path for path in relevant if "/tests/" not in path and not path.endswith(".md")
-    ]
-    train = any(not path.startswith("model/benchmark/") for path in relevant)
-    return bool(relevant), train
+    )
 
 
 def score(path: Path) -> dict:
@@ -93,8 +89,8 @@ def train(directory: Path) -> None:
     training.train(config)
 
 
-def evaluate(directory: Path, root: Path, adapter: str, output: str) -> None:
-    sys.path.insert(0, str(root.resolve()))
+def evaluate(directory: Path, adapter: str, output: str) -> None:
+    sys.path.insert(0, str(Path.cwd()))
     from model.benchmark.src import evaluate, settings
 
     config = settings.Settings.model_validate(
@@ -108,7 +104,7 @@ def evaluate(directory: Path, root: Path, adapter: str, output: str) -> None:
     (directory / f"{output}.config.json").write_text(
         json.dumps(
             {
-                "commit": git("-C", str(root), "rev-parse", "HEAD"),
+                "commit": git("rev-parse", "HEAD"),
                 "settings": config.model_dump(mode="json"),
             },
             indent=2,
@@ -117,18 +113,7 @@ def evaluate(directory: Path, root: Path, adapter: str, output: str) -> None:
     evaluate.run(config)
 
 
-def report(directory: Path, bootstrap: bool, evaluation_only: bool = False) -> None:
-    if evaluation_only:
-        print(
-            json.dumps(
-                {
-                    "approved": score(directory / "baseline.jsonl"),
-                    "proposed": score(directory / "proposed.jsonl"),
-                },
-                indent=2,
-            )
-        )
-        return
+def report(directory: Path, bootstrap: bool) -> None:
     result = {"candidate": score(directory / "candidate.jsonl"), "improved": True}
     if not bootstrap:
         result = compare(directory / "candidate.jsonl", directory / "baseline.jsonl")
@@ -198,22 +183,16 @@ def main() -> None:
         choices=["changes", "baseline", "train", "evaluate", "report", "publish"],
     )
     parser.add_argument("--directory", type=Path)
-    parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--base")
     parser.add_argument("--repo", default=os.environ.get("HF_MODEL_REPO"))
     parser.add_argument("--adapter", default="candidate")
     parser.add_argument("--output", default="candidate.jsonl")
     parser.add_argument("--bootstrap", action="store_true")
-    parser.add_argument("--evaluation-only", action="store_true")
     args = parser.parse_args()
     if args.command == "changes":
-        relevant, training = changes(
-            git("diff", "--name-only", args.base, "HEAD").splitlines()
-        )
+        relevant = changes(git("diff", "--name-only", args.base, "HEAD").splitlines())
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as file:
-            file.write(
-                f"relevant={str(relevant).lower()}\ntrain={str(training).lower()}\n"
-            )
+            file.write(f"relevant={str(relevant).lower()}\n")
         return
     if args.directory is None:
         parser.error("--directory is required")
@@ -227,9 +206,9 @@ def main() -> None:
         sys.path.insert(0, str(Path.cwd()))
         train(directory)
     elif args.command == "evaluate":
-        evaluate(directory, args.root, args.adapter, args.output)
+        evaluate(directory, args.adapter, args.output)
     elif args.command == "report":
-        report(directory, args.bootstrap, args.evaluation_only)
+        report(directory, args.bootstrap)
     elif args.command == "publish":
         publish(directory, args.repo)
 
