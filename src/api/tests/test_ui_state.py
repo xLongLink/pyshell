@@ -22,6 +22,19 @@ def test_snapshot_preserves_creation_payloads_and_replacement_order():
     ]
 
 
+def test_creation_pairs_and_standalone_updates_preserve_batch_order():
+    state = UIState()
+    latest = content("sales", "Latest")
+    state.publish([creation("sales"), content("sales"), creation("costs"), content("costs"), latest])
+    snapshot = state.snapshot()
+    assert [event["messages"][0]["createSurface"]["surfaceId"] for event in snapshot["events"]] == ["sales", "costs"]
+    assert snapshot["events"][0]["messages"][1] == latest
+    assert snapshot["events"][1]["messages"][1] == content("costs")
+    state.publish([creation("sales"), content("sales", "Replacement")])
+    assert [chart["surface_id"] for chart in state.context()["charts"]] == ["costs", "sales"]
+    assert state.context()["charts"][1]["title"] == "Replacement"
+
+
 def test_unsubscribe_before_delivery_does_not_deliver_to_detached_queue():
     async def run():
         state = UIState()

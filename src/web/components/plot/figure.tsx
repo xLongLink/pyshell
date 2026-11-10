@@ -5,6 +5,7 @@ import { PiePlot } from "./pie";
 import { cn } from "cn";
 
 const Choropleth = lazy(() => import("./choropleth"));
+const GeographicMap = lazy(() => import("./map"));
 
 export function Figure({
     data,
@@ -35,7 +36,11 @@ export function Figure({
                     compact ? "px-3 pb-1" : "px-6 pb-6",
                 )}
             >
-                {trace.type === "choropleth" ? (
+                {trace.type === "map" ? (
+                    <Suspense fallback={<p role="status">Loading map…</p>}>
+                        <GeographicMap trace={trace} showlegend={showlegend} />
+                    </Suspense>
+                ) : trace.type === "choropleth" ? (
                     <Suspense
                         fallback={
                             <p className="py-8 text-sm text-muted-foreground">

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const position = z.tuple([
+export const position = z.tuple([
     z.number().min(-180).max(180),
     z.number().min(-90).max(90),
 ]);
@@ -14,6 +14,30 @@ const ring = z
         return first?.[0] === last?.[0] && first?.[1] === last?.[1];
     }, "GeoJSON polygon rings must be closed");
 const polygon = z.array(ring).min(1).max(200);
+export const polygonGeometry = z.discriminatedUnion("type", [
+    z.strictObject({
+        type: z.literal("Polygon"),
+        coordinates: polygon,
+    }),
+    z.strictObject({
+        type: z.literal("MultiPolygon"),
+        coordinates: z.array(polygon).min(1).max(200),
+    }),
+]);
+
+export function countPositions(
+    geometry: z.infer<typeof polygonGeometry>,
+): number {
+    const polygons =
+        geometry.type === "Polygon"
+            ? [geometry.coordinates]
+            : geometry.coordinates;
+    return polygons.reduce(
+        (sum, rings) => sum + rings.reduce((n, points) => n + points.length, 0),
+        0,
+    );
+}
+
 export const geojsonSchema = z
     .object({
         type: z.literal("FeatureCollection"),
@@ -25,16 +49,7 @@ export const geojsonSchema = z
                     properties: z
                         .object({ name: z.string().max(10000).default("") })
                         .prefault({}),
-                    geometry: z.discriminatedUnion("type", [
-                        z.strictObject({
-                            type: z.literal("Polygon"),
-                            coordinates: polygon,
-                        }),
-                        z.strictObject({
-                            type: z.literal("MultiPolygon"),
-                            coordinates: z.array(polygon).min(1).max(200),
-                        }),
-                    ]),
+                    geometry: polygonGeometry,
                 }),
             )
             .min(1)
@@ -49,21 +64,10 @@ export const geojsonSchema = z
                 code: "custom",
                 message: "GeoJSON feature IDs must be unique",
             });
-        const count = collection.features.reduce((total, feature) => {
-            const geometry = feature.geometry;
-            const polygons =
-                geometry.type === "Polygon"
-                    ? [geometry.coordinates]
-                    : geometry.coordinates;
-            return (
-                total +
-                polygons.reduce(
-                    (sum, rings) =>
-                        sum + rings.reduce((n, points) => n + points.length, 0),
-                    0,
-                )
-            );
-        }, 0);
+        const count = collection.features.reduce(
+            (total, feature) => total + countPositions(feature.geometry),
+            0,
+        );
         if (count > 4000)
             context.addIssue({
                 code: "custom",

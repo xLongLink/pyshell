@@ -23,6 +23,13 @@ Ring = Annotated[ImmutableList[Position], Field(min_length=4, max_length=4000), 
 PolygonCoordinates = Annotated[ImmutableList[Ring], Field(min_length=1, max_length=200)]
 
 
+class Point(UIModel):
+    """Locate a feature using WGS84 longitude and latitude."""
+
+    type: Literal["Point"] = "Point"
+    coordinates: Position
+
+
 class Polygon(UIModel):
     """Describe a polygon using WGS84 longitude/latitude rings."""
 
@@ -35,6 +42,14 @@ class MultiPolygon(UIModel):
 
     type: Literal["MultiPolygon"] = "MultiPolygon"
     coordinates: Annotated[ImmutableList[PolygonCoordinates], Field(min_length=1, max_length=200)]
+
+
+def count_positions(geometry: Point | Polygon | MultiPolygon) -> int:
+    """Count coordinate positions across geographic geometries."""
+    if isinstance(geometry, Point):
+        return 1
+    polygons = (geometry.coordinates,) if isinstance(geometry, Polygon) else geometry.coordinates
+    return sum(len(ring) for polygon in polygons for ring in polygon)
 
 
 class FeatureProperties(UIModel):
@@ -66,11 +81,7 @@ class FeatureCollection(UIModel):
         """Require distinct feature IDs and bounded coordinate complexity."""
         if len({feature.id for feature in self.features}) != len(self.features):
             raise ValueError("GeoJSON feature IDs must be unique")
-        count = 0
-        for feature in self.features:
-            geometry = feature.geometry
-            polygons = (geometry.coordinates,) if isinstance(geometry, Polygon) else geometry.coordinates
-            count += sum(len(ring) for polygon in polygons for ring in polygon)
+        count = sum(count_positions(feature.geometry) for feature in self.features)
         if count > 4000:
             raise ValueError("Inline GeoJSON accepts at most 4,000 positions; simplify the boundaries first")
         return self

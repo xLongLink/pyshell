@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 import { figureProps } from "../lib/a2ui";
+import { geojsonSchema } from "../lib/geojson";
+import { mapTraceSchema } from "../lib/map";
 
 function figure() {
     return {
@@ -84,3 +86,86 @@ test("bounds total positions across features", () => {
     input.data[0].geojson.features.push(second);
     expect(figureProps.safeParse(input).success).toBe(false);
 });
+
+test.each(["Polygon", "MultiPolygon"])(
+    "inline and map schemas validate %s geometry consistently",
+    (type) => {
+        const polygon =
+            figure().data[0].geojson.features[0].geometry.coordinates;
+        const geometry = {
+            type,
+            coordinates: type === "Polygon" ? polygon : [polygon],
+        };
+        for (const candidate of [geometry, { ...geometry, extra: true }]) {
+            const feature = {
+                type: "Feature",
+                id: "CHE",
+                geometry: candidate,
+            };
+            const data = { type: "FeatureCollection", features: [feature] };
+            const valid = !("extra" in candidate);
+            expect(geojsonSchema.safeParse(data).success).toBe(valid);
+            expect(
+                mapTraceSchema.safeParse({
+                    type: "map",
+                    layers: [{ id: "regions", data }],
+                }).success,
+            ).toBe(valid);
+        }
+    },
+);
+
+test.each([4000, 4001])(
+    "polygon budgets count holes and closing positions: %i",
+    (positions) => {
+        const feature = {
+            type: "Feature",
+            id: "CHE",
+            geometry: {
+                type: "MultiPolygon",
+                coordinates: [
+                    [
+                        Array.from({ length: positions - 4 }, () => [7, 46]),
+                        Array.from({ length: 4 }, () => [7, 46]),
+                    ],
+                ],
+            },
+        };
+        const data = { type: "FeatureCollection", features: [feature] };
+        expect(geojsonSchema.safeParse(data).success).toBe(positions === 4000);
+        expect(
+            mapTraceSchema.safeParse({
+                type: "map",
+                layers: [{ id: "regions", data }],
+            }).success,
+        ).toBe(positions === 4000);
+    },
+);
+
+test.each([3999, 4000])(
+    "map position budgets include points across layers: %i polygon positions",
+    (positions) => {
+        const polygon = {
+            type: "Feature",
+            id: "region",
+            geometry: {
+                type: "Polygon",
+                coordinates: [Array.from({ length: positions }, () => [7, 46])],
+            },
+        };
+        const point = {
+            type: "Feature",
+            id: "point",
+            geometry: { type: "Point", coordinates: [7, 46] },
+        };
+        expect(
+            mapTraceSchema.safeParse({
+                type: "map",
+                layers: [polygon, point].map((feature, index) => ({
+                    id: `layer_${index}`,
+                    data: { type: "FeatureCollection", features: [feature] },
+                })),
+            }).success,
+        ).toBe(positions === 3999);
+    },
+);

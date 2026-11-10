@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import TypeAdapter
 from api.ui.state import UIState
 from api.ui.types import Action, Identifier
+from api.ui.plot.map import MapView, MapLayer
 from collections.abc import Sequence
 from api.ui.plot.figure import Trace, Figure
 from api.ui.plot.layout import Layout
@@ -19,7 +20,8 @@ def _encoded_json_size(value: object) -> int:
 class UI:
     """Publish charts from persistent Python using a custom API, not Plotly.
 
-    Use scatter(), area(), bar(), pie(), or choropleth() for a single series.
+    Use scatter(), area(), bar(), pie(), or choropleth() for a single series;
+    use map() for interactive maps with building polygons or point markers.
     Read help(ui.bar), help(ui.choropleth), etc. for arguments and examples.
     Use plot() for multiple series or advanced trace models and layout settings.
     This is not Plotly; only the documented fields are supported.
@@ -194,6 +196,43 @@ class UI:
             surface_id=surface_id,
         )
 
+    def map(
+        self,
+        layers: Sequence[MapLayer | dict[str, object]] = (),
+        *,
+        view: MapView | dict[str, object] | None = None,
+        title: str = "",
+        surface_id: str | None = None,
+    ) -> Figure:
+        """Publish an interactive MapLibre map with geographic data layers.
+
+        Args:
+            layers: Up to eight layers with id, data (GeoJSON FeatureCollection),
+                optional name, color (#RRGGBB), and popup_fields (property names).
+                Features require unique string IDs, WGS84 Point/Polygon/
+                MultiPolygon geometry, and at most 12 scalar properties. Pass only
+                properties intended for browser display. Across all layers, at
+                most 200 features and 4,000 positions may be sent. Empty data is
+                valid; filter real workspace data in Python before publishing.
+            view: Exactly one of {"country": "CHE"}, {"bounds": [[west, south],
+                [east, north]]}, or {"center": [longitude, latitude], "zoom": 12}.
+                Omit for a world view. Country bounds and OpenStreetMap basemap
+                tiles require internet access. Place search and renovation data
+                are not supplied by the map.
+            title: Map title.
+            surface_id: Replace this named surface, or create a new one if omitted.
+
+        Returns:
+            A figure handle. Use chart.set_view(country="CHE") for navigation,
+            chart.update(data=[{"type": "map", "layers": [...]}]) to replace data
+            without moving the camera, and focus(), pin(), or remove() as usual.
+
+        Example:
+            chart = ui.map(view={"country": "CHE"}, title="Switzerland")
+
+        """
+        return self.plot([{"type": "map", "layers": list(layers), "view": view}], layout={"title": {"text": title}}, surface_id=surface_id)
+
     def plot(
         self,
         data: Sequence[Trace | dict[str, object]] | None = None,
@@ -205,14 +244,14 @@ class UI:
         """Publish trace data with ui.plot(data=[...], layout={...}) and return a Figure handle.
 
         The data argument accepts a list of trace dictionaries or trace models,
-        not a Figure instance. Supported types: scatter, area, bar, pie, choropleth.
+        not a Figure instance. Supported types: scatter, area, bar, pie, choropleth, map.
         Prefer bar(), scatter(), area(), pie(), or choropleth() for single series.
         This is not Plotly. Trace models provide model_json_schema() for advanced
         field inspection. Layout supports only title, xaxis, and showlegend:
         {"title": {"text": "Counts"}, "xaxis": {"title": {"text": "Year"}},
          "showlegend": True}.
 
-        Maps require exactly one choropleth trace with locations and values
+        Statistical maps require exactly one choropleth trace with locations and values
         (not z). Prefer built-in geography="world" for countries or a country
         code such as "FRA" for its administrative regions. Use geography_info()
         to discover supported locations. Missing values are None.
@@ -297,7 +336,9 @@ class UI:
         self._active(widget)
         if {"id", "component"} & attributes.keys():
             raise ValueError("Widget identity and type cannot be changed by update()")
-        candidate = Figure.model_validate({**widget.model_dump(mode="json", exclude=set(attributes)), **attributes})
+        candidate = Figure.model_validate(
+            {"id": widget.id, "component": widget.component, "data": list(widget.data), "layout": widget.layout, **attributes}
+        )
         self._publish([self._content(widget.surface_id, candidate)])
 
         # Commit validated attributes only after the update has been published.

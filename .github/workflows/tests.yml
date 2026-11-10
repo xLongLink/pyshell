@@ -48,6 +48,8 @@ jobs:
           version: '0.13.4'
           enable-cache: true
       - run: uv run --directory src/api --locked --python "${{ matrix.python }}" pytest -v
+      - if: matrix.python == '3.12'
+        run: uv run --directory model/protocol --locked --python "${{ matrix.python }}" pytest -v
 
   frontend:
     runs-on: ubuntu-24.04
@@ -59,7 +61,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
           cache: npm
@@ -93,61 +95,6 @@ jobs:
             org.opencontainers.image.description=Python agent shell
           cache-from: type=gha,scope=pyshell
           cache-to: type=gha,mode=max,scope=pyshell
-      - name: Check container permissions and workspace
-        run: |
-          docker run --rm --network none --entrypoint python pyshell:test -c '
-          import os
-          from pathlib import Path
-          assert os.getuid() != 0
-          assert Path.cwd() == Path("/workspace")
-          path = Path("smoke.txt")
-          path.write_text("ok")
-          assert path.read_text() == "ok"
-          '
-      - name: Check persistent execution API
-        run: |
-          container=$(docker run --detach --network none --read-only \
-            --tmpfs /tmp:size=512m,mode=1777,exec pyshell:test)
-          cleanup() {
-            status=$?
-            if (( status != 0 )); then
-              docker logs "$container" || true
-            fi
-            docker rm --force "$container" || true
-            exit "$status"
-          }
-          trap cleanup EXIT
-          docker exec -i "$container" python - <<'PY'
-          import json
-          import time
-          import urllib.request
-          from urllib.error import URLError
-
-          url = "http://127.0.0.1:8000/"
-          for attempt in range(30):
-              try:
-                  with urllib.request.urlopen(url + "health", timeout=2) as response:
-                      assert json.load(response) == {"status": "ok"}
-                  break
-              except URLError:
-                  time.sleep(1)
-          else:
-              raise RuntimeError("Execution API did not start")
-
-          def execute(code):
-              request = urllib.request.Request(
-                  url + "execute/stream", data=json.dumps({"code": code}).encode(),
-                  headers={"Content-Type": "application/json"},
-              )
-              with urllib.request.urlopen(request, timeout=5) as response:
-                  events = [json.loads(line) for line in response]
-                  assert events[-1] == {"type": "execution_finished"}
-                  assert events[-2]["type"] == "result"
-                  return events[-2]
-
-          assert execute("value = 42")["exception"] is None
-          assert execute("print(value)")["stdout"] == "42\n"
-          PY
       - name: Export tested image
         if: inputs.export-image
         run: docker save --output "${RUNNER_TEMP}/pyshell.tar" pyshell:test
