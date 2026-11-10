@@ -22,11 +22,31 @@ class TestWorker:
             worker.main()
             assert sys.stdout is protocol
             assert sys.stderr is errors
+            assert sys.stdin is incoming
 
         assert errors.getvalue() == ""
         lines = protocol.getvalue().splitlines()
         assert len(lines) == len(requests)
         return [json.loads(line) for line in lines]
+
+    @pytest.mark.parametrize("source", ["exit(1)", "quit(1)", "import sys; sys.stdin.close()", "input()"])
+    def test_generated_code_cannot_close_or_consume_protocol_input(self, source):
+        results = self.run_worker(
+            [
+                {"action": "reset", "source": "value = 42"},
+                {"action": "execute", "source": source},
+                {"action": "execute", "source": "print(value)"},
+                {"action": "reset", "source": "print('new task')"},
+            ]
+        )
+        if source in ("exit(1)", "quit(1)"):
+            assert "SystemExit" in results[1]["exception"]
+            assert results[1]["done"] is None
+        elif source == "input()":
+            assert "EOFError" in results[1]["exception"]
+        assert results[2]["stdout"] == "42\n"
+        assert results[2]["exception"] is None
+        assert results[3]["stdout"] == "new task\n"
 
     @pytest.mark.parametrize("requests", [[], [{"action": "reset", "source": "pass"}]])
     def test_previous_signal_handler_is_restored_on_eof(self, requests):

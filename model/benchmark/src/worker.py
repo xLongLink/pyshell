@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import json
@@ -21,6 +22,7 @@ def main() -> None:
     from api.shell import PythonShell
 
     protocol = sys.stdout
+    incoming = sys.stdin
     shell = None
     handler = signal.signal(signal.SIGALRM, deadline)
 
@@ -36,11 +38,15 @@ def main() -> None:
                     if request["action"] not in ("reset", "execute"):
                         raise ValueError("Unsupported worker action")
                     signal.alarm(10)
-                    with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-                        if request["action"] == "reset":
-                            shell = PythonShell()
-                            shell.namespace.update(np=np, pd=pd, statistics=statistics, json=json)
-                        result = shell.execute(request["source"])
+                    with io.StringIO() as stdin, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+                        sys.stdin = stdin
+                        try:
+                            if request["action"] == "reset":
+                                shell = PythonShell()
+                                shell.namespace.update(np=np, pd=pd, statistics=statistics, json=json)
+                            result = shell.execute(request["source"])
+                        finally:
+                            sys.stdin = incoming
                     signal.alarm(0)
                     publish(result)
                 except BaseException as error:
