@@ -70,7 +70,7 @@ jobs:
         run: uv run --project model/benchmark --locked --python 3.12 python model/ci.py baseline --directory "$RUN_DIR" $BOOTSTRAP
       - name: Test and train candidate
         run: |
-          uv run --project model/train --locked --extra cuda --python 3.12 pytest model/train/tests
+          uv run --project model/train --locked --extra cpu --python 3.12 pytest model/train/tests
           uv run --project model/train --locked --extra cuda --python 3.12 python model/ci.py train --directory "$RUN_DIR"
       - name: Test current benchmark
         env:
