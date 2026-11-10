@@ -24,7 +24,7 @@ class Settings(BaseModel):
     # Run
     cpu: bool = True
     seed: int = Field(default=713, ge=0)
-    steps: int = Field(default=125, gt=0)
+    steps: int = Field(default=1250, gt=0)
     output: Path = ROOT / "artifacts/candidate"
 
     # Training
