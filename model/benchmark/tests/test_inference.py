@@ -19,6 +19,7 @@ class TestInference:
         self.tokenizer = MagicMock()
         self.tokenizer.return_value = BatchEncoding({"input_ids": torch.tensor([[1, 2]])})
         self.model = MagicMock(device=torch.device("cpu"))
+        self.model.generation_config.eos_token_id = 99
         self.model.generate.return_value = torch.tensor([[1, 2, 3, 4]])
         self.model.to.return_value = self.model
 
@@ -52,7 +53,7 @@ class TestInference:
     def test_configured_generation_budget_is_used(self):
         completion = self.completion(max_new_tokens=77)
         self.tokenizer.decode.return_value = "result = 1" + END_CODE
-        completion("prompt")
+        completion(["prompt"])
         assert self.model.generate.call_args.kwargs["max_new_tokens"] == 77
 
     @pytest.mark.parametrize("device", ["cpu", "cuda"])
@@ -66,7 +67,7 @@ class TestInference:
         completion = self.completion()
         self.tokenizer.decode.return_value = "result = 1\n" + END_CODE
         for _ in range(2):
-            assert completion("prompt") == ("result = 1\n", True)
+            assert completion(["prompt"]) == [("result = 1\n", True)]
             options = self.model.generate.call_args.kwargs
             assert options["stopping_criteria"] is completion.stopping_criteria
             assert options["stop_strings"] is None
@@ -76,7 +77,16 @@ class TestInference:
     def test_decoded_completion_is_parsed(self):
         completion = self.completion()
         self.tokenizer.decode.return_value = "code" + TASK + END_CODE
-        assert completion("prompt") == ("code", False)
+        assert completion(["prompt"]) == [("code", False)]
+
+    def test_batch_decoding_removes_padding_after_each_rows_eos(self):
+        completion = self.completion()
+        self.model.generation_config.eos_token_id = [98, 99]
+        self.model.generate.return_value = torch.tensor([[1, 2, 3, 99, 99], [1, 2, 4, 5, 98]])
+        self.tokenizer.decode.side_effect = ["result = 1" + END_CODE, "result = 2" + END_CODE]
+        assert completion(["short", "long"]) == [("result = 1", True), ("result = 2", True)]
+        assert [call.args[0] for call in self.tokenizer.decode.call_args_list] == [[3, 99], [4, 5, 98]]
+        assert self.tokenizer.padding_side == "left"
 
 
 @pytest.mark.parametrize("failure", [False, True])

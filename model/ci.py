@@ -101,6 +101,7 @@ def evaluate(directory: Path, adapter: str, output: str) -> None:
         {
             **settings.SETTINGS.model_dump(),
             "device": "cuda",
+            "batch_size": 4,
             "adapter": directory / adapter,
             "output": directory / output,
         }

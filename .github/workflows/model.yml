@@ -81,12 +81,33 @@ jobs:
         env:
           PYTHONPATH: src/api/src
         run: uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 pytest model/benchmark/tests
+      - name: Fingerprint accepted-model evaluation
+        id: baseline-key
+        if: env.BOOTSTRAP == ''
+        run: uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 python -m model.cache key --directory "$RUN_DIR"
+      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        id: baseline-cache
+        if: env.BOOTSTRAP == ''
+        with:
+          path: .baseline-cache
+          key: ${{ steps.baseline-key.outputs.key }}
+      - name: Restore accepted-model evaluation
+        if: env.BOOTSTRAP == '' && steps.baseline-cache.outputs.cache-hit == 'true'
+        run: uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 python -m model.cache restore --directory "$RUN_DIR"
       - name: Evaluate accepted model with current benchmark
-        if: github.event_name != 'workflow_dispatch' || !inputs.bootstrap
+        if: env.BOOTSTRAP == '' && steps.baseline-cache.outputs.cache-hit != 'true'
         run: >-
           uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12
           python model/ci.py evaluate --directory "$RUN_DIR"
           --adapter baseline --output baseline.jsonl
+      - name: Store accepted-model evaluation
+        if: github.ref == 'refs/heads/main' && env.BOOTSTRAP == '' && steps.baseline-cache.outputs.cache-hit != 'true'
+        run: uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 python -m model.cache store --directory "$RUN_DIR"
+      - uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        if: github.ref == 'refs/heads/main' && env.BOOTSTRAP == '' && steps.baseline-cache.outputs.cache-hit != 'true'
+        with:
+          path: .baseline-cache
+          key: ${{ steps.baseline-key.outputs.key }}
       - name: Evaluate candidate with current benchmark
         run: >-
           uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12

@@ -21,7 +21,13 @@ def benchmark(tmp_path, monkeypatch):
     rows = [
         {**record, "status": status, "steps": []} for record, status in zip(records, ("passed", "incorrect", "call_limit"), strict=True)
     ]
-    monkeypatch.setattr(evaluate, "trial", Mock(side_effect=rows))
+
+    def task(worker, record, calls):
+        yield record["id"]
+        return rows[int(record["id"])]
+
+    monkeypatch.setattr(evaluate, "trial", task)
+    model.return_value.side_effect = lambda prompts: [("code", True)] * len(prompts)
     return config, model, worker, rows
 
 
@@ -53,12 +59,37 @@ def test_empty_tasks_are_rejected_before_loading_model(benchmark):
 
 
 def test_failure_preserves_completed_rows_and_closes_worker(benchmark, monkeypatch):
-    config, _, worker, rows = benchmark
-    monkeypatch.setattr(evaluate, "trial", Mock(side_effect=[rows[0], RuntimeError("generation failed")]))
+    config, model, worker, rows = benchmark
+    model.return_value.side_effect = [[("code", True)], RuntimeError("generation failed")]
     with pytest.raises(RuntimeError, match="generation failed"):
         evaluate.run(config)
     assert [json.loads(line) for line in config.output.read_text().splitlines()] == rows[:1]
     worker.return_value.close.assert_called_once_with()
+
+
+def test_batch_uses_separate_workers_and_closes_all_on_failure(benchmark):
+    config, model, worker, _ = benchmark
+    config = config.model_copy(update={"batch_size": 4})
+    workers = [Mock() for _ in range(3)]
+    worker.side_effect = workers
+    model.return_value.side_effect = RuntimeError("generation failed")
+    with pytest.raises(RuntimeError, match="generation failed"):
+        evaluate.run(config)
+    assert model.return_value.call_args.args == (["0", "1", "2"],)
+    for instance in workers:
+        instance.close.assert_called_once_with()
+
+
+def test_batch_evaluates_tail_smaller_than_batch_size(benchmark):
+    config, model, worker, rows = benchmark
+    config = config.model_copy(update={"batch_size": 2})
+    workers = [Mock(), Mock()]
+    worker.side_effect = workers
+    evaluate.run(config)
+    assert [json.loads(line) for line in config.output.read_text().splitlines()] == rows
+    assert [call.args[0] for call in model.return_value.call_args_list] == [["0", "1"], ["2"]]
+    for instance in workers:
+        instance.close.assert_called_once_with()
 
 
 def test_missing_local_benchmark_is_rejected_before_loading_model(benchmark):

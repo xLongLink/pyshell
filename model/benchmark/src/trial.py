@@ -1,10 +1,10 @@
 from typing import Any
-from collections.abc import Callable
+from collections.abc import Generator
 from pyshell.serialization import Prompt
 from model.benchmark.src.execution import Worker
 
 
-def trial(worker: Worker, record: dict[str, Any], generate: Callable[[str], tuple[str, bool]], calls: int) -> dict[str, Any]:
+def trial(worker: Worker, record: dict[str, Any], calls: int) -> Generator[str, tuple[str, bool], dict[str, Any]]:
     """Execute and grade one task within its model-call budget."""
     setup = worker.execute(record["setup"], "reset")
     if setup["exception"]:
@@ -19,7 +19,7 @@ def trial(worker: Worker, record: dict[str, Any], generate: Callable[[str], tupl
             worker.execute("saved_result = result")
         prompt.append({"role": "user", "content": stage["instruction"]})
         for _ in range(calls):
-            source, ended = generate(prompt.render())
+            source, ended = yield prompt.render()
             step = {"source": source}
             row["steps"].append(step)
             if not ended or not source.strip():
