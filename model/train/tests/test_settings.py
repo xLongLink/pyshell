@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,38 @@ def test_candidate_output_is_separate_from_published_weights():
     assert (
         SETTINGS.output == Path(__file__).resolve().parents[1] / "artifacts/candidate"
     )
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "self_attn.q_proj",
+        "self_attn.v_proj",
+        "self_attn.o_proj",
+        "linear_attn.in_proj_qkv",
+        "linear_attn.out_proj",
+        "mlp.gate_proj",
+        "mlp.up_proj",
+        "mlp.down_proj",
+    ],
+)
+def test_lora_targets_attention_and_feed_forward_projections(module):
+    assert re.fullmatch(
+        SETTINGS.target_modules, f"model.language_model.layers.0.{module}"
+    )
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "model.visual.blocks.0.mlp.up_proj",
+        "model.language_model.layers.0.self_attn.k_proj",
+        "model.language_model.layers.0.input_layernorm",
+        "lm_head",
+    ],
+)
+def test_lora_excludes_other_modules(module):
+    assert re.fullmatch(SETTINGS.target_modules, module) is None
 
 
 def test_default_data_is_repository_local(monkeypatch, tmp_path):

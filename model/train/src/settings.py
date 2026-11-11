@@ -35,7 +35,7 @@ class Settings(BaseModel):
     rank: int = Field(default=8, gt=0)
     alpha: int = Field(default=16, gt=0)
     target_modules: str = Field(
-        default=r".*language_model\.layers\.\d+\.(?:self_attn\.(?:q_proj|v_proj|o_proj)|linear_attn\.(?:in_proj_qkv|out_proj))",
+        default=r".*language_model\.layers\.\d+\.(?:self_attn\.(?:q_proj|v_proj|o_proj)|linear_attn\.(?:in_proj_qkv|out_proj)|mlp\.(?:gate_proj|up_proj|down_proj))",
         min_length=1,
     )
 
