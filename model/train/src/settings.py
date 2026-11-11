@@ -21,14 +21,14 @@ class Settings(BaseModel):
     # Run
     cpu: bool = True
     seed: int = Field(default=713, ge=0)
-    steps: int = Field(default=125, gt=0)
+    steps: int = Field(default=1250, gt=0)
     output: Path = ROOT / "artifacts/candidate"
 
     # Training
     dtype: Literal["float32", "bfloat16"] = "float32"
     batch_size: int = Field(default=1, gt=0)
     max_length: int = Field(default=2048, gt=0)
-    learning_rate: float = Field(default=2e-4, gt=0)
+    learning_rate: float = Field(default=5e-5, gt=0)
     gradient_accumulation_steps: int = Field(default=4, gt=0)
 
     # LoRA
