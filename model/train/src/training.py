@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import datasets
@@ -41,12 +42,11 @@ def train(config: settings.Settings):
         seed=config.seed,
         bf16=config.dtype == "bfloat16",
         use_cpu=config.cpu,
-        max_steps=config.steps,
+        num_train_epochs=config.epochs,
         data_seed=config.seed,
         max_length=config.max_length,
         save_strategy="no",
-        eval_steps=config.steps,
-        eval_strategy="steps" if "validation" in dataset else "no",
+        eval_strategy="epoch" if "validation" in dataset else "no",
         eval_on_start="validation" in dataset,
         logging_steps=1,
         learning_rate=config.learning_rate,
@@ -70,6 +70,15 @@ def train(config: settings.Settings):
         train_dataset=dataset["train"],
         eval_dataset=dataset.get("validation"),
         peft_config=lora,
+    )
+    batch_size = trainer.args.train_batch_size * trainer.args.world_size
+    effective_batch_size = batch_size * config.gradient_accumulation_steps
+    batches = math.ceil(len(dataset["train"]) / batch_size)
+    steps = math.ceil(batches / config.gradient_accumulation_steps) * config.epochs
+    print(
+        f"Training: {len(dataset['train'])} rows, {config.epochs} epoch(s), "
+        f"effective batch size {effective_batch_size}, {steps} optimizer steps",
+        flush=True,
     )
     trainer.train()
     trainer.save_model()

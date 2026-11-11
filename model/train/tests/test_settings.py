@@ -9,7 +9,7 @@ from model.train.src.settings import SETTINGS, Settings
 @pytest.mark.parametrize(
     "field",
     [
-        "steps",
+        "epochs",
         "rank",
         "alpha",
         "max_length",

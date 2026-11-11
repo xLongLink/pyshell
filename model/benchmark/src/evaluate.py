@@ -15,6 +15,8 @@ def run(config: Settings) -> None:
     records = [json.loads(line) for line in path.read_text().splitlines()]
     if not records:
         raise ValueError("Evaluation tasks must not be empty")
+    if len({record["id"] for record in records}) != len(records):
+        raise ValueError("Evaluation tasks must have unique IDs")
     from model.benchmark.src.inference import HFCompletion
 
     generate = HFCompletion(config)
@@ -29,7 +31,7 @@ def run(config: Settings) -> None:
         for worker in workers:
             task = trial(worker, next(remaining), config.calls)
             active.append((worker, task, next(task)))
-        completed = 0
+        rows = []
         while active:
             completions = generate([prompt for _, _, prompt in active])
             pending = []
@@ -40,8 +42,8 @@ def run(config: Settings) -> None:
                     row = result.value
                     file.write(json.dumps(row) + "\n")
                     file.flush()
-                    completed += 1
-                    print(f"{completed}/{len(records)}: {row['id']} {row['status']}", flush=True)
+                    rows.append(row)
+                    print(f"{len(rows)}/{len(records)}: {row['id']} {row['status']}", flush=True)
                     record = next(remaining, None)
                     if record is None:
                         continue
@@ -49,5 +51,4 @@ def run(config: Settings) -> None:
                     prompt = next(task)
                 pending.append((worker, task, prompt))
             active = pending
-    rows = [json.loads(line) for line in config.output.read_text().splitlines()]
-    print(scoring.summary(scoring.score(rows)), flush=True)
+        print(scoring.summary(scoring.score(rows)), flush=True)

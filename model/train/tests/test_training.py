@@ -63,14 +63,46 @@ def test_missing_local_training_data_is_rejected(training_run, tmp_path):
         training_run("missing", data=str(tmp_path / "missing"))
 
 
+@pytest.mark.parametrize(
+    ("batch_size", "accumulation", "steps"), [(1, 2, 2), (3, 1, 2), (3, 3, 1)]
+)
+def test_one_epoch_uses_every_row_including_partial_batches(
+    training_run, tmp_path, monkeypatch, capsys, batch_size, accumulation, steps
+):
+    seen = []
+    training_step = training.SFTTrainer.training_step
+
+    def observe(trainer, model, inputs, *args, **kwargs):
+        for tokens, mask in zip(
+            inputs["input_ids"], inputs["attention_mask"], strict=True
+        ):
+            seen.append(tuple(tokens[mask.bool()].tolist()))
+        return training_step(trainer, model, inputs, *args, **kwargs)
+
+    monkeypatch.setattr(training.SFTTrainer, "training_step", observe)
+    output = training_run(
+        "full-epoch", batch_size=batch_size, gradient_accumulation_steps=accumulation
+    )
+    state = json.loads((output / "trainer_state.json").read_text())
+    assert len(seen) == len(set(seen)) == 4
+    assert state["global_step"] == steps
+    assert state["epoch"] == 1
+    assert sum("eval_loss" in row for row in state["log_history"]) == 2
+    assert (
+        f"Training: 4 rows, 1 epoch(s), effective batch size {batch_size * accumulation}, {steps} optimizer steps"
+        in capsys.readouterr().out
+    )
+
+
 def test_training_ignores_foreign_files_and_saves_a_reloadable_adapter(
     training_run, tmp_path
 ):
     (tmp_path / "data/test-tasks.jsonl").write_text("not a training dataset")
     (tmp_path / "data/train-tasks.jsonl").write_text("not a training dataset")
-    output = training_run("candidate", steps=3, learning_rate=0.002, rank=4, alpha=8)
+    output = training_run("candidate", epochs=2, learning_rate=0.002, rank=4, alpha=8)
     state = json.loads((output / "trainer_state.json").read_text())
-    assert state["global_step"] == 3
+    assert state["global_step"] == 4
+    assert state["epoch"] == 2
     adapter = json.loads((output / "adapter_config.json").read_text())
     assert adapter["r"] == 4
     assert adapter["lora_alpha"] == 8

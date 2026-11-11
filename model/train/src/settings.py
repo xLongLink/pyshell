@@ -12,16 +12,16 @@ class Settings(BaseModel):
     )
 
     # Model and dataset
-    base: str = Field(default="Qwen/Qwen3.5-0.8B", min_length=1)
+    base: str = Field(default="Qwen/Qwen3.5-9B", min_length=1)
     data: str = Field(default=str(ROOT / "data"), min_length=1)
     base_revision: str | None = Field(
-        default="2fc06364715b967f1860aea9cf38778875588b17", pattern=r"^[0-9a-f]{40}$"
+        default="c202236235762e1c871ad0ccb60c8ee5ba337b9a", pattern=r"^[0-9a-f]{40}$"
     )
 
     # Run
     cpu: bool = True
     seed: int = Field(default=713, ge=0)
-    steps: int = Field(default=125, gt=0)
+    epochs: int = Field(default=1, gt=0)
     output: Path = ROOT / "artifacts/candidate"
 
     # Training
