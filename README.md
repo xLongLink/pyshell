@@ -40,11 +40,14 @@ https://github.com/user-attachments/assets/3b46a5d7-b39b-40f7-8575-fd3f6f0c1d7a
 
 <!-- model-stats:start -->
 
-Accepted adapter: [LongLink/pyshell-worker](https://huggingface.co/LongLink/pyshell-worker/tree/4064ca4a5ebab1c97dd166133a74be4231771973).
+Accepted adapter: [LongLink/pyshell-worker](https://huggingface.co/LongLink/pyshell-worker/tree/7e0bf8294af2bc583d3a251936aeb6a25e98e0e3).
 Base model: `Qwen/Qwen3.5-0.8B`.
 
-**Task success: 15.00% (9/60 tasks).**
-**Valid Python: 99.08% (215/217 responses).**
+**Task success: 25.00% (15/60 tasks).**
+**Valid Python: 98.54% (203/206 responses).**
+
+Evaluation date (UTC): 2026-11-11T10:32:48.925056+00:00.
+[Evaluation workflow](https://github.com/xLongLink/pyshell/actions/runs/43003975073).
 
 <!-- model-stats:end -->
 
