@@ -23,7 +23,7 @@ class HFCompletion:
         self.tokenizer.padding_side = "left"
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.model = AutoModelForImageTextToText.from_pretrained(base, revision=revision, dtype=torch.float32, attn_implementation="sdpa")
+        self.model = AutoModelForImageTextToText.from_pretrained(base, revision=revision, dtype=torch.bfloat16, attn_implementation="sdpa")
         self.model = PeftModel.from_pretrained(self.model, config.adapter)
         self.model.to(config.device).eval()
         self.max_new_tokens = config.tokens

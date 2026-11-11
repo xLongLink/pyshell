@@ -2,6 +2,7 @@ import os
 import json
 import time
 import uuid
+import logging
 import selectors
 import contextlib
 import subprocess  # noqa: S404
@@ -22,7 +23,6 @@ class Worker:
             [  # noqa: S607
                 "docker",
                 "run",
-                "--rm",
                 "-i",
                 "--name",
                 self.name,
@@ -117,13 +117,18 @@ class Worker:
                     if self.selector is not None:
                         self.selector.close()
                 finally:
-                    subprocess.run(  # noqa: S603
+                    result = subprocess.run(  # noqa: S603
                         ["docker", "rm", "--force", self.name],  # noqa: S607
                         stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
+                        stderr=subprocess.PIPE,
+                        text=True,
                         check=False,
                         timeout=15,
                     )
+                    if result.returncode:
+                        logging.getLogger(__name__).error(
+                            "Failed to remove container %s (exit %s): %s", self.name, result.returncode, result.stderr.strip()
+                        )
         finally:
             try:
                 self.process.wait(timeout=15)

@@ -47,7 +47,7 @@ class TestInference:
         self.completion(revision=revision)
         self.threads.assert_called_once_with(3)
         self.load_tokenizer.assert_called_once_with("fixture-base", revision=revision)
-        self.load_model.assert_called_once_with("fixture-base", revision=revision, dtype=torch.float32, attn_implementation="sdpa")
+        self.load_model.assert_called_once_with("fixture-base", revision=revision, dtype=torch.bfloat16, attn_implementation="sdpa")
         self.load_adapter.assert_called_once_with(self.model, self.adapter)
 
     def test_configured_generation_budget_is_used(self):

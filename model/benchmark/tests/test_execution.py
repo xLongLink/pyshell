@@ -1,6 +1,7 @@
 import sys
 import pytest
 import subprocess
+from contextlib import closing
 from unittest.mock import patch
 from model.benchmark.src import execution
 
@@ -26,7 +27,7 @@ def test_worker_launches_directly_with_the_same_container_isolation():
     ):
         assert command[command.index(flag) + 1] == value
     assert "--read-only" in command
-    assert "--rm" in command
+    assert "--rm" not in command
     volumes = [command[index + 1] for index, value in enumerate(command) if value == "--volume"]
     assert volumes == [f"{execution.ROOT / 'src/worker.py'}:/model/benchmark/src/worker.py:ro"]
     assert command[command.index("--entrypoint") + 2] == "pyshell-pyshell:latest"
@@ -35,6 +36,31 @@ def test_worker_launches_directly_with_the_same_container_isolation():
     with patch("model.benchmark.src.worker.main") as main:
         exec(command[-1])
     main.assert_called_once_with()
+
+
+@pytest.mark.parametrize("execution_failure", [False, True])
+def test_removal_failure_is_reported_without_masking_execution_error(caplog, execution_failure):
+    with (
+        patch.object(execution.subprocess, "Popen") as launch,
+        patch.object(execution.selectors, "DefaultSelector"),
+        patch.object(execution.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stderr="daemon unavailable")),
+        patch.object(execution.os, "set_blocking"),
+    ):
+        worker = execution.Worker()
+        error = RuntimeError("execution failed")
+        if execution_failure:
+            with pytest.raises(RuntimeError) as raised, closing(worker):
+                raise error
+            assert raised.value is error
+        else:
+            worker.close()
+
+    assert worker.name in caplog.text
+    assert "exit 1" in caplog.text
+    assert "daemon unavailable" in caplog.text
+    launch.return_value.wait.assert_called_once_with(timeout=15)
+    for stream in (launch.return_value.stdin, launch.return_value.stdout, launch.return_value.stderr):
+        stream.close.assert_called_once_with()
 
 
 @pytest.mark.parametrize(

@@ -61,6 +61,32 @@ def test_empty_tasks_are_rejected_before_loading_model(benchmark):
     assert not config.output.exists()
 
 
+def test_duplicate_tasks_are_rejected_before_loading_model(benchmark):
+    config, model, worker, rows = benchmark
+    path = config.output.parent / "dev-tasks.jsonl"
+    path.write_text("".join(json.dumps(rows[0]) + "\n" for _ in range(2)))
+    with pytest.raises(ValueError, match="unique IDs"):
+        evaluate.run(config)
+    model.assert_not_called()
+    worker.assert_not_called()
+    assert not config.output.exists()
+
+
+def test_cleanup_failure_preserves_results_and_prints_summary_first(benchmark, capsys):
+    config, _, worker, rows = benchmark
+
+    def close():
+        output = capsys.readouterr().out
+        assert "Task success: 33.33% (1/3 tasks)" in output
+        assert "Valid Python: 100.00% (3/3 responses)" in output
+        raise TimeoutError("cleanup failed")
+
+    worker.return_value.close.side_effect = close
+    with pytest.raises(TimeoutError, match="cleanup failed"):
+        evaluate.run(config)
+    assert [json.loads(line) for line in config.output.read_text().splitlines()] == rows
+
+
 def test_failure_preserves_completed_rows_and_closes_worker(benchmark, monkeypatch):
     config, model, worker, rows = benchmark
     model.return_value.side_effect = [[("code", True)], RuntimeError("generation failed")]
