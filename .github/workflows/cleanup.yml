@@ -43,7 +43,7 @@ jobs:
 
             - name: Check for an existing cleanup PR
               id: pending
-              uses: actions/github-script@v8
+              uses: actions/github-script@v9
               with:
                   script: |
                       const { data: pulls } = await github.rest.pulls.list({
