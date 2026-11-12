@@ -103,7 +103,7 @@ jobs:
       - name: Store accepted-model evaluation
         if: github.ref == 'refs/heads/main' && env.BOOTSTRAP == '' && steps.baseline-cache.outputs.cache-hit != 'true'
         run: uv run --project model/benchmark --locked --extra cuda --extra data --python 3.12 python -m model.cache store --directory "$RUN_DIR"
-      - uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.ref == 'refs/heads/main' && env.BOOTSTRAP == '' && steps.baseline-cache.outputs.cache-hit != 'true'
         with:
           path: .baseline-cache
